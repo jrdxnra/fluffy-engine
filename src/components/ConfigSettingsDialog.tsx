@@ -543,6 +543,7 @@ export function ConfigSettingsDialog({
                     <Card>
                       <CardHeader>
                         <CardTitle className="text-base">Accessories</CardTitle>
+                        <p className="text-xs text-muted-foreground">Use format: "2X10 Exercise Name"</p>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         {Lifts.map((lift) => (
@@ -880,6 +881,36 @@ export function ConfigSettingsDialog({
                   The app supports duplicate/delete week operations to repeat a week when needed, while preserving the
                   sequence and pushing following weeks forward/back cleanly.
                 </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Recent Feature Updates</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>
+                    <span className="font-medium text-foreground">Per-week session modes:</span> Each week can now run
+                    its own mode (<span className="font-mono">Normal</span>, <span className="font-mono">Slide</span>, <span className="font-mono">Jack Shit</span>, <span className="font-mono">Pause Week</span>, <span className="font-mono">Recovery</span>) with legacy fallback support.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Slide catch-up flow:</span> Slide now uses a
+                    <span className="font-mono"> Use From</span> source week for catch-up logic, and only shows valid prior-week options.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Logged actuals in copy output:</span> Day/Lift copy now includes actual logged weight/reps so coach exports match performed work.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Stable prescribed display:</span> Entering actuals no longer mutates prescribed/top-set programming in the table.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Reliable rep logging persistence:</span> Save now writes historical records and week snapshots with improved error surfacing and reload consistency.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Cycle-safe data isolation:</span> Week assignments, mode maps, and logged sets remain scoped by cycle number, including after team graduation.
+                  </li>
+                </ul>
               </CardContent>
             </Card>
 

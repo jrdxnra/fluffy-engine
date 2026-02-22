@@ -3,6 +3,9 @@ import { SbdohControl } from "@/components/SbdohControl";
 import { getAppSettings, getClients, getHistoricalData } from "@/lib/data";
 import { Weight } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 async function ControlContent() {
   const clients = await getClients();
   const { cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle } = await getAppSettings();

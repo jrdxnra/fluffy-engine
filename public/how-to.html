@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Power Lift App Operations Walkthrough</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #131a2e;
+      --panel-2: #1a2340;
+      --text: #eaf0ff;
+      --muted: #a9b5d6;
+      --accent: #6ea8ff;
+      --ok: #5fd19b;
+      --warn: #ffd166;
+      --border: #2b3968;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: linear-gradient(180deg, #0a0f1e, #111a33 50%, #0f1730);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 18px 64px; }
+    .hero {
+      background: rgba(19, 26, 46, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px;
+      margin-bottom: 20px;
+    }
+    h1, h2, h3 { margin: 0 0 8px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 22px; margin-top: 26px; }
+    h3 { font-size: 17px; margin-top: 18px; }
+    p, li { color: var(--muted); }
+    code {
+      background: #0f1730;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1px 6px;
+      color: #dce7ff;
+    }
+    .grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .pill {
+      display: inline-block;
+      background: #102247;
+      border: 1px solid #365eaa;
+      color: #cfe0ff;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 12px;
+      margin: 3px 6px 0 0;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .step {
+      position: relative;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      min-height: 86px;
+    }
+    .step .n {
+      display: inline-flex;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      align-items: center;
+      justify-content: center;
+      background: #20407a;
+      color: #fff;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .kpi {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .kpi .box {
+      background: #101a35;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      background: #101a35;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    th { color: #dbe8ff; background: #0f1730; }
+    .ok { color: var(--ok); font-weight: 600; }
+    .warn { color: var(--warn); font-weight: 600; }
+    .note {
+      border-left: 4px solid var(--accent);
+      background: #101a35;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-top: 10px;
+    }
+    .checklist li { margin-bottom: 6px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .subtle { color: #89a6e0; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>Power Lift — App Operations Walkthrough</h1>
+      <p>
+        This guide explains how the app works end-to-end: setup, daily use, data flow, and week/cycle operations.
+        It is meant for coaches and operators who need a practical "how to run this" reference.
+      </p>
+      <div>
+        <span class="pill">Day View First</span>
+        <span class="pill">5/3/1 + SBDOH</span>
+        <span class="pill">Cycle/Week Aware</span>
+        <span class="pill">Persistent Set Logs</span>
+      </div>
+    </section>
+
+    <h2>1) Mental Model (Quick)</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Program Structure</h3>
+        <p>Cycle → Weeks → Lifts/Days → Sets.</p>
+        <p>Each client has training maxes by cycle, optional week overrides, and logged set snapshots by week/lift.</p>
+      </div>
+      <div class="card">
+        <h3>Primary Views</h3>
+        <p><strong>Day View</strong> is the main workflow (e.g., <code>DL + B (Tues)</code>).</p>
+        <p><strong>Lift View</strong> is secondary (single movement deep focus).</p>
+      </div>
+      <div class="card">
+        <h3>Math Rules</h3>
+        <p><strong>Training Max</strong> = <code>mround(1RM × 0.90, 5)</code>.</p>
+        <p>Warm-ups are <code>50%</code> and <code>60%</code> of TM.</p>
+      </div>
+    </div>
+
+    <h2>2) Session Flow (Coach)</h2>
+    <div class="flow">
+      <div class="step"><div class="n">1</div><strong>Select Cycle + Week</strong><p>Choose active cycle and week from sidebar controls.</p></div>
+      <div class="step"><div class="n">2</div><strong>Choose Day or Lift</strong><p>Use Day/Lift mode and day buttons to get today’s roster.</p></div>
+      <div class="step"><div class="n">3</div><strong>Run Session</strong><p>Open <code>Log Reps</code>, enter actual weight/reps per set, hit <code>Save</code>.</p></div>
+      <div class="step"><div class="n">4</div><strong>Review + Copy</strong><p>Use <code>View</code>/<code>Copy</code> for client-facing handoff.</p></div>
+    </div>
+
+    <h2>3) What Save Actually Does</h2>
+    <div class="card">
+      <div class="kpi">
+        <div class="box"><strong class="ok">Historical record saved</strong><p>Each entered set writes a historical record for trend/1RM logic.</p></div>
+        <div class="box"><strong class="ok">Week-scoped set snapshot saved</strong><p>Same values persist to client data under cycle/week/lift/set index.</p></div>
+        <div class="box"><strong class="ok">UI reflects saved values</strong><p>Reopening Log Reps pre-fills values; table/copy can display persisted actuals.</p></div>
+      </div>
+      <div class="note">
+        <strong>Data location (conceptual)</strong>
+        <p class="mono">client.loggedSetInputsByCycle[cycle][weekKey][lift][setIndex] = { weight, reps, updatedAt }</p>
+      </div>
+    </div>
+
+    <h2>4) Week Operations (Duplicate/Delete)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>What happens to week programming</th>
+          <th>What happens to saved set values</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Duplicate Week N</strong></td>
+          <td>Weeks after N shift forward by 1; new week inserted at N+1.</td>
+          <td>Existing logs for later weeks shift forward too; <strong>new duplicated week starts blank</strong> (no cloned logs).</td>
+        </tr>
+        <tr>
+          <td><strong>Delete Week N</strong></td>
+          <td>Weeks after N shift back by 1.</td>
+          <td>Deleted week logs are removed; later week logs shift back to keep mapping correct.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>5) How Data Is Used</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Set Snapshots (per week)</h3>
+        <p>Used for week-specific recall in Log Reps and display text.</p>
+      </div>
+      <div class="card">
+        <h3>Historical Records</h3>
+        <p>Used for trend history, 1RM insights, and PR-oriented context.</p>
+      </div>
+      <div class="card">
+        <h3>Cycle/Week Settings</h3>
+        <p>Control percentages, reps, accessories, and visibility per week.</p>
+      </div>
+    </div>
+
+    <h2>6) Recent Feature Updates</h2>
+    <div class="card">
+      <ul class="checklist">
+        <li><strong>Per-week session modes:</strong> Every week can now run its own mode: <code>Normal</code>, <code>Slide</code>, <code>Jack Shit</code>, <code>Pause Week</code>, or <code>Recovery</code>, with legacy fallback support.</li>
+        <li><strong>Slide catch-up flow:</strong> Slide uses <code>Use From</code> to pick a prior source week for catch-up behavior; invalid forward choices are hidden.</li>
+        <li><strong>Copy output includes actuals:</strong> Exported day/lift text now includes logged weight/reps so handoffs match performed work.</li>
+        <li><strong>Prescribed sets stay stable:</strong> Logging actuals no longer mutates prescribed/top-set programming display.</li>
+        <li><strong>Stronger save reliability:</strong> Saving rep logs persists both historical records and week snapshots with clearer error behavior.</li>
+        <li><strong>Cycle-scoped isolation:</strong> Week assignments, mode mappings, and logged sets are isolated by cycle, including after graduation.</li>
+      </ul>
+    </div>
+
+    <h2>7) Correct Usage Rules</h2>
+    <ul class="checklist">
+      <li>Use <strong>Day View</strong> for normal team sessions; switch to Lift View only when needed.</li>
+      <li>Log actual performance in the week where it occurs; do not expect values to auto-copy to a duplicated new week.</li>
+      <li>When in doubt, check the session header row for exact Day/Cycle/Week context.</li>
+      <li>Use duplicate/delete week intentionally—those operations renumber data by design.</li>
+      <li>Keep cycle schedule mappings accurate (day1/day2 + lift assignment) to avoid roster confusion.</li>
+    </ul>
+
+    <h2>8) Quick Troubleshooting</h2>
+    <div class="card">
+      <h3>"I saved values but boxes look empty"</h3>
+      <p>Reopen the same cycle/week/lift row. If you changed week/lift, you’re looking at a different key.</p>
+      <h3>"Why are week values not in duplicated week?"</h3>
+      <p>Intentional. New duplicated week starts blank so it represents a fresh training exposure.</p>
+      <h3>"Sidebar minimized and I lose context"</h3>
+      <p>Use the inline session header + toggle row; this is the intended workflow during active sessions.</p>
+    </div>
+
+    <h2>9) Operator Release Checklist</h2>
+    <ul class="checklist">
+      <li>Validate TM math and warm-up percentages with one known client.</li>
+      <li>Log a set, save, reopen row, confirm values persist.</li>
+      <li>Duplicate a week and confirm logs shift but do not clone into new week.</li>
+      <li>Delete a week and confirm later logs shift down correctly.</li>
+      <li>Confirm roster reorder persists after refresh.</li>
+    </ul>
+
+    <p class="subtle">Last updated: 2026-02-22</p>
+  </div>
+</body>
+</html>

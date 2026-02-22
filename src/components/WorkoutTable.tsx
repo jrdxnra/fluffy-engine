@@ -13,8 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import type { CalculatedWorkout, CycleSettings, HistoricalRecord, Lift, WorkoutSet } from "@/lib/types";
-import { Target, Check, ChevronRight, Eye, Copy } from "lucide-react";
+import type { CalculatedWorkout, CycleSettings, HistoricalRecord, Lift, WorkoutSet, LoggedSetMap } from "@/lib/types";
+import { Check, ChevronRight, Eye, Copy } from "lucide-react";
 import { logRepRecordAction } from "@/app/actions";
 import { ClientNotesDialog } from "./ClientNotesDialog";
 import type { Client } from "@/lib/types";
@@ -37,15 +37,22 @@ type WorkoutTableProps = {
   currentWeek: string;
   onRepRecordUpdate: (newRecord: HistoricalRecord) => void;
   buildCopyText?: (workout: CalculatedWorkout, defaultText: string) => string;
+  currentCycleNumber: number;
+  onPersistLoggedSets: (args: {
+    clientId: string;
+    weekKey: string;
+    lift: Lift;
+    setEntries: LoggedSetMap;
+  }) => Promise<void>;
 };
 
 type SetCellProps = {
   clientId: string;
   set: WorkoutSet;
+  setIndex: number;
   lift: Lift;
   isTopSet: boolean;
   isExpanded: boolean;
-  prTarget?: { reps: number; lastMonth1RM: number };
   setInputs: { [key: string]: { weight: string; reps: string } };
   onSetInputChange: (setIndex: number, field: "weight" | "reps", value: string) => void;
   onSaveAll: () => void;
@@ -55,16 +62,16 @@ type SetCellProps = {
 const SetCell = ({ 
   clientId, 
   set, 
+  setIndex,
   lift, 
   isTopSet, 
   isExpanded,
   setInputs,
   onSetInputChange,
   onSaveAll,
-  isSaving,
-  prTarget 
+  isSaving
 }: SetCellProps) => {
-  const setKey = `${set.type}-${set.set}`;
+  const setKey = `${setIndex}`;
   const input = setInputs[setKey] || { weight: "", reps: "" };
 
   return (
@@ -86,7 +93,7 @@ const SetCell = ({
               placeholder={set.weight.toString()}
               className="h-7 w-20 font-code text-xs"
               value={input.weight}
-              onChange={(e) => onSetInputChange(parseInt(setKey.split('-')[1], 10), "weight", e.target.value)}
+              onChange={(e) => onSetInputChange(setIndex, "weight", e.target.value)}
               disabled={isSaving}
             />
             <span className="text-xs text-muted-foreground">lbs</span>
@@ -97,18 +104,10 @@ const SetCell = ({
               placeholder="Reps"
               className="h-7 w-16 font-code text-xs"
               value={input.reps}
-              onChange={(e) => onSetInputChange(parseInt(setKey.split('-')[1], 10), "reps", e.target.value)}
+              onChange={(e) => onSetInputChange(setIndex, "reps", e.target.value)}
               disabled={isSaving}
             />
           </div>
-        </div>
-      )}
-      {isTopSet && prTarget && prTarget.reps > 0 && (
-        <div className="flex items-center gap-1 text-xs text-amber-400">
-          <Target className="h-3 w-3" />
-          <span>
-            Hit <b>{prTarget.reps} reps</b> to beat last month's PR!
-          </span>
         </div>
       )}
     </div>
@@ -116,7 +115,7 @@ const SetCell = ({
 };
 
 
-export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText }: WorkoutTableProps) {
+export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets }: WorkoutTableProps) {
   const [clientNotes, setClientNotes] = useState<{ [key: string]: string }>({});
   const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({});
   const [rowInputs, setRowInputs] = useState<{ [key: string]: { [key: string]: { weight: string; reps: string } } }>({});
@@ -165,35 +164,52 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
     }));
   };
 
-  // Check if there's any reps data entered for a row
-  const hasRepsData = (clientId: string): boolean => {
+  // Check if there's any set data entered for a row
+  const hasSetData = (clientId: string): boolean => {
     const rowData = rowInputs[clientId];
     if (!rowData) return false;
-    return Object.values(rowData).some(input => input.reps && input.reps.trim() !== "");
+    return Object.values(rowData).some((input) =>
+      (input.reps && input.reps.trim() !== "") ||
+      (input.weight && input.weight.trim() !== "")
+    );
   };
 
-  const handleSaveRowInputs = async (clientId: string, sets: WorkoutSet[]) => {
+  const handleSaveRowInputs = async (
+    clientId: string,
+    sets: WorkoutSet[],
+    effectiveWeekKey: string,
+    persistedSetMap: LoggedSetMap
+  ) => {
     const rowData = rowInputs[clientId];
     
     // If no data entered, silently close the row
-    if (!hasRepsData(clientId)) {
+    if (!hasSetData(clientId)) {
       setExpandedRows(prev => ({ ...prev, [clientId]: false }));
       return;
     }
 
     setSavingRows(prev => ({ ...prev, [clientId]: true }));
     const loggedSetActuals: Record<number, { weight: number; reps: number }> = {};
+    const persistedSetEntries: LoggedSetMap = {};
+    let attemptedCount = 0;
+    let failedCount = 0;
 
     try {
       let successCount = 0;
       for (const [setIndex, input] of Object.entries(rowData)) {
-        if (!input.reps || input.reps.trim() === "") continue;
+        const hasRepsInput = !!input.reps && input.reps.trim() !== "";
+        const hasWeightInput = !!input.weight && input.weight.trim() !== "";
+        if (!hasRepsInput && !hasWeightInput) continue;
 
         const set = sets[parseInt(setIndex, 10)];
         if (!set) continue;
 
-        const repCount = parseInt(input.reps, 10);
-        const actual = input.weight ? parseInt(input.weight, 10) : set.weight;
+        const persisted = persistedSetMap[String(setIndex)];
+        const fallbackReps =
+          persisted?.reps ?? parseInt(String(set.reps).replace(/\D/g, ""), 10);
+        const fallbackWeight = persisted?.weight ?? set.weight;
+        const repCount = hasRepsInput ? parseInt(input.reps, 10) : fallbackReps;
+        const actual = hasWeightInput ? parseInt(input.weight, 10) : fallbackWeight;
 
         if (isNaN(repCount) || repCount <= 0) {
           toast({ variant: "destructive", title: "Invalid input", description: `Invalid reps for ${set.label}` });
@@ -204,26 +220,50 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
           continue;
         }
 
-        const result = await logRepRecordAction(clientId, lift, actual, repCount);
-        if (result.success) {
-          successCount++;
-          const parsedIndex = parseInt(setIndex, 10);
-          if (!isNaN(parsedIndex)) {
-            loggedSetActuals[parsedIndex] = { weight: actual, reps: repCount };
-          }
-          const newRecord: HistoricalRecord = {
-            clientId,
-            date: new Date().toISOString(),
-            lift,
+        const parsedIndex = parseInt(setIndex, 10);
+        if (!isNaN(parsedIndex)) {
+          loggedSetActuals[parsedIndex] = { weight: actual, reps: repCount };
+          persistedSetEntries[String(parsedIndex)] = {
             weight: actual,
             reps: repCount,
-            estimated1RM: Math.round(actual * (1 + repCount / 30)),
+            updatedAt: new Date().toISOString(),
           };
-          onRepRecordUpdate(newRecord);
+        }
+
+        attemptedCount++;
+        try {
+          const result = await logRepRecordAction(clientId, lift, actual, repCount);
+          if (result.success) {
+            successCount++;
+            const newRecord: HistoricalRecord = {
+              clientId,
+              date: new Date().toISOString(),
+              lift,
+              weight: actual,
+              reps: repCount,
+              estimated1RM: Math.round(actual * (1 + repCount / 30)),
+            };
+            onRepRecordUpdate(newRecord);
+          } else {
+            failedCount++;
+            toast({
+              variant: "destructive",
+              title: `Failed to log ${set.label}`,
+              description: result.message || "Unable to save this set.",
+            });
+          }
+        } catch {
+          failedCount++;
+          toast({
+            variant: "destructive",
+            title: `Failed to log ${set.label}`,
+            description: "Network/server error while logging set.",
+          });
         }
       }
 
-      if (successCount > 0) {
+      const snapshotCount = Object.keys(persistedSetEntries).length;
+      if (snapshotCount > 0) {
         setActualByClientSet((prev) => ({
           ...prev,
           [clientId]: {
@@ -231,9 +271,28 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
             ...loggedSetActuals,
           },
         }));
-        toast({ title: "Saved!", description: `${successCount} set(s) logged.` });
+        if (successCount > 0) {
+          toast({ title: "Saved!", description: `${successCount} set(s) logged.` });
+        } else {
+          toast({
+            title: "Snapshot saved",
+            description: "Entered set values were saved for View/Copy.",
+          });
+        }
         setRowInputs(prev => ({ ...prev, [clientId]: {} }));
         setExpandedRows(prev => ({ ...prev, [clientId]: false }));
+        await onPersistLoggedSets({
+          clientId,
+          weekKey: effectiveWeekKey,
+          lift,
+          setEntries: persistedSetEntries,
+        });
+      } else if (attemptedCount > 0 && failedCount > 0) {
+        toast({
+          variant: "destructive",
+          title: "No sets were saved",
+          description: "Check the browser and server logs for details.",
+        });
       }
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Failed to save sets." });
@@ -245,14 +304,29 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
   const buildWorkoutText = (workout: CalculatedWorkout): string => {
     const effectiveWeekKey = workout.effectiveWeekKey || currentWeek;
     const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, lift);
+    const persistedSetMap =
+      workout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[lift] || {};
 
     const setsText = workout.sets
       .map((set, index) => {
         const actual = actualByClientSet[workout.client.id]?.[index];
-        const weight = actual?.weight ?? set.weight;
-        const reps = actual?.reps ?? set.reps;
+        const persisted = persistedSetMap[String(index)];
+        const weight = set.weight;
+        const reps = set.reps;
         return `${set.label}: ${weight} lbs x ${reps}`;
       })
+      .join("\n");
+
+    const actualsText = workout.sets
+      .map((set, index) => {
+        const actual = actualByClientSet[workout.client.id]?.[index];
+        const persisted = persistedSetMap[String(index)];
+        const actualWeight = actual?.weight ?? persisted?.weight;
+        const actualReps = actual?.reps ?? persisted?.reps;
+        if (actualWeight === undefined || actualReps === undefined) return null;
+        return `${set.label}: ${actualWeight} lbs x ${actualReps}`;
+      })
+      .filter((line): line is string => Boolean(line))
       .join("\n");
 
     return [
@@ -260,6 +334,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
       "",
       "Main Sets",
       setsText,
+      ...(actualsText ? ["", "Logged Actuals", actualsText] : []),
       "",
       `${lift} Accessories`,
       ...accessories.map((item) => `- ${item}`),
@@ -309,6 +384,9 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
             const isExpanded = expandedRows[client.id] || false;
             const isSaving = savingRows[client.id] || false;
             const hasSets = sets.length > 0;
+            const clientWeekKey = effectiveWeekKey || currentWeek;
+            const persistedSetMap =
+              client.loggedSetInputsByCycle?.[currentCycleNumber]?.[clientWeekKey]?.[lift] || {};
             
             return (
             <TableRow key={client.id} className={rowIndex % 2 === 0 ? "" : "bg-slate-100 dark:bg-slate-800"}>
@@ -331,27 +409,30 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
                 </TableCell>
                 {hasSets ? sets.map((set, index) => {
                   const isTopSet = set.type === "Work Set" && set.set === 3;
-                  const actual = actualByClientSet[client.id]?.[index];
-                  const displaySet: WorkoutSet = {
-                    ...set,
-                    weight: actual?.weight ?? set.weight,
-                    reps: actual?.reps ?? set.reps,
-                  };
                   return (
                     <TableCell key={index} className={`align-top ${isTopSet ? "bg-primary/10" : ""}`}>
                       <SetCell
                         clientId={client.id}
-                        set={displaySet}
+                        set={set}
+                        setIndex={index}
                         lift={lift}
                         isTopSet={isTopSet}
                         isExpanded={isExpanded}
-                        setInputs={rowInputs[client.id] || {}}
+                        setInputs={{
+                          ...Object.entries(persistedSetMap).reduce<Record<string, { weight: string; reps: string }>>((acc, [key, value]) => {
+                            acc[key] = {
+                              weight: String(value.weight),
+                              reps: String(value.reps),
+                            };
+                            return acc;
+                          }, {}),
+                          ...(rowInputs[client.id] || {}),
+                        }}
                         onSetInputChange={(setIndex, field, value) => 
-                          handleSetInputChange(client.id, index, field, value)
+                          handleSetInputChange(client.id, setIndex, field, value)
                         }
-                        onSaveAll={() => handleSaveRowInputs(client.id, sets)}
+                        onSaveAll={() => handleSaveRowInputs(client.id, sets, clientWeekKey, persistedSetMap)}
                         isSaving={isSaving}
-                        prTarget={isTopSet ? prTarget : undefined}
                       />
                     </TableCell>
                   );
@@ -375,15 +456,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
                       variant="outline"
                       className="h-7 w-24 justify-center text-xs"
                       onClick={() => {
-                        const setsWithActuals = sets.map((set, index) => {
-                          const actual = actualByClientSet[client.id]?.[index];
-                          return {
-                            ...set,
-                            weight: actual?.weight ?? set.weight,
-                            reps: actual?.reps ?? set.reps,
-                          };
-                        });
-                        setSelectedWorkout({ client, sets: setsWithActuals, prTarget, sessionMode, effectiveWeekKey });
+                        setSelectedWorkout({ client, sets, prTarget, sessionMode, effectiveWeekKey });
                       }}
                       disabled={!hasSets}
                     >
@@ -396,7 +469,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
                       className="h-7 w-24 justify-center text-xs"
                       onClick={() => {
                         if (isExpanded) {
-                          handleSaveRowInputs(client.id, sets);
+                          handleSaveRowInputs(client.id, sets, clientWeekKey, persistedSetMap);
                         } else {
                           handleToggleRow(client.id);
                         }

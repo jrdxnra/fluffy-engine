@@ -4,10 +4,13 @@ import { format } from "date-fns";
 import { Line, LineChart, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
 import {
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import type { HistoricalRecord, Lift } from "@/lib/types";
+import { mround } from "@/lib/utils";
 
 type ClientProgressChartProps = {
   data: HistoricalRecord[];
@@ -15,18 +18,24 @@ type ClientProgressChartProps = {
 };
 
 const chartConfig = {
-  estimated1RM: {
-    label: "e1RM",
+  actual1RM: {
+    label: "Actual 1RM",
     color: "hsl(var(--primary))",
+  },
+  recommendedTM: {
+    label: "Recommended TM",
+    color: "hsl(var(--muted-foreground))",
   },
 } as const;
 
 
-export function ClientProgressChart({ data }: ClientProgressChartProps) {
+export function ClientProgressChart({ data, lift }: ClientProgressChartProps) {
   const formattedData = data.map(item => ({
     ...item,
     date: new Date(item.date),
     formattedDate: format(new Date(item.date), "MMM d"),
+    actual1RM: item.estimated1RM,
+    recommendedTM: mround(item.estimated1RM * 0.9),
   }));
 
   if (formattedData.length < 2) {
@@ -73,26 +82,43 @@ export function ClientProgressChart({ data }: ClientProgressChartProps) {
               indicator="dot"
               formatter={(_value, _name, props) => (
                 <div className="flex flex-col gap-1 text-sm">
-                  <div className="font-bold text-foreground">e1RM: {props.payload.estimated1RM} lbs</div>
+                  <div className="font-bold text-foreground">{lift} - {format(new Date(props.payload.date), "PPP")}</div>
                   <div className="text-xs text-muted-foreground">
-                    {props.payload.weight} lbs x {props.payload.reps} reps
+                    Actual 1RM: {props.payload.actual1RM} lbs
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {format(new Date(props.payload.date), "PPP")}
+                    Recommended TM: {props.payload.recommendedTM} lbs
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {props.payload.weight} lbs x {props.payload.reps} reps
                   </div>
                 </div>
               )}
             />
           }
         />
+        <ChartLegend content={<ChartLegendContent />} />
         <Line
           type="monotone"
-          dataKey="estimated1RM"
-          stroke="var(--color-estimated1RM)"
+          dataKey="actual1RM"
+          stroke="var(--color-actual1RM)"
           strokeWidth={2}
           dot={{
             r: 4,
-            fill: "var(--color-estimated1RM)",
+            fill: "var(--color-actual1RM)",
+            stroke: "hsl(var(--background))",
+            strokeWidth: 2,
+          }}
+        />
+        <Line
+          type="monotone"
+          dataKey="recommendedTM"
+          stroke="var(--color-recommendedTM)"
+          strokeWidth={2}
+          strokeDasharray="6 4"
+          dot={{
+            r: 3,
+            fill: "var(--color-recommendedTM)",
             stroke: "hsl(var(--background))",
             strokeWidth: 2,
           }}

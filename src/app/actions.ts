@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { CycleScheduleSettings, CycleSettings } from "@/lib/types";
+import type { CycleScheduleSettings, CycleSettings, Lift, LoggedSetInputsByCycle, LoggedSetMap, SessionMode } from "@/lib/types";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 
 const getRepScheme = (workset3Reps: string | number | undefined): string => {
@@ -123,7 +123,13 @@ export async function logRepRecordAction(
     return { success: true, message: "Workout logged." };
   } catch (error) {
     console.error("Error logging rep record:", error);
-    return { success: false, message: "Failed to log workout." };
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Failed to log workout.";
+    return { success: false, message };
   }
 }
 
@@ -171,7 +177,14 @@ export async function updateClientProfileAction(
   updates: {
     initialWeights?: Record<string, number>;
     weekAssignmentsByCycle?: Record<number, Record<string, string>>;
-    sessionStateByCycle?: Record<number, { mode: string; flowWeekKey?: string; applyUntilChanged?: boolean; note?: string }>;
+    sessionStateByCycle?: Record<number, {
+      mode: SessionMode;
+      flowWeekKey?: string;
+      applyUntilChanged?: boolean;
+      note?: string;
+      modeByWeek?: Record<string, SessionMode>;
+      flowWeekKeyByWeek?: Record<string, string>;
+    }>;
   }
 ) {
   "use server";
@@ -436,6 +449,89 @@ export async function updateClientWeekAssignmentsAction(
   } catch (error) {
     console.error("Error updating week assignments:", error);
     return { success: false, message: "Failed to update week assignments." };
+  }
+}
+
+export async function updateClientLoggedSetInputsAction(
+  clientId: string,
+  loggedSetInputsByCycle: LoggedSetInputsByCycle
+) {
+  "use server";
+  try {
+    const { updateClient } = await import("@/lib/data");
+    await updateClient(clientId, {
+      loggedSetInputsByCycle: loggedSetInputsByCycle as any,
+    } as any);
+    revalidatePath("/");
+    return { success: true, message: "Logged set inputs updated." };
+  } catch (error) {
+    console.error("Error updating logged set inputs:", error);
+    return { success: false, message: "Failed to update logged set inputs." };
+  }
+}
+
+export async function updateClientLoggedSetInputsBulkAction(
+  updates: Array<{ id: string; loggedSetInputsByCycle: LoggedSetInputsByCycle }>
+) {
+  "use server";
+  try {
+    const { updateClient } = await import("@/lib/data");
+    for (const update of updates) {
+      await updateClient(update.id, {
+        loggedSetInputsByCycle: update.loggedSetInputsByCycle as any,
+      } as any);
+    }
+    revalidatePath("/");
+    return { success: true, message: "Logged set inputs bulk-updated." };
+  } catch (error) {
+    console.error("Error bulk updating logged set inputs:", error);
+    return { success: false, message: "Failed to bulk update logged set inputs." };
+  }
+}
+
+export async function upsertClientLoggedSetEntriesAction(args: {
+  clientId: string;
+  cycleNumber: number;
+  weekKey: string;
+  lift: Lift;
+  setEntries: LoggedSetMap;
+}) {
+  "use server";
+  try {
+    const { getClients, updateClient } = await import("@/lib/data");
+    const targetClient = (await getClients()).find((client) => client.id === args.clientId);
+    if (!targetClient) {
+      return { success: false, message: "Client not found." };
+    }
+
+    const existing = targetClient.loggedSetInputsByCycle || {};
+    const cycleData = existing[args.cycleNumber] || {};
+    const weekData = cycleData[args.weekKey] || {};
+    const liftData = weekData[args.lift] || {};
+
+    const merged: LoggedSetInputsByCycle = {
+      ...existing,
+      [args.cycleNumber]: {
+        ...cycleData,
+        [args.weekKey]: {
+          ...weekData,
+          [args.lift]: {
+            ...liftData,
+            ...args.setEntries,
+          },
+        },
+      },
+    };
+
+    await updateClient(args.clientId, {
+      loggedSetInputsByCycle: merged as any,
+    } as any);
+
+    revalidatePath("/");
+    return { success: true, message: "Logged set entries updated.", merged };
+  } catch (error) {
+    console.error("Error upserting logged set entries:", error);
+    return { success: false, message: "Failed to update logged set entries." };
   }
 }
 

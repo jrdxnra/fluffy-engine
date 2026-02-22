@@ -20,15 +20,18 @@ export async function GET(request: Request) {
 
     const rows = clients.map((client: any) => {
       const state = client.sessionStateByCycle?.[cycleNumber];
-      const mode: SessionMode = state?.mode || 'normal';
+      const mode: SessionMode = state?.modeByWeek?.[currentWeek] || state?.mode || 'normal';
       let effectiveWeekKey = currentWeek;
 
-      if (state?.flowWeekKey && cycleSettings[state.flowWeekKey]) {
-        effectiveWeekKey = state.flowWeekKey;
-      } else if (mode === 'slide') {
-        const index = sortedWeekKeys.indexOf(currentWeek);
-        if (index > 0) {
-          effectiveWeekKey = sortedWeekKeys[index - 1];
+      if (mode === 'slide') {
+        const flowWeekKey = state?.flowWeekKeyByWeek?.[currentWeek] || state?.flowWeekKey;
+        if (flowWeekKey && cycleSettings[flowWeekKey]) {
+          effectiveWeekKey = flowWeekKey;
+        } else {
+          const index = sortedWeekKeys.indexOf(currentWeek);
+          if (index > 0) {
+            effectiveWeekKey = sortedWeekKeys[index - 1];
+          }
         }
       }
 
@@ -36,7 +39,7 @@ export async function GET(request: Request) {
         clientId: client.id,
         name: client.name,
         mode,
-        flowWeekKey: state?.flowWeekKey || null,
+        flowWeekKey: state?.flowWeekKeyByWeek?.[currentWeek] || state?.flowWeekKey || null,
         effectiveWeekKey,
         isPaused: mode === 'pause_week',
         isMainLiftOnly: mode === 'jack_shit',

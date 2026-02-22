@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -20,8 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Client, CycleSettings, SessionMode } from "@/lib/types";
+import type { Client, CycleSettings, HistoricalRecord, Lift, SessionMode } from "@/lib/types";
 import { Lifts } from "@/lib/types";
+import { ClientProgressChart } from "./ClientProgressChart";
 
 type ClientProfileModalProps = {
   open: boolean;
@@ -30,15 +31,16 @@ type ClientProfileModalProps = {
   cycleSettings: CycleSettings;
   currentGlobalWeek: string;
   currentCycleNumber?: number;
+  historicalData: HistoricalRecord[];
   onUpdateClient: (updatedClient: Client) => Promise<void> | void;
   onResetTrainingMax: (clientId: string) => Promise<void>;
 };
 
 const getRepScheme = (workset3Reps: string | number): string => {
-  const repNum = typeof workset3Reps === 'string' 
-    ? workset3Reps.replace(/\D/g, '')
+  const repNum = typeof workset3Reps === "string"
+    ? workset3Reps.replace(/\D/g, "")
     : workset3Reps.toString();
-  return repNum || '?';
+  return repNum || "?";
 };
 
 const normalizeAssignmentsForSettings = (
@@ -67,6 +69,7 @@ export function ClientProfileModal({
   cycleSettings,
   currentGlobalWeek,
   currentCycleNumber = 1,
+  historicalData,
   onUpdateClient,
   onResetTrainingMax,
 }: ClientProfileModalProps) {
@@ -75,10 +78,47 @@ export function ClientProfileModal({
   const [isResettingTM, setIsResettingTM] = useState(false);
   const [selectedCycle, setSelectedCycle] = useState<number>(currentCycleNumber);
 
-  // Sync local state when client prop changes
   useEffect(() => {
     setLocalClient(client);
   }, [client]);
+
+  const progressChartDataByLift = useMemo(() => {
+    if (!localClient) {
+      return {
+        Deadlift: [],
+        Bench: [],
+        Squat: [],
+        Press: [],
+      } as Record<Lift, HistoricalRecord[]>;
+    }
+
+    const byLift: Record<Lift, HistoricalRecord[]> = {
+      Deadlift: [],
+      Bench: [],
+      Squat: [],
+      Press: [],
+    };
+
+    historicalData
+      .filter((record) => record.clientId === localClient.id)
+      .forEach((record) => {
+        byLift[record.lift].push(record);
+      });
+
+    for (const lift of Lifts) {
+      byLift[lift].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }
+
+    return byLift;
+  }, [historicalData, localClient]);
+
+  const sortedWeekEntries = useMemo(() => {
+    return Object.entries(cycleSettings).sort(([a], [b]) => {
+      const aNum = parseInt(a.match(/\d+/)?.[0] || "0", 10);
+      const bNum = parseInt(b.match(/\d+/)?.[0] || "0", 10);
+      return aNum - bNum;
+    });
+  }, [cycleSettings]);
 
   const handleWeightChange = (lift: string, value: string) => {
     if (!localClient) return;
@@ -125,13 +165,19 @@ export function ClientProfileModal({
     });
   };
 
-  const handleSessionModeChange = (cycleNumber: number, mode: SessionMode) => {
+  const handleSessionModeChange = (cycleNumber: number, weekKey: string, mode: SessionMode) => {
     if (!localClient) return;
+    const currentCycleState = localClient.sessionStateByCycle?.[cycleNumber] || { mode: "normal" as SessionMode };
+    const nextModeByWeek = {
+      ...(currentCycleState.modeByWeek || {}),
+      [weekKey]: mode,
+    };
+
     const updatedSessionStateByCycle = {
       ...(localClient.sessionStateByCycle || {}),
       [cycleNumber]: {
-        ...(localClient.sessionStateByCycle?.[cycleNumber] || {}),
-        mode,
+        ...currentCycleState,
+        modeByWeek: nextModeByWeek,
       },
     };
 
@@ -141,13 +187,19 @@ export function ClientProfileModal({
     });
   };
 
-  const handleSessionWeekChange = (cycleNumber: number, flowWeekKey: string) => {
+  const handleSessionWeekChange = (cycleNumber: number, weekKey: string, flowWeekKey: string) => {
     if (!localClient) return;
+    const currentCycleState = localClient.sessionStateByCycle?.[cycleNumber] || { mode: "normal" as SessionMode };
+    const nextFlowByWeek = {
+      ...(currentCycleState.flowWeekKeyByWeek || {}),
+      [weekKey]: flowWeekKey,
+    };
+
     const updatedSessionStateByCycle = {
       ...(localClient.sessionStateByCycle || {}),
       [cycleNumber]: {
-        ...(localClient.sessionStateByCycle?.[cycleNumber] || { mode: "normal" as SessionMode }),
-        flowWeekKey,
+        ...currentCycleState,
+        flowWeekKeyByWeek: nextFlowByWeek,
       },
     };
 
@@ -202,7 +254,7 @@ export function ClientProfileModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{localClient.name} - Profile Settings</DialogTitle>
           <DialogDescription>
@@ -210,39 +262,11 @@ export function ClientProfileModal({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="initial-weights" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="initial-weights">Initial Weights</TabsTrigger>
-            <TabsTrigger value="1rm-progress">1RM Progress</TabsTrigger>
+        <Tabs defaultValue="1rm-progress" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="1rm-progress">1RM + Weights</TabsTrigger>
             <TabsTrigger value="week-assignments">Week Assignments</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="initial-weights" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Starting Weights</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  These are the initial weights used as a baseline for calculating percentages.
-                </p>
-                {Lifts.map((lift) => (
-                  <div key={lift} className="space-y-2">
-                    <Label className="font-medium">{lift}</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        value={localClient.initialWeights?.[lift] || localClient.trainingMaxes[lift]}
-                        onChange={(e) => handleWeightChange(lift, e.target.value)}
-                        className="w-32"
-                      />
-                      <span className="text-sm text-muted-foreground">lbs</span>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           <TabsContent value="1rm-progress" className="space-y-4">
             <Card>
@@ -250,6 +274,28 @@ export function ClientProfileModal({
                 <CardTitle className="text-base">1RM Progress Tracking</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="rounded-md border p-3 bg-muted/30 space-y-3">
+                  <p className="text-sm font-medium">Starting Weights</p>
+                  <p className="text-xs text-muted-foreground">
+                    Baseline values used for percentage-based prescriptions.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {Lifts.map((lift) => (
+                      <div key={lift} className="space-y-1">
+                        <Label className="text-xs font-medium text-muted-foreground">{lift}</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            value={localClient.initialWeights?.[lift] || localClient.trainingMaxes[lift]}
+                            onChange={(e) => handleWeightChange(lift, e.target.value)}
+                            className="w-28"
+                          />
+                          <span className="text-xs text-muted-foreground">lbs</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 <p className="text-sm text-muted-foreground">
                   Actual 1RMs vs Recommended Training Maxes (90% of 1RM). The gap shows room for improvement.
                 </p>
@@ -267,7 +313,7 @@ export function ClientProfileModal({
                     {isResettingTM ? "Resetting TM..." : "Reset TM from Recent Performance"}
                   </Button>
                 </div>
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {Lifts.map((lift) => {
                     const actual1RM = localClient.oneRepMaxes[lift];
                     // Get training max for current cycle, fallback to default
@@ -297,6 +343,12 @@ export function ClientProfileModal({
                           <div 
                             className="bg-primary h-2 rounded-full transition-all"
                             style={{ width: `${(trainingMax / actual1RM) * 100}%` }}
+                          />
+                        </div>
+                        <div className="h-[220px] w-full rounded-md border p-2">
+                          <ClientProgressChart
+                            data={progressChartDataByLift[lift] || []}
+                            lift={lift}
                           />
                         </div>
                       </div>
@@ -346,82 +398,111 @@ export function ClientProfileModal({
                 </p>
 
                 <div className="rounded-md border p-3 space-y-3 bg-muted/20">
-                  <p className="text-sm font-medium">Session Mode (Per Client)</p>
+                  <p className="text-sm font-medium">Session Mode (Per Week)</p>
                   <p className="text-xs text-muted-foreground">
-                    Handle missed sessions, short sessions, pause weeks, and recovery days without breaking the team flow.
+                    Set each week independently. Slide can optionally target a specific flow week.
                   </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label className="text-xs">Mode</Label>
-                      <Select
-                        value={localClient.sessionStateByCycle?.[selectedCycle]?.mode || "normal"}
-                        onValueChange={(value) => handleSessionModeChange(selectedCycle, value as SessionMode)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="normal">Normal</SelectItem>
-                          <SelectItem value="slide">Slide (Missed Session)</SelectItem>
-                          <SelectItem value="jack_shit">Jack Shit (Main Lift Only)</SelectItem>
-                          <SelectItem value="pause_week">Pause Week (Skip)</SelectItem>
-                          <SelectItem value="recovery">Recovery Day (No AMRAP/PR)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs">Flow Week</Label>
-                      <Select
-                        value={localClient.sessionStateByCycle?.[selectedCycle]?.flowWeekKey || currentGlobalWeek}
-                        onValueChange={(value) => handleSessionWeekChange(selectedCycle, value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.keys(cycleSettings)
-                            .sort((a, b) => {
-                              const aNum = parseInt(a.match(/\d+/)?.[0] || "0", 10);
-                              const bNum = parseInt(b.match(/\d+/)?.[0] || "0", 10);
-                              return aNum - bNum;
-                            })
-                            .map((weekKey) => (
-                              <SelectItem key={weekKey} value={weekKey}>
-                                {cycleSettings[weekKey]?.name || weekKey}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
                 </div>
                 <div className="space-y-3">
-                  {Object.entries(cycleSettings).map(([weekKey, weekSettings]) => {
+                  {sortedWeekEntries.map(([weekKey, weekSettings]) => {
                     const globalRepScheme = getRepScheme(weekSettings.reps.workset3);
                     const cycleAssignments = localClient?.weekAssignmentsByCycle?.[selectedCycle] || {};
                     const clientAssignment = cycleAssignments[weekKey] || globalRepScheme;
+                    const cycleSessionState = localClient.sessionStateByCycle?.[selectedCycle];
+                    const weekMode =
+                      cycleSessionState?.modeByWeek?.[weekKey] ||
+                      cycleSessionState?.mode ||
+                      "normal";
+                    const currentWeekIndex = sortedWeekEntries.findIndex(([key]) => key === weekKey);
+                    const availableSlideWeeks = currentWeekIndex > 0
+                      ? sortedWeekEntries.slice(0, currentWeekIndex)
+                      : [];
+                    const fallbackSlideWeek = availableSlideWeeks.length > 0
+                      ? availableSlideWeeks[availableSlideWeeks.length - 1][0]
+                      : "";
+                    const flowWeek =
+                      cycleSessionState?.flowWeekKeyByWeek?.[weekKey] ||
+                      cycleSessionState?.flowWeekKey ||
+                      fallbackSlideWeek;
+                    const canSlideBackward = availableSlideWeeks.length > 0;
+                    const displayWeekMode: SessionMode =
+                      !canSlideBackward && weekMode === "slide" ? "normal" : weekMode;
                     
                     return (
-                      <div key={weekKey} className="flex items-center gap-4 p-3 border rounded-md">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{weekSettings.name}</p>
-                          <p className="text-xs text-muted-foreground">Global: ({globalRepScheme})</p>
+                      <div key={weekKey} className="p-3 border rounded-md">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Week</Label>
+                            <div className="h-10 rounded-md border px-3 flex items-center text-sm">
+                              {weekSettings.name}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-xs">Reps</Label>
+                            <Select
+                              value={clientAssignment}
+                              onValueChange={(value) => handleWeekAssignmentChange(selectedCycle, weekKey, value)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={globalRepScheme}>{globalRepScheme}'s (Default)</SelectItem>
+                                {globalRepScheme !== "5" && <SelectItem value="5">5's</SelectItem>}
+                                {globalRepScheme !== "3" && <SelectItem value="3">3's</SelectItem>}
+                                {globalRepScheme !== "1" && <SelectItem value="1">1's</SelectItem>}
+                                <SelectItem value="N/A">N/A (Skip)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-xs">Mode</Label>
+                            <Select
+                              value={displayWeekMode}
+                              onValueChange={(value) => handleSessionModeChange(selectedCycle, weekKey, value as SessionMode)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="normal">Normal</SelectItem>
+                                {canSlideBackward ? <SelectItem value="slide">Slide (Missed Session)</SelectItem> : null}
+                                <SelectItem value="jack_shit">Jack Shit (Main Lift Only)</SelectItem>
+                                <SelectItem value="pause_week">Pause Week (Skip)</SelectItem>
+                                <SelectItem value="recovery">Recovery Day (No AMRAP/PR)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {displayWeekMode === "slide" ? (
+                            <div className="space-y-1">
+                              <Label className="text-xs">Use From</Label>
+                              {availableSlideWeeks.length > 0 ? (
+                                <Select
+                                  value={flowWeek || availableSlideWeeks[availableSlideWeeks.length - 1][0]}
+                                  onValueChange={(value) => handleSessionWeekChange(selectedCycle, weekKey, value)}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableSlideWeeks.map(([flowWeekKey, flowWeekSettings]) => (
+                                      <SelectItem key={flowWeekKey} value={flowWeekKey}>
+                                        {flowWeekSettings?.name || flowWeekKey}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <div className="h-10 rounded-md border px-3 flex items-center text-xs text-muted-foreground bg-muted/20">
+                                  No prior week available
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
                         </div>
-                        <Select
-                          value={clientAssignment}
-                          onValueChange={(value) => handleWeekAssignmentChange(selectedCycle, weekKey, value)}
-                        >
-                          <SelectTrigger className="w-32">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={globalRepScheme}>{globalRepScheme}'s (Default)</SelectItem>
-                            {globalRepScheme !== "5" && <SelectItem value="5">5's</SelectItem>}
-                            {globalRepScheme !== "3" && <SelectItem value="3">3's</SelectItem>}
-                            {globalRepScheme !== "1" && <SelectItem value="1">1's</SelectItem>}
-                            <SelectItem value="N/A">N/A (Skip)</SelectItem>
-                          </SelectContent>
-                        </Select>
                       </div>
                     );
                   })}

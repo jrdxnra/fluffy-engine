@@ -10,6 +10,8 @@ import type {
   Lift,
   CalculatedWorkout,
   SessionMode,
+  LoggedSetMap,
+  LoggedSetInputsByCycle,
 } from "@/lib/types";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -28,6 +30,8 @@ import {
   deleteCycleAction,
   resetClientTrainingMaxAction,
   saveCycleSettingsAction,
+  upsertClientLoggedSetEntriesAction,
+  updateClientLoggedSetInputsBulkAction,
   updateClientProfileAction,
   updateClientRosterOrderAction,
   updateClientWeekAssignmentsAction,
@@ -356,6 +360,46 @@ export function SbdohControl({
     return fallbackReps;
   };
 
+  const getPercentageTemplateForScheme = (
+    repScheme: string,
+    fallbackPercentages: {
+      warmup1: number;
+      warmup2: number;
+      workset1: number;
+      workset2: number;
+      workset3: number;
+    }
+  ) => {
+    if (repScheme === "5") {
+      return {
+        warmup1: 0.5,
+        warmup2: 0.6,
+        workset1: 0.65,
+        workset2: 0.75,
+        workset3: 0.85,
+      };
+    }
+    if (repScheme === "3") {
+      return {
+        warmup1: 0.5,
+        warmup2: 0.6,
+        workset1: 0.7,
+        workset2: 0.8,
+        workset3: 0.9,
+      };
+    }
+    if (repScheme === "1") {
+      return {
+        warmup1: 0.5,
+        warmup2: 0.6,
+        workset1: 0.75,
+        workset2: 0.85,
+        workset3: 0.95,
+      };
+    }
+    return fallbackPercentages;
+  };
+
   const handleLiftChange = (newLift: Lift) => {
     startTransition(() => {
       setLift(newLift);
@@ -386,15 +430,21 @@ export function SbdohControl({
 
     return clients.map((client) => {
       const sessionState = client.sessionStateByCycle?.[currentCycleNumber];
-      const mode: SessionMode = sessionState?.mode || "normal";
+      const mode: SessionMode =
+        sessionState?.modeByWeek?.[currentWeek] ||
+        sessionState?.mode ||
+        "normal";
       let effectiveWeekKey = currentWeek;
 
-      if (sessionState?.flowWeekKey && cycleSettings[sessionState.flowWeekKey]) {
-        effectiveWeekKey = sessionState.flowWeekKey;
-      } else if (mode === "slide") {
-        const currentIndex = sortedWeekKeys.indexOf(currentWeek);
-        if (currentIndex > 0) {
-          effectiveWeekKey = sortedWeekKeys[currentIndex - 1];
+      if (mode === "slide") {
+        const flowWeekKey = sessionState?.flowWeekKeyByWeek?.[currentWeek] || sessionState?.flowWeekKey;
+        if (flowWeekKey && cycleSettings[flowWeekKey]) {
+          effectiveWeekKey = flowWeekKey;
+        } else {
+          const currentIndex = sortedWeekKeys.indexOf(currentWeek);
+          if (currentIndex > 0) {
+            effectiveWeekKey = sortedWeekKeys[currentIndex - 1];
+          }
         }
       }
 
@@ -441,28 +491,25 @@ export function SbdohControl({
         };
       }
 
+      let workoutWeekSettings = selectedWeekSettingsForClient;
+      if (assignedRepScheme !== effectiveGlobalRepScheme) {
+        workoutWeekSettings = {
+          ...selectedWeekSettingsForClient,
+          percentages: getPercentageTemplateForScheme(
+            assignedRepScheme,
+            selectedWeekSettingsForClient.percentages
+          ),
+          reps: getRepsTemplateForScheme(assignedRepScheme, selectedWeekSettingsForClient.reps),
+        };
+      }
+
       const workout = calculateWorkout(
         client,
         targetLift,
-        selectedWeekSettingsForClient,
+        workoutWeekSettings,
         historicalData,
         currentCycleNumber
       );
-
-      if (assignedRepScheme !== effectiveGlobalRepScheme) {
-        const repTemplate = getRepsTemplateForScheme(assignedRepScheme, selectedWeekSettingsForClient.reps);
-        workout.sets = workout.sets.map((set) => {
-          if (set.type !== "Work Set") return set;
-          if (set.set === 1) return { ...set, reps: repTemplate.workset1 };
-          if (set.set === 2) return { ...set, reps: repTemplate.workset2 };
-          if (set.set === 3) return { ...set, reps: repTemplate.workset3 };
-          return set;
-        });
-
-        if (!String(repTemplate.workset3).includes("+")) {
-          workout.prTarget = undefined;
-        }
-      }
 
       if (mode === "recovery") {
         workout.prTarget = undefined;
@@ -565,11 +612,31 @@ export function SbdohControl({
   }, [lift, calculatedWorkouts, currentWeek]);
 
   const buildDayCopyTextForWorkout = (workout: CalculatedWorkout, defaultText: string): string => {
-    const sections: string[] = [];
+    const parseAccessoryPrescription = (text: string): { movement: string; sets: string; target: string } | null => {
+      const normalized = text.trim().replace(/\s+/g, " ");
+      const prefix = normalized.match(/^\s*(\d+)\s*[xX]\s*([^\s]+)\s+(.+)$/);
+      if (prefix) {
+        const [, sets, target, movement] = prefix;
+        return { movement: movement.trim(), sets, target };
+      }
+
+      const suffix = normalized.match(/^\s*(.+?)\s+(\d+)\s*[xX]\s*([^\s]+)\s*$/);
+      if (suffix) {
+        const [, movement, sets, target] = suffix;
+        return { movement: movement.trim(), sets, target };
+      }
+
+      return null;
+    };
+
+    const tsvRows: string[] = [];
     const mergedAccessories: string[] = [];
     const dayWeekday = dayViewSlot === "day1" ? currentWeekSchedule.day1Weekday : currentWeekSchedule.day2Weekday;
     const dayDate = dayViewSlot === "day1" ? currentWeekSchedule.day1Date : currentWeekSchedule.day2Date;
     const dayDateLabel = `${dayWeekday}${dayDate ? ` (${formatShortDate(dayDate)})` : ""}`;
+
+    tsvRows.push(`${dayLifts.join(" + ")} ${dayDateLabel}`);
+    tsvRows.push("MOVEMENTS\tSETS\tREC REPS\tREC LOAD\tACT REPS\tACT LOAD");
 
     for (const dayLift of dayLifts) {
       const liftWorkout = (dayWorkoutsByLift[dayLift] || []).find((item) => item.client.id === workout.client.id);
@@ -579,19 +646,20 @@ export function SbdohControl({
 
       const effectiveWeekKey = liftWorkout.effectiveWeekKey || currentWeek;
       const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, dayLift);
+      const persistedSetMap =
+        liftWorkout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[dayLift] || {};
 
-      const setsText = liftWorkout.sets
-        .map((set) => `${set.label}: ${set.weight} lbs x ${set.reps}`)
-        .join("\n");
-
-      sections.push(
-        [
-          "Main Sets",
-          setsText,
-        ]
-          .filter((line) => line !== "")
-          .join("\n")
-      );
+      tsvRows.push(`WORKING SETS: ${dayLift.toUpperCase()}`);
+      for (const [setIndex, set] of liftWorkout.sets.entries()) {
+        if (set.type !== "Work Set") continue;
+        const persisted = persistedSetMap[String(setIndex)];
+        const actualReps = persisted?.reps !== undefined ? String(persisted.reps) : "";
+        const actualLoad = persisted?.weight !== undefined ? String(persisted.weight) : "";
+        tsvRows.push(
+          `${dayLift}\t1\t${set.reps}\t${set.weight}\t${actualReps}\t${actualLoad}`
+        );
+      }
+      tsvRows.push("");
 
       for (const accessory of accessories) {
         if (!mergedAccessories.includes(accessory)) {
@@ -600,19 +668,21 @@ export function SbdohControl({
       }
     }
 
-    if (sections.length === 0) {
+    if (tsvRows.length <= 2) {
       return defaultText;
     }
 
-    return [
-      `${dayLifts.join(" + ")} ${dayDateLabel}`,
-      ...sections,
-      "Accessories",
-      ...mergedAccessories.map((item) => `- ${item}`),
-    ]
-      .filter((line) => line !== "")
-      .join("\n\n")
-      .replace(/\n\n- /g, "\n- ");
+    tsvRows.push("WORKING SETS: ACCESSORIES");
+    for (const accessory of mergedAccessories) {
+      const parsed = parseAccessoryPrescription(accessory);
+      if (parsed) {
+        tsvRows.push(`${parsed.movement}\t${parsed.sets}\t${parsed.target}\t\t\t`);
+      } else {
+        tsvRows.push(`${accessory}\t\t\t\t\t`);
+      }
+    }
+
+    return tsvRows.join("\n");
   };
 
   const handleAiInsight = (client: Client) => {
@@ -676,6 +746,80 @@ export function SbdohControl({
   
   const handleRepRecordUpdate = (newRecord: HistoricalRecord) => {
     setHistoricalData(prev => [...prev, newRecord]);
+  };
+
+  const handlePersistLoggedSets = async ({
+    clientId,
+    weekKey,
+    lift,
+    setEntries,
+  }: {
+    clientId: string;
+    weekKey: string;
+    lift: Lift;
+    setEntries: LoggedSetMap;
+  }) => {
+    const targetClient = clients.find((client) => client.id === clientId);
+    if (!targetClient) return;
+
+    const existing = targetClient.loggedSetInputsByCycle || {};
+    const cycleData = existing[currentCycleNumber] || {};
+    const weekData = cycleData[weekKey] || {};
+    const liftData = weekData[lift] || {};
+
+    const updatedPayload: LoggedSetInputsByCycle = {
+      ...existing,
+      [currentCycleNumber]: {
+        ...cycleData,
+        [weekKey]: {
+          ...weekData,
+          [lift]: {
+            ...liftData,
+            ...setEntries,
+          },
+        },
+      },
+    };
+
+    setClients((prev) =>
+      prev.map((client) =>
+        client.id === clientId
+          ? {
+              ...client,
+              loggedSetInputsByCycle: updatedPayload,
+            }
+          : client
+      )
+    );
+
+    const result = await upsertClientLoggedSetEntriesAction({
+      clientId,
+      cycleNumber: currentCycleNumber,
+      weekKey,
+      lift,
+      setEntries,
+    });
+    if (!result.success) {
+      toast({
+        variant: "destructive",
+        title: "Save Snapshot Failed",
+        description: result.message,
+      });
+      return;
+    }
+
+    if (result.merged) {
+      setClients((prev) =>
+        prev.map((client) =>
+          client.id === clientId
+            ? {
+                ...client,
+                loggedSetInputsByCycle: result.merged,
+              }
+            : client
+        )
+      );
+    }
   };
 
   const handleReorderClient = async (clientId: string, direction: "up" | "down") => {
@@ -1064,6 +1208,52 @@ export function SbdohControl({
       // A duplicated week should inherit the global programming for that new week by default.
 
       const cleanedAssignments = normalizeWeekAssignments(newAssignments, newCycleSettings);
+
+      const currentLoggedByWeek = client.loggedSetInputsByCycle?.[clientCycle] || {};
+      const shiftedLoggedByWeek: Record<string, Partial<Record<Lift, LoggedSetMap>>> = {};
+      for (const [loggedWeekKey, loggedWeekValue] of Object.entries(currentLoggedByWeek)) {
+        const loggedMatch = loggedWeekKey.match(/\d+/);
+        if (!loggedMatch) continue;
+        const loggedWeekNum = parseInt(loggedMatch[0], 10);
+        const newLoggedWeekNum = loggedWeekNum > weekNum ? loggedWeekNum + 1 : loggedWeekNum;
+        shiftedLoggedByWeek[`week${newLoggedWeekNum}`] = loggedWeekValue;
+      }
+
+      const nextLogged = {
+        ...(client.loggedSetInputsByCycle || {}),
+        [clientCycle]: shiftedLoggedByWeek,
+      } as LoggedSetInputsByCycle;
+
+      const currentSessionState = client.sessionStateByCycle?.[clientCycle];
+      const modeByWeek = currentSessionState?.modeByWeek || {};
+      const flowWeekKeyByWeek = currentSessionState?.flowWeekKeyByWeek || {};
+      const shiftedModeByWeek: Record<string, SessionMode> = {};
+      const shiftedFlowWeekByWeek: Record<string, string> = {};
+
+      for (const [modeWeekKey, modeValue] of Object.entries(modeByWeek)) {
+        const modeMatch = modeWeekKey.match(/\d+/);
+        if (!modeMatch) continue;
+        const modeWeekNum = parseInt(modeMatch[0], 10);
+        const newModeWeekNum = modeWeekNum > weekNum ? modeWeekNum + 1 : modeWeekNum;
+        shiftedModeByWeek[`week${newModeWeekNum}`] = modeValue;
+      }
+
+      for (const [flowWeekKey, flowValue] of Object.entries(flowWeekKeyByWeek)) {
+        const flowMatch = flowWeekKey.match(/\d+/);
+        if (!flowMatch) continue;
+        const flowWeekNum = parseInt(flowMatch[0], 10);
+        const newFlowWeekNum = flowWeekNum > weekNum ? flowWeekNum + 1 : flowWeekNum;
+        shiftedFlowWeekByWeek[`week${newFlowWeekNum}`] = flowValue;
+      }
+
+      const nextSessionStateByCycle = {
+        ...(client.sessionStateByCycle || {}),
+        [clientCycle]: {
+          ...(currentSessionState || { mode: "normal" as SessionMode }),
+          modeByWeek: shiftedModeByWeek,
+          flowWeekKeyByWeek: shiftedFlowWeekByWeek,
+        },
+      };
       
       return {
         ...client,
@@ -1071,6 +1261,8 @@ export function SbdohControl({
           ...(client.weekAssignmentsByCycle || {}),
           [clientCycle]: cleanedAssignments,
         },
+        loggedSetInputsByCycle: nextLogged,
+        sessionStateByCycle: nextSessionStateByCycle,
       };
     });
     
@@ -1082,6 +1274,20 @@ export function SbdohControl({
         id: client.id,
         weekAssignmentsByCycle: client.weekAssignmentsByCycle || {},
       }));
+
+    const updatedLoggedPayload = updatedClients
+      .filter(client => (client.currentCycleNumber || 1) === currentCycleNumber)
+      .map(client => ({
+        id: client.id,
+        loggedSetInputsByCycle: client.loggedSetInputsByCycle || {},
+      }));
+
+    const updatedSessionPayload = updatedClients
+      .filter(client => (client.currentCycleNumber || 1) === currentCycleNumber)
+      .map(client => ({
+        id: client.id,
+        sessionStateByCycle: client.sessionStateByCycle || {},
+      }));
     
     try {
       const cycleSettingsResult = await saveCycleSettingsAction(updatedCycleSettingsByCycle, cycleNames, cycleSchedulesByCycle);
@@ -1092,6 +1298,22 @@ export function SbdohControl({
       const assignmentsResult = await updateClientWeekAssignmentsAction(updatedAssignmentsPayload);
       if (!assignmentsResult.success) {
         console.error("Week duplicated, but failed to persist assignment updates:", assignmentsResult.message);
+      }
+
+      const loggedResult = await updateClientLoggedSetInputsBulkAction(updatedLoggedPayload as any);
+      if (!loggedResult.success) {
+        console.error("Week duplicated, but failed to persist logged set shifts:", loggedResult.message);
+      }
+
+      const sessionResults = await Promise.all(
+        updatedSessionPayload.map((item) =>
+          updateClientProfileAction(item.id, {
+            sessionStateByCycle: item.sessionStateByCycle as any,
+          })
+        )
+      );
+      if (sessionResults.some((result) => !result.success)) {
+        console.error("Week duplicated, but failed to persist some session mode updates.");
       }
 
       router.refresh();
@@ -1173,12 +1395,64 @@ export function SbdohControl({
 
       const cleanedAssignments = normalizeWeekAssignments(newAssignments, newCycleSettings);
 
+      const currentLoggedByWeek = client.loggedSetInputsByCycle?.[clientCycle] || {};
+      const shiftedLoggedByWeek: Record<string, Partial<Record<Lift, LoggedSetMap>>> = {};
+      for (const [loggedWeekKey, loggedWeekValue] of Object.entries(currentLoggedByWeek)) {
+        const loggedMatch = loggedWeekKey.match(/\d+/);
+        if (!loggedMatch) continue;
+
+        const loggedWeekNum = parseInt(loggedMatch[0], 10);
+        if (loggedWeekNum === deletedWeekNum) continue;
+        const newLoggedWeekNum = loggedWeekNum > deletedWeekNum ? loggedWeekNum - 1 : loggedWeekNum;
+        shiftedLoggedByWeek[`week${newLoggedWeekNum}`] = loggedWeekValue;
+      }
+
+      const nextLogged = {
+        ...(client.loggedSetInputsByCycle || {}),
+        [clientCycle]: shiftedLoggedByWeek,
+      } as LoggedSetInputsByCycle;
+
+      const currentSessionState = client.sessionStateByCycle?.[clientCycle];
+      const modeByWeek = currentSessionState?.modeByWeek || {};
+      const flowWeekKeyByWeek = currentSessionState?.flowWeekKeyByWeek || {};
+      const shiftedModeByWeek: Record<string, SessionMode> = {};
+      const shiftedFlowWeekByWeek: Record<string, string> = {};
+
+      for (const [modeWeekKey, modeValue] of Object.entries(modeByWeek)) {
+        const modeMatch = modeWeekKey.match(/\d+/);
+        if (!modeMatch) continue;
+        const modeWeekNum = parseInt(modeMatch[0], 10);
+        if (modeWeekNum === deletedWeekNum) continue;
+        const newModeWeekNum = modeWeekNum > deletedWeekNum ? modeWeekNum - 1 : modeWeekNum;
+        shiftedModeByWeek[`week${newModeWeekNum}`] = modeValue;
+      }
+
+      for (const [flowWeekKey, flowValue] of Object.entries(flowWeekKeyByWeek)) {
+        const flowMatch = flowWeekKey.match(/\d+/);
+        if (!flowMatch) continue;
+        const flowWeekNum = parseInt(flowMatch[0], 10);
+        if (flowWeekNum === deletedWeekNum) continue;
+        const newFlowWeekNum = flowWeekNum > deletedWeekNum ? flowWeekNum - 1 : flowWeekNum;
+        shiftedFlowWeekByWeek[`week${newFlowWeekNum}`] = flowValue;
+      }
+
+      const nextSessionStateByCycle = {
+        ...(client.sessionStateByCycle || {}),
+        [clientCycle]: {
+          ...(currentSessionState || { mode: "normal" as SessionMode }),
+          modeByWeek: shiftedModeByWeek,
+          flowWeekKeyByWeek: shiftedFlowWeekByWeek,
+        },
+      };
+
       return {
         ...client,
         weekAssignmentsByCycle: {
           ...(client.weekAssignmentsByCycle || {}),
           [clientCycle]: cleanedAssignments,
         },
+        loggedSetInputsByCycle: nextLogged,
+        sessionStateByCycle: nextSessionStateByCycle,
       };
     });
 
@@ -1191,6 +1465,20 @@ export function SbdohControl({
         weekAssignmentsByCycle: client.weekAssignmentsByCycle || {},
       }));
 
+    const updatedLoggedPayload = updatedClients
+      .filter(client => (client.currentCycleNumber || 1) === currentCycleNumber)
+      .map(client => ({
+        id: client.id,
+        loggedSetInputsByCycle: client.loggedSetInputsByCycle || {},
+      }));
+
+    const updatedSessionPayload = updatedClients
+      .filter(client => (client.currentCycleNumber || 1) === currentCycleNumber)
+      .map(client => ({
+        id: client.id,
+        sessionStateByCycle: client.sessionStateByCycle || {},
+      }));
+
     try {
       const cycleSettingsResult = await saveCycleSettingsAction(updatedCycleSettingsByCycle, cycleNames, cycleSchedulesByCycle);
       if (!cycleSettingsResult.success) {
@@ -1201,6 +1489,22 @@ export function SbdohControl({
       const assignmentsResult = await updateClientWeekAssignmentsAction(updatedAssignmentsPayload);
       if (!assignmentsResult.success) {
         console.error("Week deleted, but failed to persist assignment cleanup.");
+      }
+
+      const loggedResult = await updateClientLoggedSetInputsBulkAction(updatedLoggedPayload as any);
+      if (!loggedResult.success) {
+        console.error("Week deleted, but failed to persist logged set shifts.");
+      }
+
+      const sessionResults = await Promise.all(
+        updatedSessionPayload.map((item) =>
+          updateClientProfileAction(item.id, {
+            sessionStateByCycle: item.sessionStateByCycle as any,
+          })
+        )
+      );
+      if (sessionResults.some((result) => !result.success)) {
+        console.error("Week deleted, but failed to persist some session mode updates.");
       }
 
       router.refresh();
@@ -1356,7 +1660,9 @@ export function SbdohControl({
                   workoutDateLabel={getLiftDateLabel(lift)}
                   cycleSettings={cycleSettings}
                   currentWeek={currentWeek}
+                  currentCycleNumber={currentCycleNumber}
                   onRepRecordUpdate={handleRepRecordUpdate}
+                  onPersistLoggedSets={handlePersistLoggedSets}
                 />
                 <AccessoryDisplay
                   lift={lift}
@@ -1402,7 +1708,9 @@ export function SbdohControl({
                         workoutDateLabel={getLiftDateLabel(dayLift)}
                         cycleSettings={cycleSettings}
                         currentWeek={currentWeek}
+                        currentCycleNumber={currentCycleNumber}
                         onRepRecordUpdate={handleRepRecordUpdate}
+                        onPersistLoggedSets={handlePersistLoggedSets}
                         buildCopyText={buildDayCopyTextForWorkout}
                       />
                     ) : (
@@ -1464,6 +1772,7 @@ export function SbdohControl({
         cycleSettings={cycleSettings}
         currentGlobalWeek={currentWeek}
         currentCycleNumber={currentCycleNumber}
+        historicalData={historicalData}
         onUpdateClient={handleUpdateClient}
         onResetTrainingMax={handleResetClientTrainingMax}
       />

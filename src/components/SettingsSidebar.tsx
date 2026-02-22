@@ -321,6 +321,14 @@ export function SettingsSidebar({
               </AlertDialogContent>
             </AlertDialog>
           </SidebarMenuItem>
+          <SidebarMenuItem>
+            <a
+              href="/how-to.html"
+              className="block w-full px-2 py-1 text-center text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            >
+              How To
+            </a>
+          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>

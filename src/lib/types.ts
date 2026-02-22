@@ -26,6 +26,29 @@ export type TrainingMaxes = {
   [key in Lift]: number;
 };
 
+export type LoggedSetEntry = {
+  weight: number;
+  reps: number;
+  updatedAt: string;
+};
+
+export type LoggedSetMap = Record<string, LoggedSetEntry>;
+
+export type LoggedSetInputsByCycle = {
+  [cycleNumber: number]: {
+    [weekKey: string]: Partial<Record<Lift, LoggedSetMap>>;
+  };
+};
+
+export type SessionStateForCycle = {
+  mode: SessionMode;
+  flowWeekKey?: string;
+  applyUntilChanged?: boolean;
+  note?: string;
+  modeByWeek?: Record<string, SessionMode>;
+  flowWeekKeyByWeek?: Record<string, string>;
+};
+
 export interface Client {
   id: string;
   name: string;
@@ -37,14 +60,8 @@ export interface Client {
   actualWeights?: TrainingMaxes; // Latest actual weights lifted
   currentCycleNumber?: number; // Track which cycle the client is on (defaults to 1)
   weekAssignmentsByCycle?: { [cycleNumber: number]: { [weekKey: string]: string } }; // Maps cycle number to week assignments
-  sessionStateByCycle?: {
-    [cycleNumber: number]: {
-      mode: SessionMode;
-      flowWeekKey?: string;
-      applyUntilChanged?: boolean;
-      note?: string;
-    };
-  };
+  sessionStateByCycle?: { [cycleNumber: number]: SessionStateForCycle };
+  loggedSetInputsByCycle?: LoggedSetInputsByCycle;
   notes?: string; // Client notes
 };
 
