@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Background -->
+  <rect width="100" height="100" fill="#1a1a1a" rx="12"/>
+  
+  <!-- Left dumbbell head -->
+  <circle cx="25" cy="50" r="12" fill="#dc2626"/>
+  
+  <!-- Center grip -->
+  <rect x="40" y="45" width="20" height="10" fill="#fbbf24" rx="2"/>
+  
+  <!-- Right dumbbell head -->
+  <circle cx="75" cy="50" r="12" fill="#dc2626"/>
+  
+  <!-- Highlights for dimension -->
+  <circle cx="25" cy="45" r="4" fill="#ffffff" opacity="0.2"/>
+  <circle cx="75" cy="45" r="4" fill="#ffffff" opacity="0.2"/>
+</svg>

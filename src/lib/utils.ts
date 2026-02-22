@@ -64,9 +64,14 @@ export const calculateWorkout = (
   client: Client,
   lift: Lift,
   weekSettings: CycleWeekSettings,
-  historicalData: HistoricalRecord[]
+  historicalData: HistoricalRecord[],
+  cycleNumber: number = 1
 ): CalculatedWorkout => {
-  const tm = client.trainingMaxes[lift];
+  const storedTm = client.trainingMaxesByCycle?.[cycleNumber]?.[lift] ?? client.trainingMaxes[lift];
+  const baseTmFromOneRepMax = mround(client.oneRepMaxes[lift] * 0.9);
+  const tm = cycleNumber === 1 && storedTm > client.oneRepMaxes[lift]
+    ? baseTmFromOneRepMax
+    : storedTm;
   
   const sets: WorkoutSet[] = [
     { type: 'Warm-up', set: 1, label: 'Warm-up 1', weight: mround(tm * weekSettings.percentages.warmup1), reps: 5, plates: ''},
@@ -91,9 +96,12 @@ export const calculateWorkout = (
   );
   
   const lastMonth1RM = Math.max(0, ...lastMonthRecords.map(r => r.estimated1RM));
+  const isAmrapTopSet = typeof weekSettings.reps.workset3 === 'string'
+    ? weekSettings.reps.workset3.includes('+')
+    : false;
   
   let prTarget;
-  if (lastMonth1RM > 0) {
+  if (lastMonth1RM > 0 && isAmrapTopSet) {
       const topSetWeight = sets.find(s => s.type === 'Work Set' && s.set === 3)?.weight || 0;
       prTarget = {
           reps: calculateRepsForPR(lastMonth1RM + 1, topSetWeight),

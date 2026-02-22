@@ -19,15 +19,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   Weight,
-  Download,
   Plus,
   Users,
   TrendingUp,
   Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import type { Client, CycleSettings, Lift } from "@/lib/types";
 import { Lifts } from "@/lib/types";
@@ -35,41 +37,102 @@ import { useToast } from "@/hooks/use-toast";
 import { graduateTeamAction } from "@/app/actions";
 import { useState } from "react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { WeekOptionsModal } from "@/components/WeekOptionsModal";
+
+// Helper function to extract rep scheme from week settings
+const getRepScheme = (workset3Reps: string | number | undefined): string => {
+  if (workset3Reps === undefined) return '?';
+  const repNum = typeof workset3Reps === 'string' 
+    ? workset3Reps.replace(/\D/g, '') // Extract digits from "5+", "3+", "1+"
+    : workset3Reps.toString();
+  return repNum || '?';
+};
 
 type SettingsSidebarProps = {
   lift: Lift;
   onLiftChange: (lift: Lift) => void;
+  showLiftSelector?: boolean;
+  showCycleSelector?: boolean;
+  topControls?: React.ReactNode;
   currentWeek: string;
   onWeekChange: (week: string) => void;
   cycleSettings: CycleSettings;
   clients: Client[];
+  currentCycleNumber?: number;
+  availableCycleNumbers?: number[];
+  onCycleChange?: (cycleNumber: number) => void;
   onAddClient: () => void;
-  onExport: () => void;
+  onClientProfile: (client: Client) => void;
   onAiInsight: (client: Client) => void;
+  onReorderClient: (clientId: string, direction: "up" | "down") => void;
+  onDuplicateWeek: (weekKey: string) => Promise<void>;
+  onDeleteWeek: (weekKey: string) => Promise<boolean>;
+  onGraduateTeam?: (updatedClients: Client[], newCycleNumber: number) => void;
 };
 
 export function SettingsSidebar({
   lift,
   onLiftChange,
+  showLiftSelector = true,
+  showCycleSelector = true,
+  topControls,
   currentWeek,
   onWeekChange,
   cycleSettings,
   clients,
+  currentCycleNumber = 1,
+  availableCycleNumbers = [],
+  onCycleChange,
   onAddClient,
-  onExport,
+  onClientProfile,
   onAiInsight,
+  onReorderClient,
+  onDuplicateWeek,
+  onDeleteWeek,
+  onGraduateTeam,
 }: SettingsSidebarProps) {
     const { toast } = useToast();
     const [isGraduating, setIsGraduating] = useState(false);
+    const [isWeekOptionsOpen, setIsWeekOptionsOpen] = useState(false);
+    const [selectedWeekForOptions, setSelectedWeekForOptions] = useState<string | null>(null);
+
+    const sortedCycleNumbers = (availableCycleNumbers.length > 0
+      ? [...availableCycleNumbers]
+      : [1, ...clients.map(c => c.currentCycleNumber || 1)]
+    )
+      .filter((value, index, array) => array.indexOf(value) === index)
+      .sort((a, b) => a - b);
+
+    const currentCycleIndex = sortedCycleNumbers.indexOf(currentCycleNumber);
+    const prevCycleNumber = currentCycleIndex > 0 ? sortedCycleNumbers[currentCycleIndex - 1] : null;
+    const nextCycleNumber =
+      currentCycleIndex >= 0 && currentCycleIndex < sortedCycleNumbers.length - 1
+        ? sortedCycleNumbers[currentCycleIndex + 1]
+        : null;
+
+    const handleWeekClick = (weekKey: string) => {
+      setSelectedWeekForOptions(weekKey);
+      setIsWeekOptionsOpen(true);
+    };
 
     const handleGraduateTeam = async () => {
         setIsGraduating(true);
-        const result = await graduateTeamAction();
+        const result = await graduateTeamAction(clients);
         if (result.success) {
             toast({
                 title: "Success!",
                 description: result.message,
             });
+            // Notify parent component to update cycle number
+            if (onGraduateTeam && result.newCycleNumber) {
+                onGraduateTeam(clients, result.newCycleNumber);
+            }
         } else {
             toast({
                 variant: "destructive",
@@ -81,46 +144,98 @@ export function SettingsSidebar({
     }
 
   return (
+    <>
     <Sidebar
       variant="sidebar"
-      collapsible="icon"
+      collapsible="offcanvas"
       className="border-r"
       side="left"
     >
       <SidebarContent>
         <SidebarHeader>
+          {topControls ? <div className="space-y-1">{topControls}</div> : null}
+          {showLiftSelector ? (
+            <div className="space-y-1">
+              <Label>Main Lift</Label>
+              <Select value={lift} onValueChange={(value) => onLiftChange(value as Lift)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a lift" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Lifts.map((l) => (
+                    <SelectItem key={l} value={l}>
+                      <div className="flex items-center gap-2">
+                        <Weight className="h-4 w-4" /> {l}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          {showCycleSelector ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => prevCycleNumber && onCycleChange?.(prevCycleNumber)}
+                  disabled={prevCycleNumber === null}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm font-medium">Cycle {currentCycleNumber}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => nextCycleNumber && onCycleChange?.(nextCycleNumber)}
+                  disabled={nextCycleNumber === null}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <div className="space-y-1">
-            <Label>Main Lift</Label>
-            <Select value={lift} onValueChange={(value) => onLiftChange(value as Lift)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a lift" />
-              </SelectTrigger>
-              <SelectContent>
-                {Lifts.map((l) => (
-                  <SelectItem key={l} value={l}>
-                    <div className="flex items-center gap-2">
-                      <Weight className="h-4 w-4" /> {l}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label>Cycle Week</Label>
-            <Tabs
-              value={currentWeek}
-              onValueChange={onWeekChange}
-              className="w-full"
+            <div className="mb-2 text-xs font-semibold text-primary">
+              {cycleSettings[currentWeek]?.name}
+            </div>
+            <div className="mb-2 text-[10px] text-muted-foreground">
+              Click to open week, double-click for options.
+            </div>
+            <div
+              className={`grid w-full ${
+                Object.keys(cycleSettings).length > 3 ? "grid-cols-4" : "grid-cols-3"
+              } h-auto gap-0 border rounded-md overflow-hidden`}
             >
-              <TabsList className="grid w-full grid-cols-3 h-auto">
-                {Object.keys(cycleSettings).map((weekKey) => (
-                  <TabsTrigger key={weekKey} value={weekKey} className="text-xs">
-                    {cycleSettings[weekKey].name}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+              {Object.keys(cycleSettings)
+                .sort((a, b) => {
+                  const aNum = parseInt(a.match(/\d+/)?.[0] || "0", 10);
+                  const bNum = parseInt(b.match(/\d+/)?.[0] || "0", 10);
+                  return aNum - bNum;
+                })
+                .map((weekKey) => (
+                <div key={weekKey} className="flex-1 border-r last:border-r-0">
+                  <button
+                    onClick={() => onWeekChange(weekKey)}
+                    onDoubleClick={() => handleWeekClick(weekKey)}
+                    className={`w-full px-1 py-2 text-xs hover:bg-muted rounded-none text-center cursor-pointer transition-colors ${
+                      currentWeek === weekKey ? 'bg-muted border-b-2 border-b-primary' : ''
+                    }`}
+                    title="Click to open week. Double-click for week options."
+                  >
+                    <div className="flex flex-col items-center leading-tight">
+                      <span className="font-medium">{cycleSettings[weekKey].name}</span>
+                      <span className="text-xxs text-muted-foreground">
+                        ({getRepScheme(cycleSettings[weekKey].reps.workset3)})
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         </SidebarHeader>
 
@@ -130,24 +245,49 @@ export function SettingsSidebar({
             Client Roster ({clients.length})
           </SidebarGroupLabel>
           <SidebarMenu>
-            {clients.map((client) => (
-              <SidebarMenuItem key={client.id}>
-                <SidebarMenuButton
-                  className="justify-start w-full"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => onAiInsight(client)}
-                  tooltip={{
-                    children: `Get AI Insights for ${client.name}`,
-                    side: "right",
-                    align: "center",
-                  }}
-                >
-                  <Sparkles className="text-primary" />
-                  <span>{client.name}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+            {clients.map((client, index) => {
+              return (
+                <SidebarMenuItem key={client.id}>
+                  <div className="flex items-center gap-1 w-full">
+                    <SidebarMenuButton
+                      className="justify-start flex-1 min-w-0"
+                      size="sm"
+                      onClick={() => onClientProfile(client)}
+                      tooltip={{
+                        children: `Edit profile for ${client.name}`,
+                        side: "right",
+                        align: "center",
+                      }}
+                    >
+                      <Sparkles className="text-primary" />
+                      <span>{client.name}</span>
+                    </SidebarMenuButton>
+                    <div className="flex flex-col">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-4 w-4"
+                        disabled={index === 0}
+                        onClick={() => onReorderClient(client.id, "up")}
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-4 w-4"
+                        disabled={index === clients.length - 1}
+                        onClick={() => onReorderClient(client.id, "down")}
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                </SidebarMenuItem>
+              );
+            })}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
@@ -181,13 +321,17 @@ export function SettingsSidebar({
               </AlertDialogContent>
             </AlertDialog>
           </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={onExport} variant="outline" tooltip="Export as CSV">
-              <Download /> <span>Export Workout</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
+    <WeekOptionsModal
+      open={isWeekOptionsOpen}
+      onOpenChange={setIsWeekOptionsOpen}
+      weekKey={selectedWeekForOptions}
+      cycleSettings={cycleSettings}
+      onDuplicateWeek={onDuplicateWeek}
+      onDeleteWeek={onDeleteWeek}
+    />
+    </>
   );
 }

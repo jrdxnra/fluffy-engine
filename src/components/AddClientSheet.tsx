@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import type { Client, Lift } from "@/lib/types";
 import { Lifts } from "@/lib/types";
+import { mround } from "@/lib/utils";
 import { addClientAction } from "@/app/actions";
 
 const schema = z.object({
@@ -36,9 +37,10 @@ type FormData = z.infer<typeof schema>;
 type AddClientSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onClientAdded?: (client: Client) => void;
 };
 
-export function AddClientSheet({ open, onOpenChange }: AddClientSheetProps) {
+export function AddClientSheet({ open, onOpenChange, onClientAdded }: AddClientSheetProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const {
@@ -63,11 +65,19 @@ export function AddClientSheet({ open, onOpenChange }: AddClientSheetProps) {
       name: data.name,
       oneRepMaxes: data.oneRepMaxes,
       trainingMaxes: {
-        Squat: Math.round(data.oneRepMaxes.Squat * 0.9),
-        Bench: Math.round(data.oneRepMaxes.Bench * 0.9),
-        Deadlift: Math.round(data.oneRepMaxes.Deadlift * 0.9),
-        Press: Math.round(data.oneRepMaxes.Press * 0.9),
+        Squat: mround(data.oneRepMaxes.Squat * 0.9),
+        Bench: mround(data.oneRepMaxes.Bench * 0.9),
+        Deadlift: mround(data.oneRepMaxes.Deadlift * 0.9),
+        Press: mround(data.oneRepMaxes.Press * 0.9),
       },
+      trainingMaxesByCycle: {
+        1: {
+          Squat: mround(data.oneRepMaxes.Squat * 0.9),
+          Bench: mround(data.oneRepMaxes.Bench * 0.9),
+          Deadlift: mround(data.oneRepMaxes.Deadlift * 0.9),
+          Press: mround(data.oneRepMaxes.Press * 0.9),
+        }
+      }
     };
 
     const result = await addClientAction(newClient);
@@ -77,6 +87,19 @@ export function AddClientSheet({ open, onOpenChange }: AddClientSheetProps) {
         title: "Client Added",
         description: `${data.name} has been added to the roster.`,
       });
+      // Notify parent with the new client data
+      if (onClientAdded) {
+        const addedClient: Client = {
+          id: `client-${Date.now()}`,
+          ...newClient,
+          currentCycleNumber: 1,
+          trainingMaxesByCycle: {
+            1: newClient.trainingMaxesByCycle![1] // Use the same cycle 1 training maxes
+          },
+          weekAssignmentsByCycle: { 1: { week1: "5", week2: "3", week3: "1" } },
+        };
+        onClientAdded(addedClient);
+      }
       reset();
       onOpenChange(false);
     } else {
@@ -133,7 +156,7 @@ export function AddClientSheet({ open, onOpenChange }: AddClientSheetProps) {
                     <p className="text-xs text-muted-foreground mt-1">
                       90% Training Max:{" "}
                       <span className="font-bold text-primary">
-                        {Math.round(oneRepMaxes[lift] * 0.9)} lbs
+                        {mround(oneRepMaxes[lift] * 0.9)} lbs
                       </span>
                     </p>
                   )}

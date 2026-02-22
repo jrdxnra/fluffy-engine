@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Background -->
+  <rect width="100" height="100" fill="#1a1a1a" rx="12"/>
+  
+  <!-- Letter P in Power Lift style -->
+  <text x="50" y="70" font-size="60" font-weight="bold" fill="#fbbf24" text-anchor="middle" font-family="Arial, sans-serif">P</text>
+  
+  <!-- Small barbell accent underneath -->
+  <circle cx="35" cy="82" r="3" fill="#dc2626"/>
+  <rect x="38" y="80" width="24" height="4" fill="#dc2626"/>
+  <circle cx="65" cy="82" r="3" fill="#dc2626"/>
+</svg>

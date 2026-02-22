@@ -8,6 +8,16 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Allow server actions from GitHub Codespaces forwarded URLs
+  experimental: {
+    serverActions: {
+      allowedOrigins: [
+        'localhost:9002',
+        '*.app.github.dev',
+        'redesigned-space-goldfish-44vr6x459gghjpp6-9002.app.github.dev',
+      ],
+    },
+  },
   images: {
     remotePatterns: [
       {

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Background -->
+  <rect width="100" height="100" fill="#1a1a1a" rx="12"/>
+  
+  <!-- Base line -->
+  <line x1="20" y1="75" x2="30" y2="75" stroke="#fbbf24" stroke-width="4" stroke-linecap="round"/>
+  
+  <!-- Ascending line -->
+  <polyline points="30,75 45,55 60,65 80,30" fill="none" stroke="#dc2626" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Top arrow point -->
+  <polygon points="80,30 75,40 85,37" fill="#dc2626"/>
+  
+  <!-- Accent dots -->
+  <circle cx="30" cy="75" r="2" fill="#fbbf24"/>
+  <circle cx="45" cy="55" r="2" fill="#dc2626"/>
+  <circle cx="60" cy="65" r="2" fill="#dc2626"/>
+  <circle cx="80" cy="30" r="2" fill="#dc2626"/>
+</svg>

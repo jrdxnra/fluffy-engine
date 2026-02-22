@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Client, CycleSettings, HistoricalRecord, Lift } from "@/lib/types";
-import { getAiInsightsAction } from "@/app/actions";
+import { getAiInsightsAction } from "@/app/ai-actions";
 import { Sparkles, LineChart as LineChartIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ProgressChartDialog } from "./ProgressChartDialog";
@@ -63,9 +63,20 @@ export function AiInsightsDialog({
       currentCycleParameters: {
         currentWeek: cycleSettings[currentWeek].name,
         globalPercentages: cycleSettings[currentWeek].percentages,
-        repTargets: cycleSettings[currentWeek].reps,
+        repTargets: {
+          workset1: cycleSettings[currentWeek].reps.workset1,
+          workset2: cycleSettings[currentWeek].reps.workset2,
+          workset3: typeof cycleSettings[currentWeek].reps.workset3 === 'string' 
+            ? parseInt(cycleSettings[currentWeek].reps.workset3) 
+            : cycleSettings[currentWeek].reps.workset3,
+        } as Record<string, number>,
       },
-      clientTrainingMaxes: client.trainingMaxes,
+      clientTrainingMaxes: {
+        bench: client.trainingMaxes.Bench,
+        squat: client.trainingMaxes.Squat,
+        deadlift: client.trainingMaxes.Deadlift,
+        press: client.trainingMaxes.Press,
+      },
       clientHistoricalPerformance,
     };
 

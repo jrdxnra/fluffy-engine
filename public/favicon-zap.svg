@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Background -->
+  <rect width="100" height="100" fill="#1a1a1a" rx="12"/>
+  
+  <!-- Lightning bolt (Zap) -->
+  <polygon points="55,15 35,55 50,55 40,85 65,45 50,45" fill="#fbbf24" stroke="#dc2626" stroke-width="1.5"/>
+  
+  <!-- Inner highlight -->
+  <polygon points="50,35 45,50 50,50 48,65 58,48 52,48" fill="#ffffff" opacity="0.3"/>
+</svg>
