@@ -286,82 +286,82 @@ export function ClientProfileModal({
                 <CardTitle className="text-base">1RM Progress Tracking</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-md border p-3 bg-muted/30 space-y-2">
-                  <p className="text-sm font-medium">Update Actual 1RM</p>
-                  <p className="text-xs text-muted-foreground">
-                    Edit Actual 1RM below. Training Max is automatically calculated at 90% when you save.
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-                    {Lifts.map((lift) => {
-                      const actual1RM = localClient.oneRepMaxes[lift];
-                      const trainingMax = calculateTrainingMaxes(localClient.oneRepMaxes)[lift];
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <div className="rounded-md border p-3 bg-muted/30 space-y-2">
+                    <p className="text-sm font-medium">Update Actual 1RM</p>
+                    <p className="text-xs text-muted-foreground">
+                      Edit Actual 1RM below. Training Max is automatically calculated at 90% when you save.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      {Lifts.map((lift) => {
+                        const actual1RM = localClient.oneRepMaxes[lift];
+                        const trainingMax = calculateTrainingMaxes(localClient.oneRepMaxes)[lift];
 
-                      return (
-                        <div key={lift} className="space-y-1">
-                          <Label className="text-xs font-medium text-muted-foreground">{lift} Actual 1RM</Label>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="number"
-                              min={1}
-                              value={actual1RM}
-                              onChange={(e) => handleOneRepMaxChange(lift, e.target.value)}
-                              className="w-28"
-                            />
-                            <span className="text-xs text-muted-foreground">lbs</span>
+                        return (
+                          <div key={lift} className="space-y-1">
+                            <Label className="text-xs font-medium text-muted-foreground">{lift} Actual 1RM</Label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="number"
+                                min={1}
+                                value={actual1RM}
+                                onChange={(e) => handleOneRepMaxChange(lift, e.target.value)}
+                                className="w-28"
+                              />
+                              <span className="text-xs text-muted-foreground">lbs</span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">Auto TM: {trainingMax} lbs</p>
                           </div>
-                          <p className="text-[11px] text-muted-foreground">Auto TM: {trainingMax} lbs</p>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-                <div className="rounded-md border p-3 bg-muted/30">
-                  <p className="text-sm font-medium">Stall / Reset Protocol (Current Cycle Only)</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Use this when a client stalls. Recalculate TM from recent performance starting at a selected cycle and apply forward.
-                    This does not overwrite Actual 1RM values.
-                  </p>
-                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Reset Starting At Cycle</Label>
-                      <Select
-                        value={resetCycleNumber.toString()}
-                        onValueChange={(value) => setResetCycleNumber(parseInt(value, 10))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(() => {
-                            const cycleSet = new Set<number>([currentCycleNumber]);
-                            Object.keys(localClient.trainingMaxesByCycle || {}).forEach((cycleKey) => {
-                              const n = parseInt(cycleKey, 10);
-                              if (!Number.isNaN(n)) cycleSet.add(n);
-                            });
+                  <div className="rounded-md border p-3 bg-muted/30">
+                    <p className="text-sm font-medium">Stall / Reset Protocol (Current Cycle Only)</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Use this when a client stalls. Recalculate TM from recent performance starting at a selected cycle and apply forward.
+                      This does not overwrite Actual 1RM values.
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Reset Starting At Cycle</Label>
+                        <Select
+                          value={resetCycleNumber.toString()}
+                          onValueChange={(value) => setResetCycleNumber(parseInt(value, 10))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(() => {
+                              const cycleSet = new Set<number>([currentCycleNumber]);
+                              Object.keys(localClient.trainingMaxesByCycle || {}).forEach((cycleKey) => {
+                                const n = parseInt(cycleKey, 10);
+                                if (!Number.isNaN(n)) cycleSet.add(n);
+                              });
 
-                            return Array.from(cycleSet)
-                              .sort((a, b) => a - b)
-                              .map((cycle) => (
-                                <SelectItem key={cycle} value={cycle.toString()}>
-                                  Cycle {cycle}
-                                </SelectItem>
-                              ));
-                          })()}
-                        </SelectContent>
-                      </Select>
+                              return Array.from(cycleSet)
+                                .sort((a, b) => a - b)
+                                .map((cycle) => (
+                                  <SelectItem key={cycle} value={cycle.toString()}>
+                                    Cycle {cycle}
+                                  </SelectItem>
+                                ));
+                            })()}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    <div className="flex items-center rounded-md border px-3 py-2">
-                      <p className="text-[11px] text-muted-foreground">Applies to selected cycle and all later cycles.</p>
-                    </div>
+                    <Button
+                      className="mt-3"
+                      variant="outline"
+                      onClick={handleResetTM}
+                      disabled={isResettingTM || isSaving}
+                    >
+                      {isResettingTM ? "Resetting TM..." : `Reset From Cycle ${resetCycleNumber} Forward`}
+                    </Button>
+                    <p className="mt-2 text-[11px] text-muted-foreground">Applies to selected cycle and all later cycles.</p>
                   </div>
-                  <Button
-                    className="mt-3"
-                    variant="outline"
-                    onClick={handleResetTM}
-                    disabled={isResettingTM || isSaving}
-                  >
-                    {isResettingTM ? "Resetting TM..." : `Reset From Cycle ${resetCycleNumber} Forward`}
-                  </Button>
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {Lifts.map((lift) => {
