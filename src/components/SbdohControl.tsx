@@ -28,7 +28,7 @@ import { ClientProfileModal } from "@/components/ClientProfileModal";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { calculateTrainingMaxes } from "@/lib/training-max";
-import { Moon, Sun } from "lucide-react";
+import { Columns3, Moon, Rows3, Sun } from "lucide-react";
 import {
   deleteClientAction,
   deleteCycleAction,
@@ -1709,7 +1709,7 @@ export function SbdohControl({
                 <span className="text-xs text-muted-foreground">Toggle Sidebar</span>
               </div>
               <p className={`absolute left-1/2 -translate-x-1/2 ${isSidebarOpen ? "-ml-[131px]" : "-ml-[3px]"} text-lg font-bold tracking-tight`}>{sessionHeaderLabel}</p>
-              <div className="ml-auto">
+              <div className="fixed right-4 top-2 z-40 sm:right-6">
                 <div className="flex flex-col items-end gap-1">
                   <Button
                     type="button"
@@ -1721,22 +1721,26 @@ export function SbdohControl({
                     title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
                   >
                     {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                    <span>Theme: {theme === "dark" ? "Dark" : "Light"}</span>
+                    <span>{theme === "dark" ? "Dark" : "Light"}</span>
                   </Button>
                   <div className="inline-flex items-center rounded-md border overflow-hidden">
                     <button
                       type="button"
-                      className={`h-7 px-2 text-xs font-medium transition-colors ${sessionLayout === "horizontal" ? "bg-primary text-primary-foreground" : "bg-background text-foreground hover:bg-muted"}`}
+                      className={`h-8 w-10 px-0 inline-flex items-center justify-center transition-colors ${sessionLayout === "horizontal" ? "bg-primary text-primary-foreground" : "bg-background text-foreground hover:bg-muted"}`}
                       onClick={() => setSessionLayout("horizontal")}
+                      aria-label="Horizontal layout"
+                      title="Horizontal layout"
                     >
-                      Horizontal
+                      <Rows3 className="h-4 w-4" />
                     </button>
                     <button
                       type="button"
-                      className={`h-7 px-2 text-xs font-medium transition-colors border-l ${sessionLayout === "vertical" ? "bg-primary text-primary-foreground" : "bg-background text-foreground hover:bg-muted"}`}
+                      className={`h-8 w-10 px-0 inline-flex items-center justify-center transition-colors border-l ${sessionLayout === "vertical" ? "bg-primary text-primary-foreground" : "bg-background text-foreground hover:bg-muted"}`}
                       onClick={() => setSessionLayout("vertical")}
+                      aria-label="Vertical layout"
+                      title="Vertical layout"
                     >
-                      Vertical
+                      <Columns3 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
