@@ -71,6 +71,8 @@ type SettingsSidebarProps = {
   onClientProfile: (client: Client) => void;
   onAiInsight: (client: Client) => void;
   onReorderClient: (clientId: string, direction: "up" | "down") => void;
+  onLogAllReps: () => void;
+  isBulkLoggingActive?: boolean;
   onDuplicateWeek: (weekKey: string) => Promise<void>;
   onDeleteWeek: (weekKey: string) => Promise<boolean>;
   onGraduateTeam?: (updatedClients: Client[], newCycleNumber: number) => void;
@@ -93,6 +95,8 @@ export function SettingsSidebar({
   onClientProfile,
   onAiInsight,
   onReorderClient,
+  onLogAllReps,
+  isBulkLoggingActive = false,
   onDuplicateWeek,
   onDeleteWeek,
   onGraduateTeam,
@@ -204,6 +208,17 @@ export function SettingsSidebar({
             </div>
             <div className="mb-2 text-[10px] text-muted-foreground">
               Click to open week, double-click for options.
+            </div>
+            <div className="mb-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={isBulkLoggingActive ? "default" : "outline"}
+                className="h-7 w-full text-xs"
+                onClick={onLogAllReps}
+              >
+                {isBulkLoggingActive ? "Save all Reps" : "Log all Reps"}
+              </Button>
             </div>
             <div
               className={`grid w-full ${

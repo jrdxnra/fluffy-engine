@@ -20,6 +20,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import type { Client, CycleSettings, HistoricalRecord, Lift, SessionMode } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { calculateTrainingMaxes } from "@/lib/training-max";
@@ -35,6 +46,7 @@ type ClientProfileModalProps = {
   historicalData: HistoricalRecord[];
   onUpdateClient: (updatedClient: Client) => Promise<void> | void;
   onResetTrainingMax: (clientId: string, cycleNumber: number) => Promise<void>;
+  onDeleteClient: (clientId: string) => Promise<void>;
 };
 
 const getRepScheme = (workset3Reps: string | number): string => {
@@ -73,10 +85,12 @@ export function ClientProfileModal({
   historicalData,
   onUpdateClient,
   onResetTrainingMax,
+  onDeleteClient,
 }: ClientProfileModalProps) {
   const [localClient, setLocalClient] = useState<Client | null>(client);
   const [isSaving, setIsSaving] = useState(false);
   const [isResettingTM, setIsResettingTM] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [selectedCycle, setSelectedCycle] = useState<number>(currentCycleNumber);
   const [resetCycleNumber, setResetCycleNumber] = useState<number>(currentCycleNumber);
 
@@ -260,6 +274,13 @@ export function ClientProfileModal({
   const handleClose = () => {
     setLocalClient(client);
     onOpenChange(false);
+  };
+
+  const handleDelete = async () => {
+    if (!localClient) return;
+    setIsDeleting(true);
+    await onDeleteClient(localClient.id);
+    setIsDeleting(false);
   };
 
   if (!localClient) return null;
@@ -564,13 +585,36 @@ export function ClientProfileModal({
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-end gap-2 pt-4">
+        <div className="flex justify-between gap-2 pt-4">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" disabled={isSaving || isResettingTM || isDeleting}>
+                {isDeleting ? "Deleting..." : "Delete Client"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete {localClient.name}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will remove the client from your roster. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete}>
+                  Delete Client
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          <div className="flex gap-2">
           <Button variant="outline" onClick={handleClose} disabled={isSaving}>
             Cancel
           </Button>
           <Button onClick={handleSave} disabled={isSaving}>
             {isSaving ? "Saving..." : "Save Changes"}
           </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

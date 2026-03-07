@@ -30,6 +30,7 @@ import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 import { Moon, Sun } from "lucide-react";
 import {
+  deleteClientAction,
   deleteCycleAction,
   resetClientTrainingMaxAction,
   saveCycleSettingsAction,
@@ -40,6 +41,12 @@ import {
   updateClientWeekAssignmentsAction,
 } from "@/app/actions";
 import { useToast } from "@/hooks/use-toast";
+
+type BulkLogAction = {
+  type: "open" | "save";
+  token: number;
+  targetLift: Lift;
+};
 
 type SbdohControlProps = {
   initialClients: Client[];
@@ -261,6 +268,9 @@ export function SbdohControl({
   const [isPending, startTransition] = useTransition();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [sessionLayout, setSessionLayout] = useState<"horizontal" | "vertical">("vertical");
+  const [activeBulkLogLift, setActiveBulkLogLift] = useState<Lift | null>(null);
+  const [bulkLogAction, setBulkLogAction] = useState<BulkLogAction | null>(null);
 
   // Compute available cycles from clients
   // Compute available cycles from cycleSettingsByCycle instead of from client data
@@ -744,6 +754,36 @@ export function SbdohControl({
     toast({
       title: "Training Max Reset",
       description: result.message,
+    });
+  };
+
+  const handleDeleteClient = async (clientId: string) => {
+    const result = await deleteClientAction(clientId);
+    if (!result.success) {
+      toast({
+        variant: "destructive",
+        title: "Delete Failed",
+        description: result.message,
+      });
+      return;
+    }
+
+    setClients((prev) =>
+      prev
+        .filter((client) => client.id !== clientId)
+        .map((client, index) => ({
+          ...client,
+          rosterOrder: index,
+        }))
+    );
+    if (selectedClientForProfile?.id === clientId) {
+      setSelectedClientForProfile(null);
+      setClientProfileModalOpen(false);
+    }
+
+    toast({
+      title: "Client Deleted",
+      description: "Client removed from roster.",
     });
   };
   
@@ -1619,6 +1659,21 @@ export function SbdohControl({
     </div>
   );
 
+  const handleLogAllReps = (targetLift: Lift) => {
+    if (activeBulkLogLift === targetLift) {
+      setBulkLogAction({ type: "save", token: Date.now(), targetLift });
+      setActiveBulkLogLift(null);
+      return;
+    }
+    setBulkLogAction({ type: "open", token: Date.now(), targetLift });
+    setActiveBulkLogLift(targetLift);
+  };
+
+  const sidebarBulkTargetLift: Lift =
+    viewMode === "lift"
+      ? lift
+      : (dayLifts[0] || lift);
+
 
   return (
     <SidebarProvider open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
@@ -1640,6 +1695,8 @@ export function SbdohControl({
           onClientProfile={handleClientProfile}
           onAiInsight={handleAiInsight}
           onReorderClient={handleReorderClient}
+          onLogAllReps={() => handleLogAllReps(sidebarBulkTargetLift)}
+          isBulkLoggingActive={activeBulkLogLift === sidebarBulkTargetLift}
           onDuplicateWeek={handleDuplicateWeek}
           onDeleteWeek={handleDeleteWeek}
           onGraduateTeam={handleGraduateTeam}
@@ -1653,18 +1710,36 @@ export function SbdohControl({
               </div>
               <p className={`absolute left-1/2 -translate-x-1/2 ${isSidebarOpen ? "-ml-[131px]" : "-ml-[3px]"} text-lg font-bold tracking-tight`}>{sessionHeaderLabel}</p>
               <div className="ml-auto">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-2"
-                  onClick={toggleTheme}
-                  aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                >
-                  {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                  <span>Theme: {theme === "dark" ? "Dark" : "Light"}</span>
-                </Button>
+                <div className="flex flex-col items-end gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-2"
+                    onClick={toggleTheme}
+                    aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                    title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                  >
+                    {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                    <span>Theme: {theme === "dark" ? "Dark" : "Light"}</span>
+                  </Button>
+                  <div className="inline-flex items-center rounded-md border overflow-hidden">
+                    <button
+                      type="button"
+                      className={`h-7 px-2 text-xs font-medium transition-colors ${sessionLayout === "horizontal" ? "bg-primary text-primary-foreground" : "bg-background text-foreground hover:bg-muted"}`}
+                      onClick={() => setSessionLayout("horizontal")}
+                    >
+                      Horizontal
+                    </button>
+                    <button
+                      type="button"
+                      className={`h-7 px-2 text-xs font-medium transition-colors border-l ${sessionLayout === "vertical" ? "bg-primary text-primary-foreground" : "bg-background text-foreground hover:bg-muted"}`}
+                      onClick={() => setSessionLayout("vertical")}
+                    >
+                      Vertical
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1680,6 +1755,10 @@ export function SbdohControl({
                   currentCycleNumber={currentCycleNumber}
                   onRepRecordUpdate={handleRepRecordUpdate}
                   onPersistLoggedSets={handlePersistLoggedSets}
+                  layoutMode={sessionLayout}
+                  bulkLogAction={bulkLogAction}
+                  isBulkLoggingActive={activeBulkLogLift === lift}
+                  onBulkLogToggle={() => handleLogAllReps(lift)}
                 />
                 <AccessoryDisplay
                   lift={lift}
@@ -1700,8 +1779,26 @@ export function SbdohControl({
                     key={dayLift}
                     className={index === 0 ? "space-y-1" : "mt-3 border-t pt-3 space-y-1"}
                   >
-                    <div className="flex items-center justify-end gap-2">
-                      <span className="text-sm font-semibold">{dayLift}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      {sessionLayout === "vertical" ? (
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {(() => {
+                            const moveNumber = index + 1;
+                            const suffix =
+                              moveNumber % 10 === 1 && moveNumber % 100 !== 11
+                                ? "st"
+                                : moveNumber % 10 === 2 && moveNumber % 100 !== 12
+                                  ? "nd"
+                                  : moveNumber % 10 === 3 && moveNumber % 100 !== 13
+                                    ? "rd"
+                                    : "th";
+                            return `${moveNumber}${suffix} Move`;
+                          })()}
+                        </span>
+                      ) : <span />}
+                      <span className={sessionLayout === "vertical" ? "text-xl font-bold tracking-tight" : "text-sm font-semibold"}>
+                        {dayLift}
+                      </span>
                       <Button
                         type="button"
                         size="sm"
@@ -1729,6 +1826,10 @@ export function SbdohControl({
                         onRepRecordUpdate={handleRepRecordUpdate}
                         onPersistLoggedSets={handlePersistLoggedSets}
                         buildCopyText={buildDayCopyTextForWorkout}
+                        layoutMode={sessionLayout}
+                        bulkLogAction={bulkLogAction}
+                        isBulkLoggingActive={activeBulkLogLift === dayLift}
+                        onBulkLogToggle={() => handleLogAllReps(dayLift)}
                       />
                     ) : (
                       <div className="h-0" />
@@ -1792,6 +1893,7 @@ export function SbdohControl({
         historicalData={historicalData}
         onUpdateClient={handleUpdateClient}
         onResetTrainingMax={handleResetClientTrainingMax}
+        onDeleteClient={handleDeleteClient}
       />
     </SidebarProvider>
   );

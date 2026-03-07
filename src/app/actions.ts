@@ -562,3 +562,25 @@ export async function updateClientRosterOrderAction(
     return { success: false, message: "Failed to update roster order." };
   }
 }
+
+export async function deleteClientAction(clientId: string) {
+  "use server";
+  try {
+    const { deleteClient, getClients, updateClient } = await import("@/lib/data");
+
+    await deleteClient(clientId);
+
+    const remainingClients = await getClients();
+    for (const [index, client] of remainingClients.entries()) {
+      if (client.rosterOrder !== index) {
+        await updateClient(client.id, { rosterOrder: index } as any);
+      }
+    }
+
+    revalidatePath("/");
+    return { success: true, message: "Client deleted." };
+  } catch (error) {
+    console.error("Error deleting client:", error);
+    return { success: false, message: "Failed to delete client." };
+  }
+}

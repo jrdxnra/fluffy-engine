@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Table,
   TableBody,
@@ -44,6 +44,14 @@ type WorkoutTableProps = {
     lift: Lift;
     setEntries: LoggedSetMap;
   }) => Promise<void>;
+  layoutMode?: "horizontal" | "vertical";
+  bulkLogAction?: {
+    type: "open" | "save";
+    token: number;
+    targetLift: Lift;
+  } | null;
+  isBulkLoggingActive?: boolean;
+  onBulkLogToggle?: () => void;
 };
 
 type SetCellProps = {
@@ -57,6 +65,7 @@ type SetCellProps = {
   onSetInputChange: (setIndex: number, field: "weight" | "reps", value: string) => void;
   onSaveAll: () => void;
   isSaving: boolean;
+  showRepBadge?: boolean;
 };
 
 const SetCell = ({ 
@@ -69,45 +78,69 @@ const SetCell = ({
   setInputs,
   onSetInputChange,
   onSaveAll,
-  isSaving
+  isSaving,
+  showRepBadge = true,
 }: SetCellProps) => {
   const setKey = `${setIndex}`;
   const input = setInputs[setKey] || { weight: "", reps: "" };
+
+  const plateTokens = set.plates
+    ? set.plates.split(",").map((token) => token.trim()).filter(Boolean)
+    : [];
+
+  const plateClassMap: Record<string, string> = {
+    "45": "bg-[#2f6fe4] text-white border-[#1f4fb6]",
+    "25": "bg-[#2fa35a] text-white border-[#1e7a43]",
+    "10": "bg-[#1c1c1e] text-white border-black",
+    "5": "bg-[#f8f8f9] text-black border-black",
+    "2.5": "bg-[#c9ced6] text-black border-[#8a9099]",
+  };
 
   return (
     <div className="flex flex-col gap-1">
       <div className="font-code font-bold text-lg text-foreground">
         {set.weight} lbs
-        <Badge variant="secondary" className="ml-2 font-sans">
-          {set.reps} reps
-        </Badge>
+        {showRepBadge ? (
+          <Badge variant="secondary" className="ml-2 font-sans">
+            {set.reps} reps
+          </Badge>
+        ) : null}
       </div>
-      <div className="text-xs text-muted-foreground font-code">
-        {set.plates ? `Plates: ${set.plates}` : "Bar only"}
+      <div className="text-xs text-muted-foreground font-code min-h-5">
+        {plateTokens.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1">
+            {plateTokens.map((plate, idx) => (
+              <span
+                key={`${plate}-${idx}`}
+                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 font-sans text-[10px] font-bold tabular-nums leading-none antialiased ${plateClassMap[plate] || "bg-muted text-foreground border-border"}`}
+                title={`${plate} lb plate`}
+              >
+                {plate}
+              </span>
+            ))}
+          </div>
+        ) : (
+          "Bar only"
+        )}
       </div>
       {isExpanded && (
-        <div className="mt-2 space-y-2">
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              placeholder={set.weight.toString()}
-              className="h-7 w-20 font-code text-xs"
-              value={input.weight}
-              onChange={(e) => onSetInputChange(setIndex, "weight", e.target.value)}
-              disabled={isSaving}
-            />
-            <span className="text-xs text-muted-foreground">lbs</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              placeholder="Reps"
-              className="h-7 w-16 font-code text-xs"
-              value={input.reps}
-              onChange={(e) => onSetInputChange(setIndex, "reps", e.target.value)}
-              disabled={isSaving}
-            />
-          </div>
+        <div className="mt-2 flex items-center gap-1.5 whitespace-nowrap">
+          <Input
+            type="number"
+            placeholder="lbs"
+            className="h-7 w-16 font-code text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            value={input.weight}
+            onChange={(e) => onSetInputChange(setIndex, "weight", e.target.value)}
+            disabled={isSaving}
+          />
+          <Input
+            type="number"
+            placeholder="reps"
+            className="h-7 w-12 font-code text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            value={input.reps}
+            onChange={(e) => onSetInputChange(setIndex, "reps", e.target.value)}
+            disabled={isSaving}
+          />
         </div>
       )}
     </div>
@@ -115,7 +148,7 @@ const SetCell = ({
 };
 
 
-export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets }: WorkoutTableProps) {
+export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle }: WorkoutTableProps) {
   const [clientNotes, setClientNotes] = useState<{ [key: string]: string }>({});
   const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({});
   const [rowInputs, setRowInputs] = useState<{ [key: string]: { [key: string]: { weight: string; reps: string } } }>({});
@@ -129,7 +162,12 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
   }
 
   const headerSource = workouts.find((workout) => workout.sets.length > 0) || workouts[0];
-  const headerSets = headerSource?.sets.map(s => ({label: s.label, type: s.type, set: s.set})) || [];
+  const headerSets = headerSource?.sets.map((s) => ({
+    label: s.label,
+    type: s.type,
+    set: s.set,
+    reps: s.reps,
+  })) || [];
 
   const sessionModeLabel: Record<string, string> = {
     normal: "Normal",
@@ -301,6 +339,45 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
     }
   };
 
+  const openAllRows = () => {
+    const nextExpanded: Record<string, boolean> = {};
+    for (const { client, sets } of workouts) {
+      if (sets.length > 0) {
+        nextExpanded[client.id] = true;
+      }
+    }
+    setExpandedRows(nextExpanded);
+  };
+
+  useEffect(() => {
+    if (!bulkLogAction) return;
+    if (bulkLogAction.targetLift !== lift) return;
+
+    if (bulkLogAction.type === "open") {
+      openAllRows();
+      return;
+    }
+
+    const saveUpdatedRows = async () => {
+      try {
+        for (const { client, sets, effectiveWeekKey } of workouts) {
+          if (sets.length === 0 || !hasSetData(client.id)) continue;
+
+          const clientWeekKey = effectiveWeekKey || currentWeek;
+          const persistedSetMap =
+            client.loggedSetInputsByCycle?.[currentCycleNumber]?.[clientWeekKey]?.[lift] || {};
+
+          await handleSaveRowInputs(client.id, sets, clientWeekKey, persistedSetMap);
+        }
+      } finally {
+        // Match row-level save behavior by collapsing everything after bulk save.
+        setExpandedRows({});
+      }
+    };
+
+    void saveUpdatedRows();
+  }, [bulkLogAction, workouts, currentWeek, currentCycleNumber, lift]);
+
   const buildWorkoutText = (workout: CalculatedWorkout): string => {
     const effectiveWeekKey = workout.effectiveWeekKey || currentWeek;
     const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, lift);
@@ -341,6 +418,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
 
   return (
     <div className="border rounded-lg w-full">
+      {layoutMode === "horizontal" ? (
       <Table className="table-fixed w-full">
         <TableHeader>
           <TableRow>
@@ -364,7 +442,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
             
             return (
             <TableRow key={client.id} className={rowIndex % 2 === 0 ? "" : "bg-slate-100 dark:bg-slate-800"}>
-                <TableCell className="font-medium">
+                <TableCell className="align-middle font-medium">
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-base">{client.name}</span>
@@ -469,6 +547,173 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
           })}
         </TableBody>
       </Table>
+      ) : (
+      <div className="overflow-x-auto">
+        <Table className="table-fixed w-full min-w-[980px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[118px]">Set</TableHead>
+              {workouts.map(({ client, sessionMode, effectiveWeekKey }) => (
+                <TableHead key={client.id} className="align-middle">
+                  <div className="flex min-h-[56px] flex-col justify-center gap-1">
+                    <span className="font-bold text-sm">{client.name}</span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {sessionMode && sessionMode !== "normal" && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {sessionModeLabel[sessionMode] || sessionMode}
+                        </Badge>
+                      )}
+                      {effectiveWeekKey && effectiveWeekKey !== weekName.toLowerCase().replace(" ", "") && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          {effectiveWeekKey}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {headerSets.map((headerSet, setIndex) => {
+              const isTopSet = headerSet.type === "Work Set" && headerSet.set === 3;
+              return (
+                <TableRow key={`${headerSet.label}-${setIndex}`}>
+                  <TableCell className={`font-medium text-xs ${isTopSet ? "text-primary" : ""}`}>
+                    <div className="leading-tight">
+                      <div>{headerSet.label}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{headerSet.reps} reps</div>
+                    </div>
+                  </TableCell>
+                  {workouts.map(({ client, sets, effectiveWeekKey, sessionMode }) => {
+                    const isExpanded = expandedRows[client.id] || false;
+                    const isSaving = savingRows[client.id] || false;
+                    const clientWeekKey = effectiveWeekKey || currentWeek;
+                    const persistedSetMap =
+                      client.loggedSetInputsByCycle?.[currentCycleNumber]?.[clientWeekKey]?.[lift] || {};
+                    const set = sets[setIndex];
+
+                    if (!set) {
+                      return (
+                        <TableCell key={`${client.id}-${setIndex}`} className="text-xs text-muted-foreground">
+                          {sessionMode === "pause_week" ? "Paused" : "-"}
+                        </TableCell>
+                      );
+                    }
+
+                    return (
+                      <TableCell key={`${client.id}-${setIndex}`} className={isTopSet ? "bg-primary/10 align-top" : "align-top"}>
+                        <SetCell
+                          clientId={client.id}
+                          set={set}
+                          setIndex={setIndex}
+                          lift={lift}
+                          isTopSet={isTopSet}
+                          isExpanded={isExpanded}
+                          setInputs={{
+                            ...Object.entries(persistedSetMap).reduce<Record<string, { weight: string; reps: string }>>((acc, [key, value]) => {
+                              acc[key] = {
+                                weight: String(value.weight),
+                                reps: String(value.reps),
+                              };
+                              return acc;
+                            }, {}),
+                            ...(rowInputs[client.id] || {}),
+                          }}
+                          onSetInputChange={(index, field, value) =>
+                            handleSetInputChange(client.id, index, field, value)
+                          }
+                          onSaveAll={() => handleSaveRowInputs(client.id, sets, clientWeekKey, persistedSetMap)}
+                          isSaving={isSaving}
+                          showRepBadge={false}
+                        />
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              );
+            })}
+
+            <TableRow>
+              <TableCell className="font-medium text-xs">
+                <div className="flex flex-col items-start gap-1">
+                  <span>Action</span>
+                  {onBulkLogToggle ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={isBulkLoggingActive ? "default" : "outline"}
+                      className="h-7 px-2 text-[11px]"
+                      onClick={onBulkLogToggle}
+                    >
+                      {isBulkLoggingActive ? "Save all Reps" : "Log all Reps"}
+                    </Button>
+                  ) : null}
+                </div>
+              </TableCell>
+              {workouts.map(({ client, sets, prTarget, sessionMode, effectiveWeekKey }) => {
+                const isExpanded = expandedRows[client.id] || false;
+                const isSaving = savingRows[client.id] || false;
+                const hasSets = sets.length > 0;
+                const clientWeekKey = effectiveWeekKey || currentWeek;
+                const persistedSetMap =
+                  client.loggedSetInputsByCycle?.[currentCycleNumber]?.[clientWeekKey]?.[lift] || {};
+
+                return (
+                  <TableCell key={`${client.id}-actions`}>
+                    <div className="flex flex-wrap gap-1">
+                      <ClientNotesDialog
+                        clientId={client.id}
+                        clientName={client.name}
+                        currentNotes={client.notes}
+                        onNotesSaved={(notes) => handleNotesSaved(client.id, notes)}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          setSelectedWorkout({ client, sets, prTarget, sessionMode, effectiveWeekKey });
+                        }}
+                        disabled={!hasSets}
+                      >
+                        <Eye className="h-3 w-3 mr-1" />
+                        View
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={isExpanded ? "default" : "outline"}
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          if (isExpanded) {
+                            handleSaveRowInputs(client.id, sets, clientWeekKey, persistedSetMap);
+                          } else {
+                            handleToggleRow(client.id);
+                          }
+                        }}
+                        disabled={isSaving || !hasSets}
+                      >
+                        {isExpanded ? (
+                          <>
+                            <Check className="h-3 w-3 mr-1" />
+                            Save
+                          </>
+                        ) : (
+                          <>
+                            <ChevronRight className="h-3 w-3 mr-1" />
+                            Log Reps
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+      )}
 
       <Dialog open={!!selectedWorkout} onOpenChange={(open) => !open && setSelectedWorkout(null)}>
         <DialogContent className="max-w-2xl">

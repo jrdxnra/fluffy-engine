@@ -2,6 +2,7 @@ import type { Client, CycleScheduleSettings, CycleSettings, HistoricalRecord, Li
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -373,6 +374,17 @@ export const updateClient = async (clientId: string, updates: Partial<Client>) =
     return { id: clientId, ...updates };
   } catch (error) {
     console.error('Error updating client:', error);
+    throw error;
+  }
+};
+
+export const deleteClient = async (clientId: string) => {
+  try {
+    const clientRef = doc(db, 'clients', clientId);
+    await deleteDoc(clientRef);
+    return { id: clientId };
+  } catch (error) {
+    console.error('Error deleting client:', error);
     throw error;
   }
 };
