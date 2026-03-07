@@ -61,55 +61,81 @@ export function AddClientSheet({ open, onOpenChange, onClientAdded }: AddClientS
 
   const onSubmit = async (data: FormData) => {
     setIsSubmitting(true);
-    const newClient: Omit<Client, "id"> = {
-      name: data.name,
-      oneRepMaxes: data.oneRepMaxes,
-      trainingMaxes: {
-        Squat: mround(data.oneRepMaxes.Squat * 0.9),
-        Bench: mround(data.oneRepMaxes.Bench * 0.9),
-        Deadlift: mround(data.oneRepMaxes.Deadlift * 0.9),
-        Press: mround(data.oneRepMaxes.Press * 0.9),
-      },
-      trainingMaxesByCycle: {
-        1: {
+    try {
+      const addClientPayload = {
+        name: data.name.trim(),
+        oneRepMaxes: {
+          Squat: Number(data.oneRepMaxes.Squat),
+          Bench: Number(data.oneRepMaxes.Bench),
+          Deadlift: Number(data.oneRepMaxes.Deadlift),
+          Press: Number(data.oneRepMaxes.Press),
+        },
+      };
+
+      const newClient: Omit<Client, "id"> = {
+        name: data.name,
+        oneRepMaxes: data.oneRepMaxes,
+        trainingMaxes: {
           Squat: mround(data.oneRepMaxes.Squat * 0.9),
           Bench: mround(data.oneRepMaxes.Bench * 0.9),
           Deadlift: mround(data.oneRepMaxes.Deadlift * 0.9),
           Press: mround(data.oneRepMaxes.Press * 0.9),
+        },
+        trainingMaxesByCycle: {
+          1: {
+            Squat: mround(data.oneRepMaxes.Squat * 0.9),
+            Bench: mround(data.oneRepMaxes.Bench * 0.9),
+            Deadlift: mround(data.oneRepMaxes.Deadlift * 0.9),
+            Press: mround(data.oneRepMaxes.Press * 0.9),
+          }
         }
-      }
-    };
+      };
 
-    const result = await addClientAction(newClient);
-    
-    if (result.success) {
-      toast({
-        title: "Client Added",
-        description: `${data.name} has been added to the roster.`,
-      });
-      // Notify parent with the new client data
-      if (onClientAdded) {
-        const addedClient: Client = {
-          id: `client-${Date.now()}`,
-          ...newClient,
-          currentCycleNumber: 1,
-          trainingMaxesByCycle: {
-            1: newClient.trainingMaxesByCycle![1] // Use the same cycle 1 training maxes
-          },
-          weekAssignmentsByCycle: { 1: { week1: "5", week2: "3", week3: "1" } },
-        };
-        onClientAdded(addedClient);
+      const result = await addClientAction(addClientPayload);
+
+      if (result.success) {
+        toast({
+          title: "Client Added",
+          description: `${data.name} has been added to the roster.`,
+        });
+        if (onClientAdded) {
+          const addedClient: Client = (result as any).client || {
+            id: `client-${Date.now()}`,
+            ...newClient,
+            currentCycleNumber: 1,
+            trainingMaxesByCycle: {
+              1: newClient.trainingMaxesByCycle![1]
+            },
+            weekAssignmentsByCycle: { 1: { week1: "5", week2: "3", week3: "1" } },
+          };
+          onClientAdded(addedClient);
+        }
+        reset();
+        onOpenChange(false);
+        return;
       }
-      reset();
-      onOpenChange(false);
-    } else {
+
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to add client. Please try again.",
+        description: result.message || "Failed to add client. Please try again.",
       });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "Unexpected error while adding client.";
+
+      toast({
+        variant: "destructive",
+        title: "Add Client Failed",
+        description: message,
+      });
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   return (

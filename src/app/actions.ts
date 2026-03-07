@@ -90,12 +90,18 @@ export async function addClientAction(clientData: {
     };
 
     console.log("Server Action: Adding client", normalizedClientData);
-    await addClient(normalizedClientData as any);
+    const createdClient = await addClient(normalizedClientData as any);
     revalidatePath("/");
-    return { success: true, message: "Client added successfully." };
+    return { success: true, message: "Client added successfully.", client: createdClient };
   } catch (error) {
     console.error("Error adding client:", error);
-    return { success: false, message: `Failed to add client: ${error}` };
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Unknown error";
+    return { success: false, message: `Failed to add client: ${message}` };
   }
 }
 
@@ -175,6 +181,9 @@ export async function updateClientNotesAction(clientId: string, notes: string) {
 export async function updateClientProfileAction(
   clientId: string,
   updates: {
+    oneRepMaxes?: Record<string, number>;
+    trainingMaxes?: Record<string, number>;
+    trainingMaxesByCycle?: Record<number, Record<string, number>>;
     initialWeights?: Record<string, number>;
     weekAssignmentsByCycle?: Record<number, Record<string, string>>;
     sessionStateByCycle?: Record<number, {
@@ -199,7 +208,10 @@ export async function updateClientProfileAction(
   }
 }
 
-export async function resetClientTrainingMaxAction(clientId: string, cycleNumber: number) {
+export async function resetClientTrainingMaxAction(
+  clientId: string,
+  cycleNumber: number
+) {
   "use server";
   try {
     const { getClients, getHistoricalData, updateClient } = await import("@/lib/data");
@@ -214,8 +226,6 @@ export async function resetClientTrainingMaxAction(clientId: string, cycleNumber
     const lifts = ["Squat", "Bench", "Deadlift", "Press"] as const;
     const mround = (value: number) => Math.round(value / 5) * 5;
 
-    const updatedOneRepMaxes = { ...client.oneRepMaxes } as any;
-    const updatedTrainingMaxes = { ...client.trainingMaxes } as any;
     const currentCycleMaxes = { ...(client.trainingMaxesByCycle?.[cycleNumber] || client.trainingMaxes) } as any;
 
     for (const lift of lifts) {
@@ -229,20 +239,23 @@ export async function resetClientTrainingMaxAction(clientId: string, cycleNumber
         ...recentLiftRecords.map((record) => record.estimated1RM)
       );
 
-      updatedOneRepMaxes[lift] = bestEstimated1RM;
       const nextTrainingMax = mround(bestEstimated1RM * 0.9);
-      updatedTrainingMaxes[lift] = nextTrainingMax;
       currentCycleMaxes[lift] = nextTrainingMax;
     }
 
     const updatedTrainingMaxesByCycle = {
       ...(client.trainingMaxesByCycle || {}),
       [cycleNumber]: currentCycleMaxes,
-    };
+    } as Record<number, typeof currentCycleMaxes>;
+
+    for (const cycleKey of Object.keys(updatedTrainingMaxesByCycle)) {
+      const cycle = Number(cycleKey);
+      if (!Number.isNaN(cycle) && cycle > cycleNumber) {
+        updatedTrainingMaxesByCycle[cycle] = { ...currentCycleMaxes };
+      }
+    }
 
     await updateClient(clientId, {
-      oneRepMaxes: updatedOneRepMaxes,
-      trainingMaxes: updatedTrainingMaxes,
       trainingMaxesByCycle: updatedTrainingMaxesByCycle,
     } as any);
 
@@ -250,11 +263,9 @@ export async function resetClientTrainingMaxAction(clientId: string, cycleNumber
 
     return {
       success: true,
-      message: "Training max reset from recent performance.",
+      message: `Cycle ${cycleNumber} and future cycle training maxes reset from recent performance.`,
       updatedClient: {
         ...client,
-        oneRepMaxes: updatedOneRepMaxes,
-        trainingMaxes: updatedTrainingMaxes,
         trainingMaxesByCycle: updatedTrainingMaxesByCycle,
       },
     };

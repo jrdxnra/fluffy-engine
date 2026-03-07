@@ -25,8 +25,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { accessoryMap } from "@/lib/workout-content";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
+import { formatBasicWorkoutCopyText } from "@/lib/copy-formatter";
 
 type WorkoutTableProps = {
   workouts: CalculatedWorkout[];
@@ -307,40 +307,14 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
     const persistedSetMap =
       workout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[lift] || {};
 
-    const setsText = workout.sets
-      .map((set, index) => {
-        const actual = actualByClientSet[workout.client.id]?.[index];
-        const persisted = persistedSetMap[String(index)];
-        const weight = set.weight;
-        const reps = set.reps;
-        return `${set.label}: ${weight} lbs x ${reps}`;
-      })
-      .join("\n");
-
-    const actualsText = workout.sets
-      .map((set, index) => {
-        const actual = actualByClientSet[workout.client.id]?.[index];
-        const persisted = persistedSetMap[String(index)];
-        const actualWeight = actual?.weight ?? persisted?.weight;
-        const actualReps = actual?.reps ?? persisted?.reps;
-        if (actualWeight === undefined || actualReps === undefined) return null;
-        return `${set.label}: ${actualWeight} lbs x ${actualReps}`;
-      })
-      .filter((line): line is string => Boolean(line))
-      .join("\n");
-
-    return [
-      workoutDateLabel ? `${lift} ${workoutDateLabel}` : lift,
-      "",
-      "Main Sets",
-      setsText,
-      ...(actualsText ? ["", "Logged Actuals", actualsText] : []),
-      "",
-      `${lift} Accessories`,
-      ...accessories.map((item) => `- ${item}`),
-    ]
-      .filter((line) => line !== "")
-      .join("\n");
+    return formatBasicWorkoutCopyText({
+      lift,
+      workoutDateLabel,
+      sets: workout.sets,
+      accessories,
+      actualBySetIndex: actualByClientSet[workout.client.id],
+      persistedSetMap,
+    });
   };
 
   const getDisplayWorkoutText = (workout: CalculatedWorkout): string => {

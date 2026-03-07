@@ -15,6 +15,8 @@ import { mround } from "@/lib/utils";
 type ClientProgressChartProps = {
   data: HistoricalRecord[];
   lift: Lift;
+  currentOneRepMax?: number;
+  currentTrainingMax?: number;
 };
 
 const chartConfig = {
@@ -29,22 +31,45 @@ const chartConfig = {
 } as const;
 
 
-export function ClientProgressChart({ data, lift }: ClientProgressChartProps) {
-  const formattedData = data.map(item => ({
+export function ClientProgressChart({
+  data,
+  lift,
+  currentOneRepMax,
+  currentTrainingMax,
+}: ClientProgressChartProps) {
+  const historicalPoints = data.map(item => ({
     ...item,
-    date: new Date(item.date),
+    date: item.date,
     formattedDate: format(new Date(item.date), "MMM d"),
     actual1RM: item.estimated1RM,
     recommendedTM: mround(item.estimated1RM * 0.9),
+    isCurrent: false,
   }));
 
-  if (formattedData.length < 2) {
-      return (
-          <div className="flex h-full w-full items-center justify-center">
-              <p className="text-muted-foreground">Not enough data to display a chart. Log at least two workouts for this lift.</p>
-          </div>
-      )
-  }
+  const latestHistorical = historicalPoints[historicalPoints.length - 1];
+  const effectiveCurrentOneRepMax = currentOneRepMax ?? latestHistorical?.actual1RM ?? 0;
+  const effectiveCurrentTrainingMax = currentTrainingMax ?? latestHistorical?.recommendedTM ?? 0;
+  const shouldAppendCurrentPoint =
+    effectiveCurrentOneRepMax > 0 &&
+    (
+      !latestHistorical ||
+      latestHistorical.actual1RM !== effectiveCurrentOneRepMax ||
+      latestHistorical.recommendedTM !== effectiveCurrentTrainingMax
+    );
+
+  const currentPoint = {
+    date: new Date().toISOString(),
+    formattedDate: "Now",
+    actual1RM: effectiveCurrentOneRepMax,
+    recommendedTM: effectiveCurrentTrainingMax,
+    weight: null,
+    reps: null,
+    isCurrent: true,
+  };
+
+  const formattedData = shouldAppendCurrentPoint
+    ? [...historicalPoints, currentPoint]
+    : historicalPoints;
 
   return (
     <ChartContainer config={chartConfig} className="h-full w-full">
@@ -89,9 +114,13 @@ export function ClientProgressChart({ data, lift }: ClientProgressChartProps) {
                   <div className="text-xs text-muted-foreground">
                     Recommended TM: {props.payload.recommendedTM} lbs
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {props.payload.weight} lbs x {props.payload.reps} reps
-                  </div>
+                  {props.payload.weight && props.payload.reps ? (
+                    <div className="text-xs text-muted-foreground">
+                      {props.payload.weight} lbs x {props.payload.reps} reps
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground">Current profile settings</div>
+                  )}
                 </div>
               )}
             />

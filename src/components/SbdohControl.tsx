@@ -26,6 +26,9 @@ import { ProgressChartDialog } from "@/components/ProgressChartDialog";
 import { ConfigSettingsDialog } from "@/components/ConfigSettingsDialog";
 import { ClientProfileModal } from "@/components/ClientProfileModal";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
+import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
+import { calculateTrainingMaxes } from "@/lib/training-max";
+import { Moon, Sun } from "lucide-react";
 import {
   deleteCycleAction,
   resetClientTrainingMaxAction,
@@ -56,6 +59,7 @@ export function SbdohControl({
   const router = useRouter();
   const { toast } = useToast();
   const dayViewStorageKey = "sbdoh:dayViewSlot";
+  const themeStorageKey = "sbdoh:theme";
   
   const normalizeCycleSettingsByCycle = (
     settingsByCycle: Record<number, CycleSettings>
@@ -256,6 +260,7 @@ export function SbdohControl({
 
   const [isPending, startTransition] = useTransition();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
 
   // Compute available cycles from clients
   // Compute available cycles from cycleSettingsByCycle instead of from client data
@@ -288,6 +293,30 @@ export function SbdohControl({
       setDayViewSlot(stored);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const root = document.documentElement;
+    const storedTheme = window.localStorage.getItem(themeStorageKey);
+    const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const initialTheme: "light" | "dark" =
+      storedTheme === "light" || storedTheme === "dark"
+        ? storedTheme
+        : (systemPrefersDark ? "dark" : "light");
+
+    root.classList.toggle("dark", initialTheme === "dark");
+    setTheme(initialTheme);
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme: "light" | "dark" = theme === "dark" ? "light" : "dark";
+    if (typeof window !== "undefined") {
+      document.documentElement.classList.toggle("dark", nextTheme === "dark");
+      window.localStorage.setItem(themeStorageKey, nextTheme);
+    }
+    setTheme(nextTheme);
+  };
 
   useEffect(() => {
     const weekdayNames = [
@@ -612,77 +641,37 @@ export function SbdohControl({
   }, [lift, calculatedWorkouts, currentWeek]);
 
   const buildDayCopyTextForWorkout = (workout: CalculatedWorkout, defaultText: string): string => {
-    const parseAccessoryPrescription = (text: string): { movement: string; sets: string; target: string } | null => {
-      const normalized = text.trim().replace(/\s+/g, " ");
-      const prefix = normalized.match(/^\s*(\d+)\s*[xX]\s*([^\s]+)\s+(.+)$/);
-      if (prefix) {
-        const [, sets, target, movement] = prefix;
-        return { movement: movement.trim(), sets, target };
-      }
-
-      const suffix = normalized.match(/^\s*(.+?)\s+(\d+)\s*[xX]\s*([^\s]+)\s*$/);
-      if (suffix) {
-        const [, movement, sets, target] = suffix;
-        return { movement: movement.trim(), sets, target };
-      }
-
-      return null;
-    };
-
-    const tsvRows: string[] = [];
-    const mergedAccessories: string[] = [];
     const dayWeekday = dayViewSlot === "day1" ? currentWeekSchedule.day1Weekday : currentWeekSchedule.day2Weekday;
     const dayDate = dayViewSlot === "day1" ? currentWeekSchedule.day1Date : currentWeekSchedule.day2Date;
     const dayDateLabel = `${dayWeekday}${dayDate ? ` (${formatShortDate(dayDate)})` : ""}`;
 
-    tsvRows.push(`${dayLifts.join(" + ")} ${dayDateLabel}`);
-    tsvRows.push("MOVEMENTS\tSETS\tREC REPS\tREC LOAD\tACT REPS\tACT LOAD");
-
-    for (const dayLift of dayLifts) {
-      const liftWorkout = (dayWorkoutsByLift[dayLift] || []).find((item) => item.client.id === workout.client.id);
-      if (!liftWorkout || !liftWorkout.sets || liftWorkout.sets.length === 0) {
-        continue;
-      }
-
-      const effectiveWeekKey = liftWorkout.effectiveWeekKey || currentWeek;
-      const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, dayLift);
-      const persistedSetMap =
-        liftWorkout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[dayLift] || {};
-
-      tsvRows.push(`WORKING SETS: ${dayLift.toUpperCase()}`);
-      for (const [setIndex, set] of liftWorkout.sets.entries()) {
-        if (set.type !== "Work Set") continue;
-        const persisted = persistedSetMap[String(setIndex)];
-        const actualReps = persisted?.reps !== undefined ? String(persisted.reps) : "";
-        const actualLoad = persisted?.weight !== undefined ? String(persisted.weight) : "";
-        tsvRows.push(
-          `${dayLift}\t1\t${set.reps}\t${set.weight}\t${actualReps}\t${actualLoad}`
-        );
-      }
-      tsvRows.push("");
-
-      for (const accessory of accessories) {
-        if (!mergedAccessories.includes(accessory)) {
-          mergedAccessories.push(accessory);
+    const liftEntries = dayLifts
+      .map((dayLift) => {
+        const liftWorkout = (dayWorkoutsByLift[dayLift] || []).find((item) => item.client.id === workout.client.id);
+        if (!liftWorkout || !liftWorkout.sets || liftWorkout.sets.length === 0) {
+          return null;
         }
-      }
-    }
 
-    if (tsvRows.length <= 2) {
-      return defaultText;
-    }
+        const effectiveWeekKey = liftWorkout.effectiveWeekKey || currentWeek;
+        const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, dayLift);
+        const persistedSetMap =
+          liftWorkout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[dayLift] || {};
 
-    tsvRows.push("WORKING SETS: ACCESSORIES");
-    for (const accessory of mergedAccessories) {
-      const parsed = parseAccessoryPrescription(accessory);
-      if (parsed) {
-        tsvRows.push(`${parsed.movement}\t${parsed.sets}\t${parsed.target}\t\t\t`);
-      } else {
-        tsvRows.push(`${accessory}\t\t\t\t\t`);
-      }
-    }
+        return {
+          lift: dayLift,
+          sets: liftWorkout.sets,
+          accessories,
+          persistedSetMap,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
-    return tsvRows.join("\n");
+    return formatDayWorkoutCopyText({
+      dayHeader: `${dayLifts.join(" + ")} ${dayDateLabel}`,
+      dayLifts,
+      liftEntries,
+      fallbackText: defaultText,
+    });
   };
 
   const handleAiInsight = (client: Client) => {
@@ -696,12 +685,26 @@ export function SbdohControl({
   };
   
   const handleUpdateClient = async (updatedClient: Client) => {
-    setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
+    const recalculatedTrainingMaxes = calculateTrainingMaxes(updatedClient.oneRepMaxes);
+    const currentCycleForClient = updatedClient.currentCycleNumber || currentCycleNumber || 1;
+    const normalizedClient: Client = {
+      ...updatedClient,
+      trainingMaxes: recalculatedTrainingMaxes,
+      trainingMaxesByCycle: {
+        ...(updatedClient.trainingMaxesByCycle || {}),
+        [currentCycleForClient]: recalculatedTrainingMaxes,
+      },
+    };
 
-    const result = await updateClientProfileAction(updatedClient.id, {
-      initialWeights: updatedClient.initialWeights as any,
-      weekAssignmentsByCycle: updatedClient.weekAssignmentsByCycle,
-      sessionStateByCycle: updatedClient.sessionStateByCycle as any,
+    setClients(prev => prev.map(c => c.id === updatedClient.id ? normalizedClient : c));
+
+    const result = await updateClientProfileAction(normalizedClient.id, {
+      oneRepMaxes: normalizedClient.oneRepMaxes,
+      trainingMaxes: normalizedClient.trainingMaxes,
+      trainingMaxesByCycle: normalizedClient.trainingMaxesByCycle,
+      initialWeights: normalizedClient.initialWeights as any,
+      weekAssignmentsByCycle: normalizedClient.weekAssignmentsByCycle,
+      sessionStateByCycle: normalizedClient.sessionStateByCycle as any,
     });
 
     if (!result.success) {
@@ -720,8 +723,8 @@ export function SbdohControl({
     });
   };
 
-  const handleResetClientTrainingMax = async (clientId: string) => {
-    const result = await resetClientTrainingMaxAction(clientId, currentCycleNumber);
+  const handleResetClientTrainingMax = async (clientId: string, cycleNumber: number) => {
+    const result = await resetClientTrainingMaxAction(clientId, cycleNumber);
     if (!result.success) {
       toast({
         variant: "destructive",
@@ -1649,6 +1652,20 @@ export function SbdohControl({
                 <span className="text-xs text-muted-foreground">Toggle Sidebar</span>
               </div>
               <p className={`absolute left-1/2 -translate-x-1/2 ${isSidebarOpen ? "-ml-[131px]" : "-ml-[3px]"} text-lg font-bold tracking-tight`}>{sessionHeaderLabel}</p>
+              <div className="ml-auto">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-2"
+                  onClick={toggleTheme}
+                  aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                >
+                  {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                  <span>Theme: {theme === "dark" ? "Dark" : "Light"}</span>
+                </Button>
+              </div>
             </div>
 
             {viewMode === "lift" ? (

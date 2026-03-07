@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import type { Client, CycleSettings, HistoricalRecord, Lift, SessionMode } from "@/lib/types";
 import { Lifts } from "@/lib/types";
+import { calculateTrainingMaxes } from "@/lib/training-max";
 import { ClientProgressChart } from "./ClientProgressChart";
 
 type ClientProfileModalProps = {
@@ -33,7 +34,7 @@ type ClientProfileModalProps = {
   currentCycleNumber?: number;
   historicalData: HistoricalRecord[];
   onUpdateClient: (updatedClient: Client) => Promise<void> | void;
-  onResetTrainingMax: (clientId: string) => Promise<void>;
+  onResetTrainingMax: (clientId: string, cycleNumber: number) => Promise<void>;
 };
 
 const getRepScheme = (workset3Reps: string | number): string => {
@@ -77,10 +78,16 @@ export function ClientProfileModal({
   const [isSaving, setIsSaving] = useState(false);
   const [isResettingTM, setIsResettingTM] = useState(false);
   const [selectedCycle, setSelectedCycle] = useState<number>(currentCycleNumber);
+  const [resetCycleNumber, setResetCycleNumber] = useState<number>(currentCycleNumber);
 
   useEffect(() => {
     setLocalClient(client);
+    setResetCycleNumber(currentCycleNumber);
   }, [client]);
+
+  useEffect(() => {
+    setResetCycleNumber(currentCycleNumber);
+  }, [currentCycleNumber]);
 
   const progressChartDataByLift = useMemo(() => {
     if (!localClient) {
@@ -120,17 +127,17 @@ export function ClientProfileModal({
     });
   }, [cycleSettings]);
 
-  const handleWeightChange = (lift: string, value: string) => {
+  const handleOneRepMaxChange = (lift: Lift, value: string) => {
     if (!localClient) return;
     const numValue = parseInt(value, 10);
-    if (isNaN(numValue)) return;
+    if (isNaN(numValue) || numValue <= 0) return;
 
     setLocalClient({
       ...localClient,
-      initialWeights: {
-        ...localClient.initialWeights,
+      oneRepMaxes: {
+        ...localClient.oneRepMaxes,
         [lift]: numValue,
-      } as any,
+      },
     });
   };
 
@@ -225,6 +232,11 @@ export function ClientProfileModal({
 
       const clientToSave: Client = {
         ...localClient,
+        trainingMaxes: calculateTrainingMaxes(localClient.oneRepMaxes),
+        trainingMaxesByCycle: {
+          ...(localClient.trainingMaxesByCycle || {}),
+          [currentCycleNumber]: calculateTrainingMaxes(localClient.oneRepMaxes),
+        },
         weekAssignmentsByCycle: cleanedAssignmentsByCycle,
         sessionStateByCycle: localClient.sessionStateByCycle,
       };
@@ -241,7 +253,7 @@ export function ClientProfileModal({
   const handleResetTM = async () => {
     if (!localClient) return;
     setIsResettingTM(true);
-    await onResetTrainingMax(localClient.id);
+    await onResetTrainingMax(localClient.id, resetCycleNumber);
     setIsResettingTM(false);
   };
 
@@ -274,50 +286,88 @@ export function ClientProfileModal({
                 <CardTitle className="text-base">1RM Progress Tracking</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-md border p-3 bg-muted/30 space-y-3">
-                  <p className="text-sm font-medium">Starting Weights</p>
+                <div className="rounded-md border p-3 bg-muted/30 space-y-2">
+                  <p className="text-sm font-medium">Update Actual 1RM</p>
                   <p className="text-xs text-muted-foreground">
-                    Baseline values used for percentage-based prescriptions.
+                    Edit Actual 1RM below. Training Max is automatically calculated at 90% when you save.
                   </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    {Lifts.map((lift) => (
-                      <div key={lift} className="space-y-1">
-                        <Label className="text-xs font-medium text-muted-foreground">{lift}</Label>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="number"
-                            value={localClient.initialWeights?.[lift] || localClient.trainingMaxes[lift]}
-                            onChange={(e) => handleWeightChange(lift, e.target.value)}
-                            className="w-28"
-                          />
-                          <span className="text-xs text-muted-foreground">lbs</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                    {Lifts.map((lift) => {
+                      const actual1RM = localClient.oneRepMaxes[lift];
+                      const trainingMax = calculateTrainingMaxes(localClient.oneRepMaxes)[lift];
+
+                      return (
+                        <div key={lift} className="space-y-1">
+                          <Label className="text-xs font-medium text-muted-foreground">{lift} Actual 1RM</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="number"
+                              min={1}
+                              value={actual1RM}
+                              onChange={(e) => handleOneRepMaxChange(lift, e.target.value)}
+                              className="w-28"
+                            />
+                            <span className="text-xs text-muted-foreground">lbs</span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">Auto TM: {trainingMax} lbs</p>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  Actual 1RMs vs Recommended Training Maxes (90% of 1RM). The gap shows room for improvement.
-                </p>
                 <div className="rounded-md border p-3 bg-muted/30">
-                  <p className="text-sm font-medium">Stall / Reset Protocol</p>
+                  <p className="text-sm font-medium">Stall / Reset Protocol (Current Cycle Only)</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Use this when a client stalls. We recalculate each lift from recent performance and set a new TM at 90%.
+                    Use this when a client stalls. Recalculate TM from recent performance starting at a selected cycle and apply forward.
+                    This does not overwrite Actual 1RM values.
                   </p>
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Reset Starting At Cycle</Label>
+                      <Select
+                        value={resetCycleNumber.toString()}
+                        onValueChange={(value) => setResetCycleNumber(parseInt(value, 10))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(() => {
+                            const cycleSet = new Set<number>([currentCycleNumber]);
+                            Object.keys(localClient.trainingMaxesByCycle || {}).forEach((cycleKey) => {
+                              const n = parseInt(cycleKey, 10);
+                              if (!Number.isNaN(n)) cycleSet.add(n);
+                            });
+
+                            return Array.from(cycleSet)
+                              .sort((a, b) => a - b)
+                              .map((cycle) => (
+                                <SelectItem key={cycle} value={cycle.toString()}>
+                                  Cycle {cycle}
+                                </SelectItem>
+                              ));
+                          })()}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center rounded-md border px-3 py-2">
+                      <p className="text-[11px] text-muted-foreground">Applies to selected cycle and all later cycles.</p>
+                    </div>
+                  </div>
                   <Button
                     className="mt-3"
                     variant="outline"
                     onClick={handleResetTM}
                     disabled={isResettingTM || isSaving}
                   >
-                    {isResettingTM ? "Resetting TM..." : "Reset TM from Recent Performance"}
+                    {isResettingTM ? "Resetting TM..." : `Reset From Cycle ${resetCycleNumber} Forward`}
                   </Button>
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {Lifts.map((lift) => {
                     const actual1RM = localClient.oneRepMaxes[lift];
-                    // Get training max for current cycle, fallback to default
-                    const trainingMax = localClient.trainingMaxesByCycle?.[currentCycleNumber]?.[lift] ?? localClient.trainingMaxes[lift];
+                    const computedTrainingMaxes = calculateTrainingMaxes(localClient.oneRepMaxes);
+                    const trainingMax = computedTrainingMaxes[lift];
                     const gap = actual1RM - trainingMax;
                     const gapPercent = ((gap / actual1RM) * 100).toFixed(1);
                     
@@ -335,7 +385,7 @@ export function ClientProfileModal({
                             <div className="text-2xl font-bold mt-1">{actual1RM} lbs</div>
                           </div>
                           <div>
-                            <Label className="text-xs font-medium text-muted-foreground">Training Max (Cycle {currentCycleNumber})</Label>
+                            <Label className="text-xs font-medium text-muted-foreground">Training Max (Auto 90%)</Label>
                             <div className="text-2xl font-bold mt-1">{trainingMax} lbs</div>
                           </div>
                         </div>
@@ -349,6 +399,8 @@ export function ClientProfileModal({
                           <ClientProgressChart
                             data={progressChartDataByLift[lift] || []}
                             lift={lift}
+                            currentOneRepMax={actual1RM}
+                            currentTrainingMax={trainingMax}
                           />
                         </div>
                       </div>
