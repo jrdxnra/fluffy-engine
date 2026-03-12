@@ -21,3 +21,7 @@
 - Use minimalist, line-art style icons. Prioritize icons that directly relate to weightlifting (e.g., barbell, dumbbell, specific lift movements) and clear, intuitive icons for user interface actions like add, settings, and download. Icons should complement the modern, functional aesthetic.
 - The layout will adopt a 'command center' approach with a clear distinction between global settings (e.g., in a left-hand sidebar or top panel) and the main content area. Data will be primarily displayed in well-structured, easy-to-scan tables, optimizing for quick information absorption. Client input forms will be collapsible to maintain a clean workspace.
 - Incorporate subtle and functional animations. Examples include smooth transitions when global settings are updated and the workout data re-calculates, clear loading indicators for data fetches, and gentle feedback on button presses or form submissions. Animations should enhance user understanding and responsiveness without being distracting.
+
+## Future Improvements
+
+- Temporarily hide `Log all Reps` / `Save all Reps` controls from the UI while keeping underlying bulk-log logic in code. Revisit whether to restore or permanently remove after evaluating the integrated per-client flow.

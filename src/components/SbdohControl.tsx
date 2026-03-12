@@ -194,8 +194,14 @@ export function SbdohControl({
   const [dayViewSlot, setDayViewSlot] = useState<"day1" | "day2">(() => {
     return getLiftDaySlot("Deadlift", initialCycleSchedulesByCycle[1]);
   });
-  const [autoSelectedDay, setAutoSelectedDay] = useState<"day1" | "day2" | null>(null);
+  const [, setAutoSelectedDay] = useState<"day1" | "day2" | null>(null);
   const [collapsedDayLifts, setCollapsedDayLifts] = useState<Record<Lift, boolean>>({
+    Deadlift: false,
+    Bench: false,
+    Squat: false,
+    Press: false,
+  });
+  const [showWarmupsByLift, setShowWarmupsByLift] = useState<Record<Lift, boolean>>({
     Deadlift: false,
     Bench: false,
     Squat: false,
@@ -1607,11 +1613,6 @@ export function SbdohControl({
             >
               {getDayButtonLabel("day2")}
             </Button>
-            {autoSelectedDay === dayViewSlot ? (
-              <span className="text-[10px] rounded border px-2 py-0.5 text-muted-foreground whitespace-nowrap">
-                Auto-selected for today
-              </span>
-            ) : null}
           </>
         ) : null}
 
@@ -1701,12 +1702,11 @@ export function SbdohControl({
           onDeleteWeek={handleDeleteWeek}
           onGraduateTeam={handleGraduateTeam}
         />
-        <main className="flex-1 p-4 md:p-6 relative">
+        <main className="relative flex-1 p-4 md:p-6">
           <div style={{ opacity: isPending ? 0.6 : 1, transition: 'opacity 300ms ease-in-out' }}>
             <div className="mb-3 relative flex items-center gap-3 min-h-8">
               <div className="flex items-center gap-2">
                 <SidebarTrigger className="h-8 w-8 border" />
-                <span className="text-xs text-muted-foreground">Toggle Sidebar</span>
               </div>
               <p className={`absolute left-1/2 -translate-x-1/2 ${isSidebarOpen ? "-ml-[131px]" : "-ml-[3px]"} text-lg font-bold tracking-tight`}>{sessionHeaderLabel}</p>
               <div className="fixed right-4 top-2 z-40 sm:right-6">
@@ -1749,6 +1749,22 @@ export function SbdohControl({
 
             {viewMode === "lift" ? (
               <>
+                <div className="mb-2 flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() =>
+                      setShowWarmupsByLift((prev) => ({
+                        ...prev,
+                        [lift]: !prev[lift],
+                      }))
+                    }
+                  >
+                    {showWarmupsByLift[lift] ? "Hide w/u" : "Show w/u"}
+                  </Button>
+                </div>
                 <WorkoutTable 
                   workouts={calculatedWorkouts} 
                   lift={lift}
@@ -1763,6 +1779,7 @@ export function SbdohControl({
                   bulkLogAction={bulkLogAction}
                   isBulkLoggingActive={activeBulkLogLift === lift}
                   onBulkLogToggle={() => handleLogAllReps(lift)}
+                  showWarmups={showWarmupsByLift[lift]}
                 />
                 <AccessoryDisplay
                   lift={lift}
@@ -1783,7 +1800,7 @@ export function SbdohControl({
                     key={dayLift}
                     className={index === 0 ? "space-y-1" : "mt-3 border-t pt-3 space-y-1"}
                   >
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-gradient-to-r from-muted/80 to-accent/40 px-3 py-1.5">
                       {sessionLayout === "vertical" ? (
                         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           {(() => {
@@ -1803,20 +1820,36 @@ export function SbdohControl({
                       <span className={sessionLayout === "vertical" ? "text-xl font-bold tracking-tight" : "text-sm font-semibold"}>
                         {dayLift}
                       </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-6 px-2 text-[11px]"
-                        onClick={() =>
-                          setCollapsedDayLifts((prev) => ({
-                            ...prev,
-                            [dayLift]: !prev[dayLift],
-                          }))
-                        }
-                      >
-                        {collapsedDayLifts[dayLift] ? "Expand" : "Minimize"}
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-[11px]"
+                          onClick={() =>
+                            setShowWarmupsByLift((prev) => ({
+                              ...prev,
+                              [dayLift]: !prev[dayLift],
+                            }))
+                          }
+                        >
+                          {showWarmupsByLift[dayLift] ? "Hide w/u" : "Show w/u"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-[11px]"
+                          onClick={() =>
+                            setCollapsedDayLifts((prev) => ({
+                              ...prev,
+                              [dayLift]: !prev[dayLift],
+                            }))
+                          }
+                        >
+                          {collapsedDayLifts[dayLift] ? "Expand" : "Minimize"}
+                        </Button>
+                      </div>
                     </div>
                     {!collapsedDayLifts[dayLift] ? (
                       <WorkoutTable
@@ -1834,6 +1867,7 @@ export function SbdohControl({
                         bulkLogAction={bulkLogAction}
                         isBulkLoggingActive={activeBulkLogLift === dayLift}
                         onBulkLogToggle={() => handleLogAllReps(dayLift)}
+                        showWarmups={showWarmupsByLift[dayLift]}
                       />
                     ) : (
                       <div className="h-0" />

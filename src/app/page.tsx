@@ -25,14 +25,16 @@ async function ControlContent() {
 export default function Home() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-background">
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-center border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-         <h1 className="relative top-5 flex items-center gap-2 text-2xl font-bold font-headline">
-            <Weight className="h-6 w-6 text-primary" />
+      <header className="bg-background/90">
+        <div className="mx-auto flex h-14 w-full max-w-[1400px] items-center justify-center px-4 md:px-6">
+          <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight text-foreground">
+            <Weight className="h-5 w-5 text-primary" />
             <span className="leading-none">
               Power
-              <sup className="relative -top-1.5 ml-1 text-[1em] font-semibold text-primary">Lift</sup>
+              <sup className="relative -top-1.5 ml-0.5 text-[0.78em] font-semibold text-primary">Lift</sup>
             </span>
           </h1>
+        </div>
       </header>
       <main className="flex-1">
         <Suspense fallback={<div className="flex items-center justify-center p-8">Loading...</div>}>

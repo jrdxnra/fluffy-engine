@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   Table,
   TableBody,
@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import type { CalculatedWorkout, CycleSettings, HistoricalRecord, Lift, WorkoutSet, LoggedSetMap } from "@/lib/types";
-import { Check, ChevronRight, Eye, Copy } from "lucide-react";
+import { Eye, Copy } from "lucide-react";
 import { logRepRecordAction } from "@/app/actions";
 import { ClientNotesDialog } from "./ClientNotesDialog";
 import type { Client } from "@/lib/types";
@@ -52,6 +52,7 @@ type WorkoutTableProps = {
   } | null;
   isBulkLoggingActive?: boolean;
   onBulkLogToggle?: () => void;
+  showWarmups?: boolean;
 };
 
 type SetCellProps = {
@@ -66,6 +67,9 @@ type SetCellProps = {
   onSaveAll: () => void;
   isSaving: boolean;
   showRepBadge?: boolean;
+  sizeMode?: "default" | "focused";
+  inlineEditorMode?: "auto" | "alwaysWhenExpanded";
+  platePosition?: "below" | "inline";
 };
 
 const SetCell = ({ 
@@ -80,6 +84,9 @@ const SetCell = ({
   onSaveAll,
   isSaving,
   showRepBadge = true,
+  sizeMode = "default",
+  inlineEditorMode = "auto",
+  platePosition = "below",
 }: SetCellProps) => {
   const setKey = `${setIndex}`;
   const input = setInputs[setKey] || { weight: "", reps: "" };
@@ -95,40 +102,82 @@ const SetCell = ({
     "5": "bg-[#f8f8f9] text-black border-black",
     "2.5": "bg-[#c9ced6] text-black border-[#8a9099]",
   };
+  const isFocusedSize = sizeMode === "focused";
+  const showInlineEditor = isExpanded && (isFocusedSize || inlineEditorMode === "alwaysWhenExpanded");
+  const showInlinePlates = platePosition === "inline";
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="font-code font-bold text-lg text-foreground">
-        {set.weight} lbs
+      <div className={`font-code font-bold text-foreground ${isFocusedSize ? "text-2xl" : "text-lg"} flex items-center gap-1.5 ${showInlineEditor ? "flex-nowrap" : "flex-wrap"}`}>
+        <span>{set.weight} lbs</span>
         {showRepBadge ? (
-          <Badge variant="secondary" className="ml-2 font-sans">
+          <Badge variant="secondary" className={`${isFocusedSize ? "text-sm px-2.5 py-0.5" : ""} font-sans`}>
             {set.reps} reps
           </Badge>
         ) : null}
-      </div>
-      <div className="text-xs text-muted-foreground font-code min-h-5">
-        {plateTokens.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-1">
-            {plateTokens.map((plate, idx) => (
+        {showInlinePlates ? (
+          <div className="flex flex-nowrap items-center gap-0.5 pl-2">
+            {plateTokens.length > 0 ? plateTokens.map((plate, idx) => (
               <span
-                key={`${plate}-${idx}`}
-                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 font-sans text-[10px] font-bold tabular-nums leading-none antialiased ${plateClassMap[plate] || "bg-muted text-foreground border-border"}`}
+                key={`inline-${plate}-${idx}`}
+                className={`inline-flex ${isFocusedSize ? "h-7 w-7 text-[10px]" : "h-5 w-5 text-[9px]"} shrink-0 items-center justify-center rounded-full border-2 font-sans font-bold tabular-nums leading-none antialiased ${plateClassMap[plate] || "bg-muted text-foreground border-border"}`}
                 title={`${plate} lb plate`}
               >
                 {plate}
               </span>
-            ))}
+            )) : (
+              <span className="text-[10px] text-muted-foreground">Bar</span>
+            )}
           </div>
-        ) : (
-          "Bar only"
-        )}
+        ) : null}
+        {showInlineEditor ? (
+          <div className="ml-auto flex items-center border-l border-border/70 pl-3">
+            <div className="flex w-[176px] items-center justify-end gap-2">
+            <Input
+              type="number"
+              placeholder="lbs"
+              className="h-8 w-20 text-sm font-code [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              value={input.weight}
+              onChange={(e) => onSetInputChange(setIndex, "weight", e.target.value)}
+              disabled={isSaving}
+            />
+            <Input
+              type="number"
+              placeholder="reps"
+              className="h-8 w-14 text-right text-sm font-code [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              value={input.reps}
+              onChange={(e) => onSetInputChange(setIndex, "reps", e.target.value)}
+              disabled={isSaving}
+            />
+            </div>
+          </div>
+        ) : null}
       </div>
-      {isExpanded && (
+      {!showInlinePlates ? (
+        <div className="text-xs text-muted-foreground font-code min-h-4">
+          {plateTokens.length > 0 ? (
+            <div className="flex flex-nowrap items-center gap-0.5">
+              {plateTokens.map((plate, idx) => (
+                <span
+                  key={`${plate}-${idx}`}
+                  className={`inline-flex ${isFocusedSize ? "h-8 w-8 text-[11px]" : "h-5 w-5 text-[9px]"} shrink-0 items-center justify-center rounded-full border-2 font-sans font-bold tabular-nums leading-none antialiased ${plateClassMap[plate] || "bg-muted text-foreground border-border"}`}
+                  title={`${plate} lb plate`}
+                >
+                  {plate}
+                </span>
+              ))}
+            </div>
+          ) : (
+            "Bar only"
+          )}
+        </div>
+      ) : null}
+      {isExpanded && !showInlineEditor && (
         <div className="mt-2 flex items-center gap-1.5 whitespace-nowrap">
           <Input
             type="number"
             placeholder="lbs"
-            className="h-7 w-16 font-code text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            className={`${isFocusedSize ? "h-9 w-24 text-sm" : "h-7 w-16 text-xs"} font-code [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
             value={input.weight}
             onChange={(e) => onSetInputChange(setIndex, "weight", e.target.value)}
             disabled={isSaving}
@@ -136,7 +185,7 @@ const SetCell = ({
           <Input
             type="number"
             placeholder="reps"
-            className="h-7 w-12 font-code text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            className={`${isFocusedSize ? "h-9 w-16 text-sm" : "h-7 w-12 text-xs"} font-code [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
             value={input.reps}
             onChange={(e) => onSetInputChange(setIndex, "reps", e.target.value)}
             disabled={isSaving}
@@ -148,26 +197,41 @@ const SetCell = ({
 };
 
 
-export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle }: WorkoutTableProps) {
+export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false }: WorkoutTableProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [clientNotes, setClientNotes] = useState<{ [key: string]: string }>({});
   const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({});
   const [rowInputs, setRowInputs] = useState<{ [key: string]: { [key: string]: { weight: string; reps: string } } }>({});
   const [savingRows, setSavingRows] = useState<{ [key: string]: boolean }>({});
   const [actualByClientSet, setActualByClientSet] = useState<Record<string, Record<number, { weight: number; reps: number }>>>({});
   const [selectedWorkout, setSelectedWorkout] = useState<CalculatedWorkout | null>(null);
+  const [focusedClientId, setFocusedClientId] = useState<string | null>(null);
   const { toast } = useToast();
 
   if (!workouts.length) {
     return <p>No clients on the roster. Add one to get started!</p>;
   }
 
-  const headerSource = workouts.find((workout) => workout.sets.length > 0) || workouts[0];
-  const headerSets = headerSource?.sets.map((s) => ({
-    label: s.label,
-    type: s.type,
-    set: s.set,
-    reps: s.reps,
-  })) || [];
+  const getVisibleSetIndexes = (sets: WorkoutSet[]): number[] => {
+    return sets
+      .map((set, index) => ({ set, index }))
+      .filter(({ set }) => showWarmups || set.type === "Work Set")
+      .map(({ index }) => index);
+  };
+
+  const headerSource = workouts.find((workout) => getVisibleSetIndexes(workout.sets).length > 0) || workouts[0];
+  const headerSets = (headerSource
+    ? getVisibleSetIndexes(headerSource.sets).map((originalIndex) => {
+        const set = headerSource.sets[originalIndex];
+        return {
+          label: set.label,
+          type: set.type,
+          set: set.set,
+          reps: set.reps,
+          originalIndex,
+        };
+      })
+    : []);
 
   const sessionModeLabel: Record<string, string> = {
     normal: "Normal",
@@ -177,15 +241,54 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
     recovery: "Recovery",
   };
 
+  useEffect(() => {
+    if (workouts.length === 0) {
+      setFocusedClientId(null);
+      return;
+    }
+
+    if (focusedClientId && !workouts.some((workout) => workout.client.id === focusedClientId)) {
+      setFocusedClientId(null);
+    }
+  }, [workouts, focusedClientId]);
+
+  const focusedIndex = focusedClientId
+    ? workouts.findIndex((workout) => workout.client.id === focusedClientId)
+    : -1;
+
   const handleNotesSaved = (clientId: string, notes: string) => {
     setClientNotes(prev => ({ ...prev, [clientId]: notes }));
   };
 
-  const handleToggleRow = (clientId: string) => {
-    setExpandedRows(prev => ({
-      ...prev,
-      [clientId]: !prev[clientId]
-    }));
+  const saveClientIfDirty = async (clientId: string) => {
+    if (!hasSetData(clientId)) return;
+
+    const workout = workouts.find((item) => item.client.id === clientId);
+    if (!workout) return;
+
+    const clientWeekKey = workout.effectiveWeekKey || currentWeek;
+    const persistedSetMap =
+      workout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[clientWeekKey]?.[lift] || {};
+
+    await handleSaveRowInputs(clientId, workout.sets, clientWeekKey, persistedSetMap);
+  };
+
+  const handleClientNameClick = (clientId: string) => {
+    const isSameClient = focusedClientId === clientId;
+    const previouslyFocused = focusedClientId;
+
+    if (previouslyFocused) {
+      void saveClientIfDirty(previouslyFocused);
+    }
+
+    if (isSameClient) {
+      setFocusedClientId(null);
+      setExpandedRows({});
+      return;
+    }
+
+    setFocusedClientId(clientId);
+    setExpandedRows({ [clientId]: true });
   };
 
   const handleSetInputChange = (clientId: string, setIndex: number, field: "weight" | "reps", value: string) => {
@@ -354,9 +457,18 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
     if (bulkLogAction.targetLift !== lift) return;
 
     if (bulkLogAction.type === "open") {
+      if (focusedClientId) {
+        void saveClientIfDirty(focusedClientId);
+      }
+      setFocusedClientId(null);
       openAllRows();
       return;
     }
+
+    if (focusedClientId) {
+      void saveClientIfDirty(focusedClientId);
+    }
+    setFocusedClientId(null);
 
     const saveUpdatedRows = async () => {
       try {
@@ -377,6 +489,22 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
 
     void saveUpdatedRows();
   }, [bulkLogAction, workouts, currentWeek, currentCycleNumber, lift]);
+
+  useEffect(() => {
+    if (!focusedClientId) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (containerRef.current?.contains(target)) return;
+      void saveClientIfDirty(focusedClientId);
+      setFocusedClientId(null);
+      setExpandedRows({});
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [focusedClientId]);
 
   const buildWorkoutText = (workout: CalculatedWorkout): string => {
     const effectiveWeekKey = workout.effectiveWeekKey || currentWeek;
@@ -416,60 +544,126 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
     }
   };
 
+  const getFocusedEdgeClass = (isFocused: boolean) =>
+    isFocused
+      ? "shadow-[inset_2px_0_0_0_hsl(var(--border)),inset_-2px_0_0_0_hsl(var(--border))]"
+      : "shadow-[inset_1px_0_0_0_hsl(var(--border)/0.8),inset_-1px_0_0_0_hsl(var(--border)/0.8)]";
+
+  const getColumnWidthStyle = (index: number, isFocused: boolean) => {
+    const total = workouts.length;
+    if (total <= 1) return { width: "100%" } as const;
+
+    if (focusedIndex < 0) {
+      return { width: `${100 / total}%` } as const;
+    }
+
+    const focusedShare =
+      total === 2 ? 46 :
+      total === 3 ? 35 :
+      total === 4 ? 28 :
+      24;
+    const otherShare = (100 - focusedShare) / (total - 1);
+
+    return { width: `${isFocused ? focusedShare : otherShare}%` } as const;
+  };
+
   return (
-    <div className="border rounded-lg w-full">
+    <div ref={containerRef} className="relative w-full rounded-lg border border-border/90 bg-card/85 shadow-sm" style={{ perspective: "1200px" }}>
       {layoutMode === "horizontal" ? (
       <Table className="table-fixed w-full">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[180px]">Client</TableHead>
+            <TableHead className="w-[180px] bg-muted/55">Client</TableHead>
             {headerSets.map((s, index) => (
               <TableHead key={index} className={`w-auto ${s.type === "Work Set" && s.set === 3 ? "text-primary" : ""}`}>
-                {s.label}
+                <div className="leading-tight">
+                  <div>{s.label}</div>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">{s.reps} reps</div>
+                </div>
               </TableHead>
             ))}
-            <TableHead className="w-[132px] text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {workouts.map(({ client, sets, prTarget, sessionMode, effectiveWeekKey }, rowIndex) => {
             const isExpanded = expandedRows[client.id] || false;
             const isSaving = savingRows[client.id] || false;
-            const hasSets = sets.length > 0;
+            const visibleSetIndexes = getVisibleSetIndexes(sets);
+            const hasSets = visibleSetIndexes.length > 0;
+            const isFocusedClient = client.id === focusedClientId;
+            const isEffectivelyExpanded = isExpanded || isFocusedClient;
             const clientWeekKey = effectiveWeekKey || currentWeek;
             const persistedSetMap =
               client.loggedSetInputsByCycle?.[currentCycleNumber]?.[clientWeekKey]?.[lift] || {};
             
             return (
-            <TableRow key={client.id} className={rowIndex % 2 === 0 ? "" : "bg-slate-100 dark:bg-slate-800"}>
-                <TableCell className="align-middle font-medium">
+            <Fragment key={client.id}>
+            <TableRow
+              className={`${isFocusedClient ? "relative z-10 bg-primary/10 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.35)]" : rowIndex % 2 === 0 ? "bg-accent/20" : "bg-muted/45 dark:bg-muted/30"}`}
+            >
+                <TableCell className="align-middle font-medium transition-colors duration-200">
                   <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-base">{client.name}</span>
-                      {sessionMode && sessionMode !== "normal" && (
-                        <Badge variant="outline" className="text-[10px]">
-                          {sessionModeLabel[sessionMode] || sessionMode}
-                        </Badge>
-                      )}
-                      {effectiveWeekKey && effectiveWeekKey !== weekName.toLowerCase().replace(" ", "") && (
-                        <Badge variant="secondary" className="text-[10px]">
-                          {effectiveWeekKey}
-                        </Badge>
-                      )}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => handleClientNameClick(client.id)}
+                          className={`rounded-md py-1 font-bold text-foreground transition-[background-color,color] duration-200 dark:text-white ${isFocusedClient ? "px-2 bg-primary text-primary-foreground shadow-md text-lg" : "pl-0 pr-2 hover:bg-muted/70 text-base"}`}
+                        >
+                          {client.name}
+                        </button>
+                        {sessionMode && sessionMode !== "normal" && (
+                          <Badge variant="outline" className="text-[10px]">
+                            {sessionModeLabel[sessionMode] || sessionMode}
+                          </Badge>
+                        )}
+                        {effectiveWeekKey && effectiveWeekKey !== weekName.toLowerCase().replace(" ", "") && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {effectiveWeekKey}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <ClientNotesDialog
+                          clientId={client.id}
+                          clientName={client.name}
+                          currentNotes={client.notes}
+                          onNotesSaved={(notes) => handleNotesSaved(client.id, notes)}
+                          compact
+                          showLabel={false}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 w-8 p-0"
+                          onClick={() => {
+                            setSelectedWorkout({ client, sets, prTarget, sessionMode, effectiveWeekKey });
+                          }}
+                          disabled={!hasSets}
+                          aria-label={`View ${client.name} workout`}
+                        >
+                          <Eye className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </TableCell>
-                {hasSets ? sets.map((set, index) => {
+                {hasSets ? visibleSetIndexes.map((originalIndex) => {
+                  const set = sets[originalIndex];
                   const isTopSet = set.type === "Work Set" && set.set === 3;
                   return (
-                    <TableCell key={index} className={`align-top ${isTopSet ? "bg-primary/10" : ""}`}>
+                    <TableCell key={originalIndex} className={`align-top ${isTopSet ? "bg-primary/10" : ""}`}>
                       <SetCell
                         clientId={client.id}
                         set={set}
-                        setIndex={index}
+                        setIndex={originalIndex}
                         lift={lift}
                         isTopSet={isTopSet}
-                        isExpanded={isExpanded}
+                        isExpanded={isEffectivelyExpanded}
+                        sizeMode="default"
+                        inlineEditorMode="alwaysWhenExpanded"
+                        showRepBadge={false}
+                        platePosition="inline"
                         setInputs={{
                           ...Object.entries(persistedSetMap).reduce<Record<string, { weight: string; reps: string }>>((acc, [key, value]) => {
                             acc[key] = {
@@ -495,68 +689,60 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
                       : "No work sets scheduled for this client in current mode."}
                   </TableCell>
                 )}
-                <TableCell className="text-right">
-                  <div className="flex flex-col items-end gap-1">
-                    <ClientNotesDialog
-                      clientId={client.id}
-                      clientName={client.name}
-                      currentNotes={client.notes}
-                      onNotesSaved={(notes) => handleNotesSaved(client.id, notes)}
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 w-24 justify-center text-xs"
-                      onClick={() => {
-                        setSelectedWorkout({ client, sets, prTarget, sessionMode, effectiveWeekKey });
-                      }}
-                      disabled={!hasSets}
-                    >
-                      <Eye className="h-3 w-3 mr-1" />
-                      View
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={isExpanded ? "default" : "outline"}
-                      className="h-7 w-24 justify-center text-xs"
-                      onClick={() => {
-                        if (isExpanded) {
-                          handleSaveRowInputs(client.id, sets, clientWeekKey, persistedSetMap);
-                        } else {
-                          handleToggleRow(client.id);
-                        }
-                      }}
-                      disabled={isSaving || !hasSets}
-                    >
-                      {isExpanded ? (
-                        <>
-                          <Check className="h-3 w-3 mr-1" />
-                          Save
-                        </>
-                      ) : (
-                        <>
-                          <ChevronRight className="h-3 w-3 mr-1" />
-                          Log Reps
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </TableCell>
               </TableRow>
+            </Fragment>
             );
           })}
         </TableBody>
       </Table>
       ) : (
-      <div className="overflow-x-auto">
-        <Table className="table-fixed w-full min-w-[980px]">
+      <div className="overflow-hidden">
+        <Table className="table-fixed w-full">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[118px]">Set</TableHead>
-              {workouts.map(({ client, sessionMode, effectiveWeekKey }) => (
-                <TableHead key={client.id} className="align-middle">
-                  <div className="flex min-h-[56px] flex-col justify-center gap-1">
-                    <span className="font-bold text-sm">{client.name}</span>
+              <TableHead className="w-[96px] text-left bg-gradient-to-r from-muted/80 to-accent/45">Set</TableHead>
+              {workouts.map(({ client, sessionMode, effectiveWeekKey }, columnIndex) => {
+                const isFocusedClient = client.id === focusedClientId;
+                return (
+                <TableHead
+                  key={client.id}
+                  className={`align-middle overflow-hidden transition-[width,background-color,opacity] duration-300 ease-in-out ${getFocusedEdgeClass(isFocusedClient)} ${isFocusedClient ? "bg-primary/10" : columnIndex % 2 !== 0 ? "bg-muted/50" : "bg-accent/35"}`}
+                  style={getColumnWidthStyle(columnIndex, isFocusedClient)}
+                >
+                  <div className={`flex min-h-[56px] flex-col justify-center gap-1 transition-opacity duration-300 ${focusedIndex >= 0 && !isFocusedClient ? "opacity-90" : "opacity-100"}`}>
+                    <div className="flex items-center justify-between gap-0.5 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => handleClientNameClick(client.id)}
+                        className={`min-w-0 overflow-hidden whitespace-nowrap rounded-md py-1 text-left font-bold text-foreground transition-[background-color,color] duration-200 dark:text-white ${isFocusedClient ? "w-full px-2 bg-primary text-primary-foreground shadow-md text-base" : "pl-0 pr-0 hover:bg-muted/70 text-sm"}`}
+                      >
+                        {client.name}
+                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <ClientNotesDialog
+                          clientId={client.id}
+                          clientName={client.name}
+                          currentNotes={client.notes}
+                          onNotesSaved={(notes) => handleNotesSaved(client.id, notes)}
+                          compact={!isFocusedClient}
+                          showLabel={isFocusedClient}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className={isFocusedClient ? "h-7 px-2 text-xs" : "h-7 w-7 p-0"}
+                          onClick={() => {
+                            const workout = workouts.find((item) => item.client.id === client.id);
+                            if (!workout) return;
+                            setSelectedWorkout(workout);
+                          }}
+                          aria-label={isFocusedClient ? undefined : `View ${client.name} workout`}
+                        >
+                          <Eye className={isFocusedClient ? "h-3 w-3 mr-1" : "h-3 w-3"} />
+                          {isFocusedClient ? "View" : null}
+                        </Button>
+                      </div>
+                    </div>
                     <div className="flex items-center gap-1 flex-wrap">
                       {sessionMode && sessionMode !== "normal" && (
                         <Badge variant="outline" className="text-[10px]">
@@ -571,7 +757,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
                     </div>
                   </div>
                 </TableHead>
-              ))}
+              )})}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -579,137 +765,72 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
               const isTopSet = headerSet.type === "Work Set" && headerSet.set === 3;
               return (
                 <TableRow key={`${headerSet.label}-${setIndex}`}>
-                  <TableCell className={`font-medium text-xs ${isTopSet ? "text-primary" : ""}`}>
+                  <TableCell className={`bg-gradient-to-r from-muted/80 to-accent/45 text-left font-medium text-xs ${isTopSet ? "bg-primary/10 text-primary" : ""}`}>
                     <div className="leading-tight">
-                      <div>{headerSet.label}</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">{headerSet.reps} reps</div>
+                      <div className="whitespace-nowrap">{headerSet.label}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5 whitespace-nowrap">{headerSet.reps} reps</div>
                     </div>
                   </TableCell>
-                  {workouts.map(({ client, sets, effectiveWeekKey, sessionMode }) => {
+                  {workouts.map(({ client, sets, effectiveWeekKey, sessionMode }, columnIndex) => {
                     const isExpanded = expandedRows[client.id] || false;
                     const isSaving = savingRows[client.id] || false;
+                    const isFocusedClient = client.id === focusedClientId;
                     const clientWeekKey = effectiveWeekKey || currentWeek;
                     const persistedSetMap =
                       client.loggedSetInputsByCycle?.[currentCycleNumber]?.[clientWeekKey]?.[lift] || {};
-                    const set = sets[setIndex];
+                    const set = sets[headerSet.originalIndex];
 
                     if (!set) {
                       return (
                         <TableCell key={`${client.id}-${setIndex}`} className="text-xs text-muted-foreground">
-                          {sessionMode === "pause_week" ? "Paused" : "-"}
+                          <div
+                            className={`rounded-md px-2 py-3 transition-colors duration-200 ${isFocusedClient ? "bg-primary/8" : "bg-accent/20"}`}
+                          >
+                            {sessionMode === "pause_week" ? "Paused" : "-"}
+                          </div>
                         </TableCell>
                       );
                     }
 
                     return (
-                      <TableCell key={`${client.id}-${setIndex}`} className={isTopSet ? "bg-primary/10 align-top" : "align-top"}>
-                        <SetCell
-                          clientId={client.id}
-                          set={set}
-                          setIndex={setIndex}
-                          lift={lift}
-                          isTopSet={isTopSet}
-                          isExpanded={isExpanded}
-                          setInputs={{
-                            ...Object.entries(persistedSetMap).reduce<Record<string, { weight: string; reps: string }>>((acc, [key, value]) => {
-                              acc[key] = {
-                                weight: String(value.weight),
-                                reps: String(value.reps),
-                              };
-                              return acc;
-                            }, {}),
-                            ...(rowInputs[client.id] || {}),
-                          }}
-                          onSetInputChange={(index, field, value) =>
-                            handleSetInputChange(client.id, index, field, value)
-                          }
-                          onSaveAll={() => handleSaveRowInputs(client.id, sets, clientWeekKey, persistedSetMap)}
-                          isSaving={isSaving}
-                          showRepBadge={false}
-                        />
+                      <TableCell
+                        key={`${client.id}-${setIndex}`}
+                        className={`${isFocusedClient ? "bg-primary/10" : isTopSet ? "bg-primary/10" : columnIndex % 2 !== 0 ? "bg-muted/40" : "bg-accent/25"} ${getFocusedEdgeClass(isFocusedClient)} align-top transition-[width,background-color,opacity] duration-300 ease-in-out`}
+                        style={getColumnWidthStyle(columnIndex, isFocusedClient)}
+                      >
+                        <div className={`rounded-md px-2 py-2 transition-opacity duration-300 ${focusedIndex >= 0 && !isFocusedClient ? "opacity-90" : "opacity-100"}`}>
+                          <SetCell
+                            clientId={client.id}
+                            set={set}
+                            setIndex={headerSet.originalIndex}
+                            lift={lift}
+                            isTopSet={isTopSet}
+                            isExpanded={isExpanded}
+                            sizeMode={isFocusedClient ? "focused" : "default"}
+                            setInputs={{
+                              ...Object.entries(persistedSetMap).reduce<Record<string, { weight: string; reps: string }>>((acc, [key, value]) => {
+                                acc[key] = {
+                                  weight: String(value.weight),
+                                  reps: String(value.reps),
+                                };
+                                return acc;
+                              }, {}),
+                              ...(rowInputs[client.id] || {}),
+                            }}
+                            onSetInputChange={(index, field, value) =>
+                              handleSetInputChange(client.id, index, field, value)
+                            }
+                            onSaveAll={() => handleSaveRowInputs(client.id, sets, clientWeekKey, persistedSetMap)}
+                            isSaving={isSaving}
+                            showRepBadge={false}
+                          />
+                        </div>
                       </TableCell>
                     );
                   })}
                 </TableRow>
               );
             })}
-
-            <TableRow>
-              <TableCell className="font-medium text-xs">
-                <div className="flex flex-col items-start gap-1">
-                  <span>Action</span>
-                  {onBulkLogToggle ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={isBulkLoggingActive ? "default" : "outline"}
-                      className="h-7 px-2 text-[11px]"
-                      onClick={onBulkLogToggle}
-                    >
-                      {isBulkLoggingActive ? "Save all Reps" : "Log all Reps"}
-                    </Button>
-                  ) : null}
-                </div>
-              </TableCell>
-              {workouts.map(({ client, sets, prTarget, sessionMode, effectiveWeekKey }) => {
-                const isExpanded = expandedRows[client.id] || false;
-                const isSaving = savingRows[client.id] || false;
-                const hasSets = sets.length > 0;
-                const clientWeekKey = effectiveWeekKey || currentWeek;
-                const persistedSetMap =
-                  client.loggedSetInputsByCycle?.[currentCycleNumber]?.[clientWeekKey]?.[lift] || {};
-
-                return (
-                  <TableCell key={`${client.id}-actions`}>
-                    <div className="flex flex-wrap gap-1">
-                      <ClientNotesDialog
-                        clientId={client.id}
-                        clientName={client.name}
-                        currentNotes={client.notes}
-                        onNotesSaved={(notes) => handleNotesSaved(client.id, notes)}
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => {
-                          setSelectedWorkout({ client, sets, prTarget, sessionMode, effectiveWeekKey });
-                        }}
-                        disabled={!hasSets}
-                      >
-                        <Eye className="h-3 w-3 mr-1" />
-                        View
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={isExpanded ? "default" : "outline"}
-                        className="h-7 px-2 text-xs"
-                        onClick={() => {
-                          if (isExpanded) {
-                            handleSaveRowInputs(client.id, sets, clientWeekKey, persistedSetMap);
-                          } else {
-                            handleToggleRow(client.id);
-                          }
-                        }}
-                        disabled={isSaving || !hasSets}
-                      >
-                        {isExpanded ? (
-                          <>
-                            <Check className="h-3 w-3 mr-1" />
-                            Save
-                          </>
-                        ) : (
-                          <>
-                            <ChevronRight className="h-3 w-3 mr-1" />
-                            Log Reps
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </TableCell>
-                );
-              })}
-            </TableRow>
           </TableBody>
         </Table>
       </div>

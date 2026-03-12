@@ -13,9 +13,18 @@ type ClientNotesDialogProps = {
   clientName: string;
   currentNotes: string | undefined;
   onNotesSaved: (notes: string) => void;
+  compact?: boolean;
+  showLabel?: boolean;
 };
 
-export function ClientNotesDialog({ clientId, clientName, currentNotes, onNotesSaved }: ClientNotesDialogProps) {
+export function ClientNotesDialog({
+  clientId,
+  clientName,
+  currentNotes,
+  onNotesSaved,
+  compact = false,
+  showLabel = true,
+}: ClientNotesDialogProps) {
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState(currentNotes || "");
   const [isSaving, setIsSaving] = useState(false);
@@ -43,11 +52,12 @@ export function ClientNotesDialog({ clientId, clientName, currentNotes, onNotesS
       <Button
         size="sm"
         variant="outline"
-        className="h-7 w-24 justify-center text-xs gap-1"
+        className={compact ? "h-7 w-7 p-0" : "h-7 justify-center text-xs gap-1 px-2"}
         onClick={() => setOpen(true)}
+        aria-label={showLabel ? undefined : `Open notes for ${clientName}`}
       >
         <FileText className="h-3 w-3" />
-        Notes
+        {showLabel ? "Notes" : null}
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>

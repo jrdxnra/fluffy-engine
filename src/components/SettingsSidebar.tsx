@@ -209,17 +209,6 @@ export function SettingsSidebar({
             <div className="mb-2 text-[10px] text-muted-foreground">
               Click to open week, double-click for options.
             </div>
-            <div className="mb-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={isBulkLoggingActive ? "default" : "outline"}
-                className="h-7 w-full text-xs"
-                onClick={onLogAllReps}
-              >
-                {isBulkLoggingActive ? "Save all Reps" : "Log all Reps"}
-              </Button>
-            </div>
             <div
               className={`grid w-full ${
                 Object.keys(cycleSettings).length > 3 ? "grid-cols-4" : "grid-cols-3"
