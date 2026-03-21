@@ -30,7 +30,7 @@ import type { CycleScheduleSettings, CycleSettings, Lift } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { getEffectiveCycleSchedule } from "@/lib/schedule";
 
-const percentageDisplayOrder = ["workset3", "workset2", "workset1", "warmup2", "warmup1"] as const;
+const percentageDisplayOrder = ["warmup1", "warmup2", "workset1", "workset2", "workset3"] as const;
 
 type CycleInfo = {
   cycleNumber: number;
@@ -190,7 +190,6 @@ export function ConfigSettingsDialog({
     const cycleExists = cycles.some(c => c.cycleNumber === cycleNumber);
     if (cycleExists) {
       setDialogCycleNumber(cycleNumber);
-      setSettingsTab("weeks");
     }
   };
 
@@ -447,6 +446,13 @@ export function ConfigSettingsDialog({
     setIsOpen(false);
   };
 
+  const isDeloadWeek = (weekKey: string, weekName: string) => {
+    const keyMatch = weekKey.match(/\d+/);
+    const weekNumber = keyMatch ? parseInt(keyMatch[0], 10) : 0;
+    if (weekNumber === 4) return true;
+    return weekName.toLowerCase().includes("deload");
+  };
+
   const handleClose = () => {
     setLocalSettings(cycleSettingsByCycle[dialogCycleNumber] || cycleSettingsByCycle[1] || {});
     setIsOpen(false);
@@ -502,11 +508,23 @@ export function ConfigSettingsDialog({
                       const bNum = parseInt(b.match(/\d+/)?.[0] || "0", 10);
                       return aNum - bNum;
                     })
-                    .map((weekKey) => (
-                    <TabsTrigger key={weekKey} value={weekKey} className="px-2 text-xs sm:text-sm">
-                      {localSettings[weekKey].name}
-                    </TabsTrigger>
-                  ))}
+                    .map((weekKey) => {
+                      const weekName = localSettings[weekKey].name;
+                      const shouldStrikeDeload =
+                        Boolean(getCurrentCycleSchedule().skipDeloadWeek) &&
+                        isDeloadWeek(weekKey, weekName);
+
+                      return (
+                        <TabsTrigger
+                          key={weekKey}
+                          value={weekKey}
+                          className={`px-2 text-xs sm:text-sm ${shouldStrikeDeload ? "line-through opacity-70" : ""}`}
+                          title={shouldStrikeDeload ? "Deload week skipped for this cycle" : undefined}
+                        >
+                          {weekName}
+                        </TabsTrigger>
+                      );
+                    })}
                 </TabsList>
 
                 {Object.entries(localSettings)
