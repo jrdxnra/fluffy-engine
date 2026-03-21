@@ -1,4 +1,5 @@
 import type { Client, CycleScheduleSettings, CycleSettings, HistoricalRecord, Lift } from './types';
+import { accessoryMap } from './workout-content';
 import {
   addDoc,
   collection,
@@ -11,7 +12,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { accessoryMap } from './workout-content';
+import { logDataConsistencyValidation, validateAllClientsDataConsistency } from './data-validation';
 
 const cycleSettings: CycleSettings = {
   week1: {
@@ -216,7 +217,8 @@ export const getClients = async (): Promise<Client[]> => {
     querySnapshot.forEach((docSnapshot) => {
       clients.push({ id: docSnapshot.id, ...docSnapshot.data() } as Client);
     });
-    return clients.sort((a, b) => {
+
+    const sortedClients = clients.sort((a, b) => {
       const aOrder = a.rosterOrder;
       const bOrder = b.rosterOrder;
       if (typeof aOrder === 'number' && typeof bOrder === 'number') {
@@ -226,6 +228,13 @@ export const getClients = async (): Promise<Client[]> => {
       if (typeof bOrder === 'number') return 1;
       return a.name.localeCompare(b.name);
     });
+
+    // Validate data consistency in development
+    if (process.env.NODE_ENV === 'development') {
+      logDataConsistencyValidation(sortedClients);
+    }
+
+    return sortedClients;
   } catch (error) {
     console.error('Error getting clients:', error);
     return [];
@@ -391,50 +400,63 @@ export const deleteClient = async (clientId: string) => {
 
 export const graduateTeam = async (clients: Client[]) => {
   try {
-    const updates = clients.map((client) => {
+    // Pre-graduation validation
+    const preValidation = validateAllClientsDataConsistency(clients);
+    if (preValidation.clientsWithErrors > 0) {
+      console.error('Data consistency errors found before graduation:', preValidation.allErrors);
+      throw new Error('Cannot graduate team: data consistency errors detected');
+    }
+
+    const result = clients.map((client) => {
       const currentCycle = client.currentCycleNumber || 1;
       const nextCycle = currentCycle + 1;
+
+      const newTrainingMaxes = {
+        Squat: client.trainingMaxes.Squat + 10,
+        Deadlift: client.trainingMaxes.Deadlift + 10,
+        Bench: client.trainingMaxes.Bench + 5,
+        Press: client.trainingMaxes.Press + 5,
+      };
+
+      const updatedTrainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
+      for (const cycleKey of Object.keys(updatedTrainingMaxesByCycle)) {
+        const cycle = Number(cycleKey);
+        if (!Number.isNaN(cycle) && cycle >= nextCycle) {
+          updatedTrainingMaxesByCycle[cycle] = { ...newTrainingMaxes };
+        }
+      }
+      updatedTrainingMaxesByCycle[nextCycle] = { ...newTrainingMaxes };
 
       const updatedClient = {
         ...client,
         currentCycleNumber: nextCycle,
-        trainingMaxes: {
-          Squat: client.trainingMaxes.Squat + 10,
-          Deadlift: client.trainingMaxes.Deadlift + 10,
-          Bench: client.trainingMaxes.Bench + 5,
-          Press: client.trainingMaxes.Press + 5,
-        },
+        trainingMaxes: newTrainingMaxes,
+        trainingMaxesByCycle: updatedTrainingMaxesByCycle,
         weekAssignmentsByCycle: {
           ...(client.weekAssignmentsByCycle || {}),
           [nextCycle]: { week1: '5', week2: '3', week3: '1' },
         },
       };
 
-      return { clientId: client.id, updates: updatedClient };
+      return updatedClient;
     });
 
-    for (const { clientId, updates: clientUpdates } of updates) {
-      await updateClient(clientId, clientUpdates);
+    // Update all clients in the database
+    for (const updatedClient of result) {
+      await updateClient(updatedClient.id, updatedClient);
     }
 
-    return clients.map((client) => {
-      const currentCycle = client.currentCycleNumber || 1;
-      const nextCycle = currentCycle + 1;
-      return {
-        ...client,
-        currentCycleNumber: nextCycle,
-        trainingMaxes: {
-          Squat: client.trainingMaxes.Squat + 10,
-          Deadlift: client.trainingMaxes.Deadlift + 10,
-          Bench: client.trainingMaxes.Bench + 5,
-          Press: client.trainingMaxes.Press + 5,
-        },
-        weekAssignmentsByCycle: {
-          ...(client.weekAssignmentsByCycle || {}),
-          [nextCycle]: { week1: '5', week2: '3', week3: '1' },
-        },
-      };
-    });
+    // Post-graduation validation
+    const postValidation = validateAllClientsDataConsistency(result);
+    if (postValidation.clientsWithErrors > 0) {
+      console.error('Data consistency errors after graduation:', postValidation.allErrors);
+      // Don't throw here - the graduation succeeded, but log the issue
+    }
+
+    // Get the next cycle from the first client (they should all be the same)
+    const nextCycle = result[0]?.currentCycleNumber || 2;
+    console.log(`✅ Team graduated successfully. ${clients.length} clients moved to cycle ${nextCycle}`);
+    return result;
   } catch (error) {
     console.error('Error graduating team:', error);
     throw error;

@@ -35,6 +35,7 @@ import type { Client, CycleSettings, HistoricalRecord, Lift, SessionMode } from 
 import { Lifts } from "@/lib/types";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 import { ClientProgressChart } from "./ClientProgressChart";
+import { useAdminModeContext } from "@/contexts/AdminModeContext";
 
 type ClientProfileModalProps = {
   open: boolean;
@@ -93,6 +94,7 @@ export function ClientProfileModal({
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedCycle, setSelectedCycle] = useState<number>(currentCycleNumber);
   const [resetCycleNumber, setResetCycleNumber] = useState<number>(currentCycleNumber);
+  const { isAdminMode } = useAdminModeContext();
 
   useEffect(() => {
     setLocalClient(client);
@@ -337,52 +339,54 @@ export function ClientProfileModal({
                       })}
                     </div>
                   </div>
-                  <div className="rounded-md border p-3 bg-muted/30">
-                    <p className="text-sm font-medium">Stall / Reset Protocol (Current Cycle Only)</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Use this when a client stalls. Recalculate TM from recent performance starting at a selected cycle and apply forward.
-                      This does not overwrite Actual 1RM values.
-                    </p>
-                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Reset Starting At Cycle</Label>
-                        <Select
-                          value={resetCycleNumber.toString()}
-                          onValueChange={(value) => setResetCycleNumber(parseInt(value, 10))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(() => {
-                              const cycleSet = new Set<number>([currentCycleNumber]);
-                              Object.keys(localClient.trainingMaxesByCycle || {}).forEach((cycleKey) => {
-                                const n = parseInt(cycleKey, 10);
-                                if (!Number.isNaN(n)) cycleSet.add(n);
-                              });
+                  {isAdminMode && (
+                    <div className="rounded-md border p-3 bg-muted/30">
+                      <p className="text-sm font-medium">Stall / Reset Protocol (Current Cycle Only)</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Use this when a client stalls. Recalculate TM from recent performance starting at a selected cycle and apply forward.
+                        This does not overwrite Actual 1RM values.
+                      </p>
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Reset Starting At Cycle</Label>
+                          <Select
+                            value={resetCycleNumber.toString()}
+                            onValueChange={(value) => setResetCycleNumber(parseInt(value, 10))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(() => {
+                                const cycleSet = new Set<number>([currentCycleNumber]);
+                                Object.keys(localClient.trainingMaxesByCycle || {}).forEach((cycleKey) => {
+                                  const n = parseInt(cycleKey, 10);
+                                  if (!Number.isNaN(n)) cycleSet.add(n);
+                                });
 
-                              return Array.from(cycleSet)
-                                .sort((a, b) => a - b)
-                                .map((cycle) => (
-                                  <SelectItem key={cycle} value={cycle.toString()}>
-                                    Cycle {cycle}
-                                  </SelectItem>
-                                ));
-                            })()}
-                          </SelectContent>
-                        </Select>
+                                return Array.from(cycleSet)
+                                  .sort((a, b) => a - b)
+                                  .map((cycle) => (
+                                    <SelectItem key={cycle} value={cycle.toString()}>
+                                      Cycle {cycle}
+                                    </SelectItem>
+                                  ));
+                              })()}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
+                      <Button
+                        className="mt-3"
+                        variant="outline"
+                        onClick={handleResetTM}
+                        disabled={isResettingTM || isSaving}
+                      >
+                        {isResettingTM ? "Resetting TM..." : `Reset From Cycle ${resetCycleNumber} Forward`}
+                      </Button>
+                      <p className="mt-2 text-[11px] text-muted-foreground">Applies to selected cycle and all later cycles.</p>
                     </div>
-                    <Button
-                      className="mt-3"
-                      variant="outline"
-                      onClick={handleResetTM}
-                      disabled={isResettingTM || isSaving}
-                    >
-                      {isResettingTM ? "Resetting TM..." : `Reset From Cycle ${resetCycleNumber} Forward`}
-                    </Button>
-                    <p className="mt-2 text-[11px] text-muted-foreground">Applies to selected cycle and all later cycles.</p>
-                  </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {Lifts.map((lift) => {
@@ -586,27 +590,29 @@ export function ClientProfileModal({
         </Tabs>
 
         <div className="flex justify-between gap-2 pt-4">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" disabled={isSaving || isResettingTM || isDeleting}>
-                {isDeleting ? "Deleting..." : "Delete Client"}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete {localClient.name}?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will remove the client from your roster. This action cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete}>
-                  Delete Client
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          {isAdminMode && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" disabled={isSaving || isResettingTM || isDeleting}>
+                  {isDeleting ? "Deleting..." : "Delete Client"}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete {localClient.name}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will remove the client from your roster. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete}>
+                    Delete Client
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
           <div className="flex gap-2">
           <Button variant="outline" onClick={handleClose} disabled={isSaving}>
             Cancel

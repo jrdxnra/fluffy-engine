@@ -41,6 +41,8 @@ import {
   updateClientWeekAssignmentsAction,
 } from "@/app/actions";
 import { useToast } from "@/hooks/use-toast";
+import { useAdminModeContext } from "@/contexts/AdminModeContext";
+import { useAdminModeKeyboardToggle } from "@/hooks/use-admin-mode-keyboard-toggle";
 
 type BulkLogAction = {
   type: "open" | "save";
@@ -65,6 +67,11 @@ export function SbdohControl({
 }: SbdohControlProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const { isAdminMode, toggleAdminMode, isLoaded: isAdminModeLoaded } = useAdminModeContext();
+  
+  // Set up keyboard shortcut for admin mode toggle (Ctrl+Shift+A)
+  useAdminModeKeyboardToggle(toggleAdminMode);
+  
   const dayViewStorageKey = "sbdoh:dayViewSlot";
   const themeStorageKey = "sbdoh:theme";
   
@@ -1882,20 +1889,22 @@ export function SbdohControl({
                 />
               </div>
             )}
-            <div className="fixed bottom-6 right-6 z-40">
-              <ConfigSettingsDialog
-                cycleSettings={cycleSettings}
-                onUpdateCycleSettings={handleUpdateCycleSettings}
-                cycleSchedulesByCycle={cycleSchedulesByCycle}
-                onUpdateCycleSchedule={handleUpdateCycleSchedule}
-                currentWeekKey={currentWeek}
-                cycles={availableCycles}
-                currentCycleNumber={currentCycleNumber}
-                onRenameCycle={handleRenameCycle}
-                onDeleteCycle={handleDeleteCycle}
-                onCycleChange={setCurrentCycleNumber}
-              />
-            </div>
+            {isAdminMode && (
+              <div className="fixed bottom-6 right-6 z-40">
+                <ConfigSettingsDialog
+                  cycleSettings={cycleSettings}
+                  onUpdateCycleSettings={handleUpdateCycleSettings}
+                  cycleSchedulesByCycle={cycleSchedulesByCycle}
+                  onUpdateCycleSchedule={handleUpdateCycleSchedule}
+                  currentWeekKey={currentWeek}
+                  cycles={availableCycles}
+                  currentCycleNumber={currentCycleNumber}
+                  onRenameCycle={handleRenameCycle}
+                  onDeleteCycle={handleDeleteCycle}
+                  onCycleChange={setCurrentCycleNumber}
+                />
+              </div>
+            )}
           </div>
         </main>
       </div>

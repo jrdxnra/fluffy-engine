@@ -44,6 +44,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { WeekOptionsModal } from "@/components/WeekOptionsModal";
+import { useAdminModeContext } from "@/contexts/AdminModeContext";
 
 // Helper function to extract rep scheme from week settings
 const getRepScheme = (workset3Reps: string | number | undefined): string => {
@@ -102,6 +103,7 @@ export function SettingsSidebar({
   onGraduateTeam,
 }: SettingsSidebarProps) {
     const { toast } = useToast();
+    const { isAdminMode } = useAdminModeContext();
     const [isGraduating, setIsGraduating] = useState(false);
     const [isWeekOptionsOpen, setIsWeekOptionsOpen] = useState(false);
     const [selectedWeekForOptions, setSelectedWeekForOptions] = useState<string | null>(null);
@@ -297,34 +299,38 @@ export function SettingsSidebar({
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={onAddClient} tooltip="Add New Client">
-              <Plus /> <span>Add Client</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <SidebarMenuButton variant="outline" tooltip="Graduate Team" disabled={isGraduating}>
-                  <TrendingUp /> <span>Graduate Team</span>
+          {isAdminMode && (
+            <>
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={onAddClient} tooltip="Add New Client">
+                  <Plus /> <span>Add Client</span>
                 </SidebarMenuButton>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently increase the Training Maxes for all clients on the roster (+5 lbs for Bench/Press, +10 lbs for Squat/Deadlift). This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleGraduateTeam} disabled={isGraduating}>
-                    {isGraduating ? 'Graduating...' : 'Yes, Graduate Team'}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </SidebarMenuItem>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <SidebarMenuButton variant="outline" tooltip="Graduate Team" disabled={isGraduating}>
+                      <TrendingUp /> <span>Graduate Team</span>
+                    </SidebarMenuButton>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently increase the Training Maxes for all clients on the roster (+5 lbs for Bench/Press, +10 lbs for Squat/Deadlift). This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleGraduateTeam} disabled={isGraduating}>
+                        {isGraduating ? 'Graduating...' : 'Yes, Graduate Team'}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </SidebarMenuItem>
+            </>
+          )}
           <SidebarMenuItem>
             <a
               href="/how-to.html"
