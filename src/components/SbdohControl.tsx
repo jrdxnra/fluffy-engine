@@ -1846,6 +1846,7 @@ export function SbdohControl({
           cycleSettings={cycleSettings}
           clients={clients}
           currentCycleNumber={currentCycleNumber}
+          skipDeloadWeek={Boolean(currentCycleSchedule.skipDeloadWeek)}
           availableCycleNumbers={availableCycles.map(cycle => cycle.cycleNumber)}
           onCycleChange={setCurrentCycleNumber}
           onAddClient={() => setAddClientSheetOpen(true)}

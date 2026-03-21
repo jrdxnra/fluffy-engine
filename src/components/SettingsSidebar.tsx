@@ -66,6 +66,7 @@ type SettingsSidebarProps = {
   cycleSettings: CycleSettings;
   clients: Client[];
   currentCycleNumber?: number;
+  skipDeloadWeek?: boolean;
   availableCycleNumbers?: number[];
   onCycleChange?: (cycleNumber: number) => void;
   onAddClient: () => void;
@@ -90,6 +91,7 @@ export function SettingsSidebar({
   cycleSettings,
   clients,
   currentCycleNumber = 1,
+  skipDeloadWeek = false,
   availableCycleNumbers = [],
   onCycleChange,
   onAddClient,
@@ -126,6 +128,17 @@ export function SettingsSidebar({
       setSelectedWeekForOptions(weekKey);
       setIsWeekOptionsOpen(true);
     };
+
+    const isDeloadWeek = (weekKey: string, weekName: string) => {
+      const weekMatch = weekKey.match(/\d+/);
+      const weekNumber = weekMatch ? parseInt(weekMatch[0], 10) : 0;
+      if (weekNumber === 4) return true;
+      return weekName.toLowerCase().includes("deload");
+    };
+
+    const currentWeekName = cycleSettings[currentWeek]?.name || currentWeek;
+    const currentWeekIsSkippedDeload =
+      skipDeloadWeek && isDeloadWeek(currentWeek, currentWeekName);
 
     const handleGraduateTeam = async () => {
         setIsGraduating(true);
@@ -205,8 +218,9 @@ export function SettingsSidebar({
             </div>
           ) : null}
           <div className="space-y-1">
-            <div className="mb-2 text-xs font-semibold text-primary">
-              {cycleSettings[currentWeek]?.name}
+            <div className={`mb-2 text-xs font-semibold text-primary ${currentWeekIsSkippedDeload ? "line-through opacity-70" : ""}`}>
+              {currentWeekName}
+              {currentWeekIsSkippedDeload ? " (Skipped)" : ""}
             </div>
             <div className="mb-2 text-[10px] text-muted-foreground">
               Click to open week, double-click for options.
@@ -222,7 +236,10 @@ export function SettingsSidebar({
                   const bNum = parseInt(b.match(/\d+/)?.[0] || "0", 10);
                   return aNum - bNum;
                 })
-                .map((weekKey) => (
+                .map((weekKey) => {
+                  const weekName = cycleSettings[weekKey].name;
+                  const shouldStrikeDeload = skipDeloadWeek && isDeloadWeek(weekKey, weekName);
+                  return (
                 <div key={weekKey} className="flex-1 border-r last:border-r-0">
                   <button
                     onClick={() => onWeekChange(weekKey)}
@@ -233,14 +250,16 @@ export function SettingsSidebar({
                     title="Click to open week. Double-click for week options."
                   >
                     <div className="flex flex-col items-center leading-tight">
-                      <span className="font-medium">{cycleSettings[weekKey].name}</span>
+                      <span className={`font-medium ${shouldStrikeDeload ? "line-through opacity-70" : ""}`}>
+                        {weekName}
+                      </span>
                       <span className="text-xxs text-muted-foreground">
                         ({getRepScheme(cycleSettings[weekKey].reps.workset3)})
                       </span>
                     </div>
                   </button>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         </SidebarHeader>
