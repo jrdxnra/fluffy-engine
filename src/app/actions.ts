@@ -63,6 +63,7 @@ const calculate1RM = (weight: number, reps: number): number => {
 export async function addClientAction(clientData: {
   name: string;
   oneRepMaxes: { Squat: number; Bench: number; Deadlift: number; Press: number };
+  oneRepMaxesByCycle?: { [cycleNumber: number]: { Squat: number; Bench: number; Deadlift: number; Press: number } };
   trainingMaxes?: { Squat: number; Bench: number; Deadlift: number; Press: number };
   trainingMaxesByCycle?: { [cycleNumber: number]: { Squat: number; Bench: number; Deadlift: number; Press: number } };
   currentCycleNumber?: number;
@@ -79,6 +80,10 @@ export async function addClientAction(clientData: {
     const normalizedClientData = {
       name: clientData.name,
       oneRepMaxes: clientData.oneRepMaxes,
+      oneRepMaxesByCycle: {
+        ...(clientData.oneRepMaxesByCycle || {}),
+        1: clientData.oneRepMaxes,
+      },
       trainingMaxes: computedTrainingMaxes,
       trainingMaxesByCycle: {
         ...(clientData.trainingMaxesByCycle || {}),
@@ -182,6 +187,7 @@ export async function updateClientProfileAction(
   clientId: string,
   updates: {
     oneRepMaxes?: Record<string, number>;
+    oneRepMaxesByCycle?: Record<number, Record<string, number>>;
     trainingMaxes?: Record<string, number>;
     trainingMaxesByCycle?: Record<number, Record<string, number>>;
     initialWeights?: Record<string, number>;
@@ -300,12 +306,17 @@ export async function deleteCycleAction(
         // Remove from training maxes per cycle
         const newTrainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
         delete newTrainingMaxesByCycle[cycleNumber];
+
+        const fallbackTrainingMaxes =
+          newTrainingMaxesByCycle[1] ||
+          client.trainingMaxes;
         
         console.log(`Moving ${client.name} from cycle ${cycleNumber} to cycle 1`);
         
         // Reassign to Cycle 1
         await updateClient(client.id, {
           currentCycleNumber: 1,
+          trainingMaxes: fallbackTrainingMaxes,
           weekAssignmentsByCycle: newAssignments,
           trainingMaxesByCycle: newTrainingMaxesByCycle,
         });

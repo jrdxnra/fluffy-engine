@@ -430,6 +430,10 @@ export const graduateTeam = async (clients: Client[]) => {
       const updatedClient = {
         ...client,
         currentCycleNumber: nextCycle,
+        oneRepMaxesByCycle: {
+          ...(client.oneRepMaxesByCycle || {}),
+          [nextCycle]: client.oneRepMaxesByCycle?.[currentCycle] || client.oneRepMaxes,
+        },
         trainingMaxes: newTrainingMaxes,
         trainingMaxesByCycle: updatedTrainingMaxesByCycle,
         weekAssignmentsByCycle: {

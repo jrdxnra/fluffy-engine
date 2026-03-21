@@ -60,6 +60,40 @@ export const calculateRepsForPR = (target1RM: number, currentWeight: number): nu
     return Math.ceil((requiredRatio - 1) * 30);
 };
 
+const CYCLE_INCREMENT_BY_LIFT: Record<Lift, number> = {
+  Squat: 10,
+  Deadlift: 10,
+  Bench: 5,
+  Press: 5,
+};
+
+const resolveTrainingMaxForCycle = (client: Client, lift: Lift, cycleNumber: number): number => {
+  const cycleMaxes = client.trainingMaxesByCycle || {};
+  const exactTm = cycleMaxes[cycleNumber]?.[lift];
+  if (typeof exactTm === "number") {
+    return exactTm;
+  }
+
+  const availableCycles = Object.keys(cycleMaxes)
+    .map((cycleKey) => Number(cycleKey))
+    .filter((cycle) => !Number.isNaN(cycle))
+    .sort((a, b) => a - b);
+
+  if (availableCycles.length === 0) {
+    return client.trainingMaxes[lift];
+  }
+
+  const nearestPastCycle = [...availableCycles].reverse().find((cycle) => cycle <= cycleNumber);
+  const baseCycle = nearestPastCycle ?? availableCycles[0];
+  const baseTm = cycleMaxes[baseCycle]?.[lift];
+  if (typeof baseTm !== "number") {
+    return client.trainingMaxes[lift];
+  }
+
+  const cycleDelta = Math.max(cycleNumber - baseCycle, 0);
+  return baseTm + cycleDelta * CYCLE_INCREMENT_BY_LIFT[lift];
+};
+
 export const calculateWorkout = (
   client: Client,
   lift: Lift,
@@ -67,7 +101,7 @@ export const calculateWorkout = (
   historicalData: HistoricalRecord[],
   cycleNumber: number = 1
 ): CalculatedWorkout => {
-  const storedTm = client.trainingMaxesByCycle?.[cycleNumber]?.[lift] ?? client.trainingMaxes[lift];
+  const storedTm = resolveTrainingMaxForCycle(client, lift, cycleNumber);
   const baseTmFromOneRepMax = mround(client.oneRepMaxes[lift] * 0.9);
   const tm = cycleNumber === 1 && storedTm > client.oneRepMaxes[lift]
     ? baseTmFromOneRepMax

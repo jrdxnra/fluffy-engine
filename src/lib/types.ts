@@ -54,6 +54,7 @@ export interface Client {
   name: string;
   rosterOrder?: number;
   oneRepMaxes: TrainingMaxes;
+  oneRepMaxesByCycle?: { [cycleNumber: number]: TrainingMaxes }; // Optional per-cycle 1RM snapshots
   trainingMaxes: TrainingMaxes; // Deprecated: use trainingMaxesByCycle instead
   trainingMaxesByCycle?: { [cycleNumber: number]: TrainingMaxes }; // Training max for each cycle
   initialWeights?: TrainingMaxes; // Starting weights for first cycle

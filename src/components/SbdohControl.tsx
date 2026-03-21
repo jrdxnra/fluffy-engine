@@ -69,7 +69,7 @@ export function SbdohControl({
   const { toast } = useToast();
   const { isAdminMode, toggleAdminMode, isLoaded: isAdminModeLoaded } = useAdminModeContext();
   
-  // Set up keyboard shortcut for admin mode toggle (Ctrl+Shift+A)
+  // Set up keyboard shortcut for admin mode toggle (Ctrl+Alt+A on Chromebook/Linux, Cmd+Shift+A on Mac)
   useAdminModeKeyboardToggle(toggleAdminMode);
   
   const dayViewStorageKey = "sbdoh:dayViewSlot";
@@ -152,37 +152,54 @@ export function SbdohControl({
   const [clients, setClients] = useState<Client[]>(() => {
     return initialClients.map(client => {
       const currentCycle = client.currentCycleNumber || 1;
-      
-      // If client already has trainingMaxesByCycle with all needed cycles, keep it
-      if (client.trainingMaxesByCycle && client.trainingMaxesByCycle[currentCycle]) {
-        return client;
-      }
-      
-      // Otherwise, initialize trainingMaxesByCycle
+      const configuredCycles = Object.keys(initialCycleSettingsByCycle)
+        .map((cycleKey) => Number(cycleKey))
+        .filter((cycle) => !Number.isNaN(cycle));
+      const maxCycle = Math.max(currentCycle, ...configuredCycles, 1);
+
       const trainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
-      
-      // For each cycle up to current, calculate what the training max should be
-      for (let cycle = 1; cycle <= currentCycle; cycle++) {
-        if (!trainingMaxesByCycle[cycle]) {
-          if (cycle === 1) {
-            // Cycle 1 uses the default training maxes
-            trainingMaxesByCycle[1] = client.trainingMaxes;
-          } else {
-            // Each subsequent cycle adds 5-10 lbs to the previous cycle's maxes
-            const prevCycleMaxes = trainingMaxesByCycle[cycle - 1];
-            trainingMaxesByCycle[cycle] = {
-              Squat: prevCycleMaxes.Squat + 10,
-              Deadlift: prevCycleMaxes.Deadlift + 10,
-              Bench: prevCycleMaxes.Bench + 5,
-              Press: prevCycleMaxes.Press + 5,
-            };
-          }
+
+      if (!trainingMaxesByCycle[1]) {
+        trainingMaxesByCycle[1] = client.trainingMaxes;
+      }
+
+      const allLiftsEqual = (
+        a: typeof client.trainingMaxes,
+        b: typeof client.trainingMaxes
+      ) => {
+        return (
+          a.Squat === b.Squat &&
+          a.Deadlift === b.Deadlift &&
+          a.Bench === b.Bench &&
+          a.Press === b.Press
+        );
+      };
+
+      for (let cycle = 2; cycle <= maxCycle; cycle++) {
+        const prevCycleMaxes = trainingMaxesByCycle[cycle - 1];
+        if (!prevCycleMaxes) continue;
+
+        const expectedCycleMaxes = {
+          Squat: prevCycleMaxes.Squat + 10,
+          Deadlift: prevCycleMaxes.Deadlift + 10,
+          Bench: prevCycleMaxes.Bench + 5,
+          Press: prevCycleMaxes.Press + 5,
+        };
+
+        const existingCycleMaxes = trainingMaxesByCycle[cycle];
+        const looksLikeStaleGlobalFallback =
+          !!existingCycleMaxes &&
+          allLiftsEqual(existingCycleMaxes, client.trainingMaxes) &&
+          !allLiftsEqual(existingCycleMaxes, prevCycleMaxes);
+
+        if (!existingCycleMaxes || looksLikeStaleGlobalFallback) {
+          trainingMaxesByCycle[cycle] = expectedCycleMaxes;
         }
       }
-      
+
       return {
         ...client,
-        trainingMaxesByCycle
+        trainingMaxesByCycle,
       };
     });
   });
@@ -708,21 +725,57 @@ export function SbdohControl({
   };
   
   const handleUpdateClient = async (updatedClient: Client) => {
-    const recalculatedTrainingMaxes = calculateTrainingMaxes(updatedClient.oneRepMaxes);
     const currentCycleForClient = updatedClient.currentCycleNumber || currentCycleNumber || 1;
+    const cycleOneRepMaxes =
+      updatedClient.oneRepMaxesByCycle?.[currentCycleForClient] ||
+      updatedClient.oneRepMaxes;
+    const recalculatedTrainingMaxes = calculateTrainingMaxes(cycleOneRepMaxes);
+    const existingTrainingMaxesByCycle = {
+      ...(updatedClient.trainingMaxesByCycle || {}),
+    };
+
+    const existingOneRepMaxesByCycle = {
+      ...(updatedClient.oneRepMaxesByCycle || {}),
+      [currentCycleForClient]: cycleOneRepMaxes,
+    };
+
+    const rebuiltTrainingMaxesByCycle = {
+      ...existingTrainingMaxesByCycle,
+      [currentCycleForClient]: recalculatedTrainingMaxes,
+    };
+
+    const cycleNumbers = Object.keys(existingTrainingMaxesByCycle)
+      .map((cycleKey) => Number(cycleKey))
+      .filter((cycle) => !Number.isNaN(cycle))
+      .sort((a, b) => a - b);
+
+    for (const cycleNumber of cycleNumbers) {
+      if (cycleNumber <= currentCycleForClient) continue;
+      const previousCycle = cycleNumber - 1;
+      const previousCycleMaxes = rebuiltTrainingMaxesByCycle[previousCycle];
+      if (!previousCycleMaxes) continue;
+
+      rebuiltTrainingMaxesByCycle[cycleNumber] = {
+        Squat: previousCycleMaxes.Squat + 10,
+        Deadlift: previousCycleMaxes.Deadlift + 10,
+        Bench: previousCycleMaxes.Bench + 5,
+        Press: previousCycleMaxes.Press + 5,
+      };
+    }
+
     const normalizedClient: Client = {
       ...updatedClient,
+      oneRepMaxes: cycleOneRepMaxes,
+      oneRepMaxesByCycle: existingOneRepMaxesByCycle,
       trainingMaxes: recalculatedTrainingMaxes,
-      trainingMaxesByCycle: {
-        ...(updatedClient.trainingMaxesByCycle || {}),
-        [currentCycleForClient]: recalculatedTrainingMaxes,
-      },
+      trainingMaxesByCycle: rebuiltTrainingMaxesByCycle,
     };
 
     setClients(prev => prev.map(c => c.id === updatedClient.id ? normalizedClient : c));
 
     const result = await updateClientProfileAction(normalizedClient.id, {
       oneRepMaxes: normalizedClient.oneRepMaxes,
+      oneRepMaxesByCycle: normalizedClient.oneRepMaxesByCycle as any,
       trainingMaxes: normalizedClient.trainingMaxes,
       trainingMaxesByCycle: normalizedClient.trainingMaxesByCycle,
       initialWeights: normalizedClient.initialWeights as any,
@@ -974,10 +1027,16 @@ export function SbdohControl({
         
         const newTrainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
         delete newTrainingMaxesByCycle[cycleNumber];
+
+        const fallbackTrainingMaxes =
+          newTrainingMaxesByCycle[newCycleNumber || 1] ||
+          newTrainingMaxesByCycle[1] ||
+          client.trainingMaxes;
         
         return {
           ...client,
           currentCycleNumber: newCycleNumber,
+          trainingMaxes: fallbackTrainingMaxes,
           weekAssignmentsByCycle: newAssignments,
           trainingMaxesByCycle: newTrainingMaxesByCycle,
         };
@@ -1044,6 +1103,10 @@ export function SbdohControl({
       return {
         ...client,
         currentCycleNumber: newCycleNumber,
+        oneRepMaxesByCycle: {
+          ...(client.oneRepMaxesByCycle || {}),
+          [newCycleNumber]: client.oneRepMaxesByCycle?.[previousCycle] || client.oneRepMaxes,
+        },
         trainingMaxes: newTrainingMaxes, // Update the fallback value
         trainingMaxesByCycle: {
           ...(client.trainingMaxesByCycle || {}),

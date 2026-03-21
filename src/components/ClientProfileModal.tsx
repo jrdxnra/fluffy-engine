@@ -97,9 +97,18 @@ export function ClientProfileModal({
   const { isAdminMode } = useAdminModeContext();
 
   useEffect(() => {
-    setLocalClient(client);
+    if (!client) {
+      setLocalClient(null);
+      return;
+    }
+
+    const cycleOneRepMaxes = client.oneRepMaxesByCycle?.[currentCycleNumber];
+    setLocalClient({
+      ...client,
+      oneRepMaxes: cycleOneRepMaxes || client.oneRepMaxes,
+    });
     setResetCycleNumber(currentCycleNumber);
-  }, [client]);
+  }, [client, currentCycleNumber]);
 
   useEffect(() => {
     setResetCycleNumber(currentCycleNumber);
@@ -246,8 +255,15 @@ export function ClientProfileModal({
         }
       }
 
+      const cycleOneRepMaxes = {
+        ...(localClient.oneRepMaxesByCycle || {}),
+        [currentCycleNumber]: localClient.oneRepMaxes,
+      };
+
       const clientToSave: Client = {
         ...localClient,
+        oneRepMaxesByCycle: cycleOneRepMaxes,
+        oneRepMaxes: localClient.oneRepMaxes,
         trainingMaxes: calculateTrainingMaxes(localClient.oneRepMaxes),
         trainingMaxesByCycle: {
           ...(localClient.trainingMaxesByCycle || {}),
@@ -274,7 +290,17 @@ export function ClientProfileModal({
   };
 
   const handleClose = () => {
-    setLocalClient(client);
+    if (!client) {
+      setLocalClient(null);
+      onOpenChange(false);
+      return;
+    }
+
+    const cycleOneRepMaxes = client.oneRepMaxesByCycle?.[currentCycleNumber];
+    setLocalClient({
+      ...client,
+      oneRepMaxes: cycleOneRepMaxes || client.oneRepMaxes,
+    });
     onOpenChange(false);
   };
 
@@ -312,6 +338,7 @@ export function ClientProfileModal({
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                   <div className="rounded-md border p-3 bg-muted/30 space-y-2">
                     <p className="text-sm font-medium">Update Actual 1RM</p>
+                    <p className="text-xs text-primary">Editing Cycle {currentCycleNumber} only. Previous cycles are preserved.</p>
                     <p className="text-xs text-muted-foreground">
                       Edit Actual 1RM below. Training Max is automatically calculated at 90% when you save.
                     </p>

@@ -31,23 +31,6 @@ export function validateClientDataConsistency(client: Client): {
     }
   }
 
-  // Check for future cycles with outdated maxes
-  if (client.trainingMaxesByCycle) {
-    for (const [cycleKey, cycleMaxes] of Object.entries(client.trainingMaxesByCycle)) {
-      const cycle = Number(cycleKey);
-      if (cycle > currentCycle) {
-        const lifts: (keyof typeof client.trainingMaxes)[] = ['Squat', 'Bench', 'Deadlift', 'Press'];
-        for (const lift of lifts) {
-          if (cycleMaxes[lift] !== client.trainingMaxes[lift]) {
-            warnings.push(
-              `${lift}: Future cycle ${cycle} maxes (${cycleMaxes[lift]}) don't match current trainingMaxes (${client.trainingMaxes[lift]})`
-            );
-          }
-        }
-      }
-    }
-  }
-
   // Check week assignments exist for current cycle
   if (!client.weekAssignmentsByCycle?.[currentCycle]) {
     warnings.push(`Missing weekAssignmentsByCycle for current cycle ${currentCycle}`);

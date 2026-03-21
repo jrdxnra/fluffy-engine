@@ -2,19 +2,19 @@ import { useEffect, useCallback } from 'react';
 
 /**
  * Hook to listen for keyboard shortcut to toggle admin mode
- * Shortcut: Ctrl+Shift+A (or Cmd+Shift+A on Mac)
+ * Shortcut: Ctrl+Alt+A (or Cmd+Shift+A on Mac)
  */
 export function useAdminModeKeyboardToggle(
   onToggle: (secret?: string) => boolean
 ) {
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
-      // Check for Ctrl+Shift+A or Cmd+Shift+A
-      const isCtrlKey = event.ctrlKey || event.metaKey;
-      const isShiftKey = event.shiftKey;
+      // Chromebook-safe combo: Ctrl+Alt+A. Keep Cmd+Shift+A for macOS.
+      const isMetaShiftA = event.metaKey && event.shiftKey;
+      const isCtrlAltA = event.ctrlKey && event.altKey;
       const isAKey = event.key === 'a' || event.key === 'A';
 
-      if (isCtrlKey && isShiftKey && isAKey) {
+      if ((isMetaShiftA || isCtrlAltA) && isAKey) {
         // Prevent default browser behavior
         event.preventDefault();
         
