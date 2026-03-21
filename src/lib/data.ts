@@ -78,6 +78,7 @@ const defaultCycleSchedule: CycleScheduleSettings = {
   cycleStartDate: '',
   day1Weekday: 'Tuesday',
   day2Weekday: 'Thursday',
+  skipDeloadWeek: false,
   liftDayAssignments: {
     Deadlift: 'day1',
     Bench: 'day1',

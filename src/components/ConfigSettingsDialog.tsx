@@ -784,6 +784,24 @@ export function ConfigSettingsDialog({
                   </div>
                 </div>
 
+                <div className="flex items-start gap-3 rounded-md border p-3">
+                  <input
+                    id="skip-deload-week"
+                    type="checkbox"
+                    checked={Boolean(getCurrentCycleSchedule().skipDeloadWeek)}
+                    onChange={(e) => {
+                      void handleSchedulePatch({ skipDeloadWeek: e.target.checked });
+                    }}
+                    className="mt-1 h-4 w-4"
+                  />
+                  <div className="space-y-1">
+                    <Label htmlFor="skip-deload-week">Skip Deload Week</Label>
+                    <p className="text-xs text-muted-foreground">
+                      When enabled, this cycle is treated as 3 weeks for transition timing. Graduating to the next cycle starts one week earlier.
+                    </p>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label>Movement Day Assignments</Label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

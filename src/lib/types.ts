@@ -17,6 +17,7 @@ export interface CycleScheduleSettings {
   cycleStartDate: string; // ISO date (yyyy-mm-dd)
   day1Weekday: Weekday;
   day2Weekday: Weekday;
+  skipDeloadWeek?: boolean;
   liftDayAssignments?: {
     [key in Lift]?: DaySlot;
   };

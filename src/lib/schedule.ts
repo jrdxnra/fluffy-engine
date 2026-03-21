@@ -15,6 +15,7 @@ const defaultSchedule: CycleScheduleSettings = {
   cycleStartDate: "",
   day1Weekday: "Tuesday",
   day2Weekday: "Thursday",
+  skipDeloadWeek: false,
   liftDayAssignments: {
     Deadlift: "day1",
     Bench: "day1",
@@ -67,6 +68,7 @@ export const getEffectiveCycleSchedule = (
     cycleStartDate: schedule?.cycleStartDate || "",
     day1Weekday: schedule?.day1Weekday || defaultSchedule.day1Weekday,
     day2Weekday: schedule?.day2Weekday || defaultSchedule.day2Weekday,
+    skipDeloadWeek: schedule?.skipDeloadWeek ?? false,
     liftDayAssignments: {
       ...defaultSchedule.liftDayAssignments,
       ...(schedule?.liftDayAssignments || {}),

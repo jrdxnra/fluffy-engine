@@ -312,6 +312,7 @@ export function SbdohControl({
           cycleStartDate: "",
           day1Weekday: "Tuesday",
           day2Weekday: "Thursday",
+          skipDeloadWeek: false,
         };
       }
     }
@@ -320,6 +321,7 @@ export function SbdohControl({
         cycleStartDate: "",
         day1Weekday: "Tuesday",
         day2Weekday: "Thursday",
+        skipDeloadWeek: false,
       };
     }
     return schedules;
@@ -1238,14 +1240,36 @@ export function SbdohControl({
       ...cycleNames,
       [newCycleNumber]: `Cycle ${newCycleNumber}`,
     };
+
+    const addDaysToIso = (isoDate: string, daysToAdd: number): string => {
+      if (!isoDate) return "";
+      const date = new Date(`${isoDate}T00:00:00`);
+      if (Number.isNaN(date.getTime())) return "";
+      date.setDate(date.getDate() + daysToAdd);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    const currentCycleSchedule = cycleSchedulesByCycle[currentCycleNumber] || {
+      cycleStartDate: "",
+      day1Weekday: "Tuesday",
+      day2Weekday: "Thursday",
+      skipDeloadWeek: false,
+    };
+
+    const cycleLengthWeeks = currentCycleSchedule.skipDeloadWeek ? 3 : 4;
+    const nextCycleStartDate = addDaysToIso(currentCycleSchedule.cycleStartDate || "", cycleLengthWeeks * 7);
+    const existingNextCycleSchedule = cycleSchedulesByCycle[newCycleNumber];
+
     const updatedCycleSchedules = {
       ...cycleSchedulesByCycle,
       [newCycleNumber]: {
-        ...(cycleSchedulesByCycle[currentCycleNumber] || {
-          cycleStartDate: "",
-          day1Weekday: "Tuesday",
-          day2Weekday: "Thursday",
-        }),
+        ...currentCycleSchedule,
+        ...(existingNextCycleSchedule || {}),
+        cycleStartDate: existingNextCycleSchedule?.cycleStartDate || nextCycleStartDate,
+        skipDeloadWeek: existingNextCycleSchedule?.skipDeloadWeek ?? false,
       },
     };
     
