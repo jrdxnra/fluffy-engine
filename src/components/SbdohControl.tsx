@@ -78,17 +78,61 @@ export function SbdohControl({
   const normalizeCycleSettingsByCycle = (
     settingsByCycle: Record<number, CycleSettings>
   ) => {
-    const getRepTemplate = (workset3Percentage: number) => {
-      if (workset3Percentage <= 0.6) {
-        return { workset1: 5, workset2: 5, workset3: "5" };
-      }
+    const getSchemeFromReps = (workset3Reps: string | number | undefined): "5" | "3" | "1" | null => {
+      if (workset3Reps === undefined || workset3Reps === null) return null;
+      const normalized = String(workset3Reps).replace(/\D/g, "");
+      if (normalized === "5") return "5";
+      if (normalized === "3") return "3";
+      if (normalized === "1") return "1";
+      return null;
+    };
+
+    const getSchemeFromWorkset3Percentage = (workset3Percentage: number): "5" | "3" | "1" => {
       if (workset3Percentage <= 0.86) {
-        return { workset1: 5, workset2: 5, workset3: "5+" };
+        return "5";
       }
       if (workset3Percentage <= 0.91) {
+        return "3";
+      }
+      return "1";
+    };
+
+    const getRepTemplate = (scheme: "5" | "3" | "1") => {
+      if (scheme === "5") {
+        return { workset1: 5, workset2: 5, workset3: "5+" };
+      }
+      if (scheme === "3") {
         return { workset1: 3, workset2: 3, workset3: "3+" };
       }
       return { workset1: 5, workset2: 3, workset3: "1+" };
+    };
+
+    const getPercentageTemplate = (scheme: "5" | "3" | "1") => {
+      if (scheme === "5") {
+        return {
+          warmup1: 0.5,
+          warmup2: 0.6,
+          workset1: 0.65,
+          workset2: 0.75,
+          workset3: 0.85,
+        };
+      }
+      if (scheme === "3") {
+        return {
+          warmup1: 0.5,
+          warmup2: 0.6,
+          workset1: 0.7,
+          workset2: 0.8,
+          workset3: 0.9,
+        };
+      }
+      return {
+        warmup1: 0.5,
+        warmup2: 0.6,
+        workset1: 0.75,
+        workset2: 0.85,
+        workset3: 0.95,
+      };
     };
 
     const normalized: Record<number, CycleSettings> = {};
@@ -118,7 +162,25 @@ export function SbdohControl({
         }
 
         if (updatedWeekSettings.percentages?.workset3 !== undefined) {
-          const expectedReps = getRepTemplate(updatedWeekSettings.percentages.workset3);
+          const schemeFromReps = getSchemeFromReps(updatedWeekSettings.reps?.workset3);
+          const scheme = schemeFromReps || getSchemeFromWorkset3Percentage(updatedWeekSettings.percentages.workset3);
+
+          const expectedReps = getRepTemplate(scheme);
+          const expectedPercentages = getPercentageTemplate(scheme);
+
+          const currentPercentages = updatedWeekSettings.percentages;
+          const percentagesMismatch =
+            currentPercentages.warmup1 !== expectedPercentages.warmup1 ||
+            currentPercentages.warmup2 !== expectedPercentages.warmup2 ||
+            currentPercentages.workset1 !== expectedPercentages.workset1 ||
+            currentPercentages.workset2 !== expectedPercentages.workset2 ||
+            currentPercentages.workset3 !== expectedPercentages.workset3;
+
+          if (percentagesMismatch) {
+            updatedWeekSettings.percentages = expectedPercentages;
+            changed = true;
+          }
+
           const currentReps = updatedWeekSettings.reps;
           if (
             !currentReps ||
