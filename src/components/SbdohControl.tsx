@@ -702,6 +702,12 @@ export function SbdohControl({
     return `${weekday}${date ? ` (${formatShortDate(date)})` : ""}`;
   };
   const currentWeekLabel = cycleSettings[currentWeek]?.name || currentWeek;
+  const currentWeekNumber = parseInt(currentWeek.match(/\d+/)?.[0] || "0", 10);
+  const isCurrentWeekDeload =
+    currentWeekNumber === 4 ||
+    currentWeekLabel.toLowerCase().includes("deload");
+  const shouldStrikeSessionHeader =
+    Boolean(currentCycleSchedule.skipDeloadWeek) && isCurrentWeekDeload;
   const sessionHeaderLabel =
     viewMode === "day"
       ? `${getDayButtonLabel(dayViewSlot)} · Cycle ${currentCycleNumber} ${currentWeekLabel}`
@@ -1865,7 +1871,12 @@ export function SbdohControl({
               <div className="flex items-center gap-2">
                 <SidebarTrigger className="h-8 w-8 border" />
               </div>
-              <p className={`absolute left-1/2 -translate-x-1/2 ${isSidebarOpen ? "-ml-[131px]" : "-ml-[3px]"} text-lg font-bold tracking-tight`}>{sessionHeaderLabel}</p>
+              <p
+                className={`absolute left-1/2 -translate-x-1/2 ${isSidebarOpen ? "-ml-[131px]" : "-ml-[3px]"} text-lg font-bold tracking-tight ${shouldStrikeSessionHeader ? "line-through opacity-70" : ""}`}
+              >
+                {sessionHeaderLabel}
+                {shouldStrikeSessionHeader ? " (Skipped)" : ""}
+              </p>
               <div className="fixed right-4 top-2 z-40 sm:right-6">
                 <div className="flex flex-col items-end gap-1">
                   <Button
