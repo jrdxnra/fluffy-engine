@@ -38,8 +38,8 @@ type CycleInfo = {
 };
 
 type ConfigSettingsDialogProps = {
-  cycleSettings: CycleSettings;
-  onUpdateCycleSettings: (settings: CycleSettings) => void;
+  cycleSettingsByCycle: Record<number, CycleSettings>;
+  onUpdateCycleSettings: (cycleNumber: number, settings: CycleSettings) => void;
   cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>;
   onUpdateCycleSchedule?: (cycleNumber: number, schedule: CycleScheduleSettings) => Promise<void>;
   currentWeekKey?: string;
@@ -51,7 +51,7 @@ type ConfigSettingsDialogProps = {
 };
 
 export function ConfigSettingsDialog({
-  cycleSettings,
+  cycleSettingsByCycle,
   onUpdateCycleSettings,
   cycleSchedulesByCycle = {},
   onUpdateCycleSchedule,
@@ -63,12 +63,16 @@ export function ConfigSettingsDialog({
   onCycleChange,
 }: ConfigSettingsDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [localSettings, setLocalSettings] = useState<CycleSettings>(cycleSettings);
   const [editingCycleId, setEditingCycleId] = useState<number | null>(null);
   const [editingCycleName, setEditingCycleName] = useState("");
   const [cycleToDelete, setCycleToDelete] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [dialogCycleNumber, setDialogCycleNumber] = useState<number>(currentCycleNumber);
+  const [settingsTab, setSettingsTab] = useState<"cycles" | "weeks" | "about">("cycles");
+  const [selectedWeekKey, setSelectedWeekKey] = useState<string>(currentWeekKey || "week1");
+  const [localSettings, setLocalSettings] = useState<CycleSettings>(
+    cycleSettingsByCycle[currentCycleNumber] || cycleSettingsByCycle[1] || {}
+  );
   const [isLoadingScheduleDebug, setIsLoadingScheduleDebug] = useState(false);
   const [scheduleDebugOutput, setScheduleDebugOutput] = useState<string>("");
   const [scheduleDebugSummary, setScheduleDebugSummary] = useState<string>("");
@@ -83,15 +87,21 @@ export function ConfigSettingsDialog({
     "Sunday",
   ];
 
-  // Sync localSettings when cycleSettings prop changes
+  // Sync localSettings when selected cycle settings change
   useEffect(() => {
-    setLocalSettings(cycleSettings);
-  }, [cycleSettings]);
+    setLocalSettings(cycleSettingsByCycle[dialogCycleNumber] || cycleSettingsByCycle[1] || {});
+  }, [cycleSettingsByCycle, dialogCycleNumber]);
 
   // Sync dialog cycle number when currentCycleNumber changes externally
   useEffect(() => {
     setDialogCycleNumber(currentCycleNumber);
   }, [currentCycleNumber]);
+
+  useEffect(() => {
+    if (currentWeekKey) {
+      setSelectedWeekKey(currentWeekKey);
+    }
+  }, [currentWeekKey]);
 
   // Reset dialog cycle number if it's no longer in available cycles
   useEffect(() => {
@@ -180,9 +190,7 @@ export function ConfigSettingsDialog({
     const cycleExists = cycles.some(c => c.cycleNumber === cycleNumber);
     if (cycleExists) {
       setDialogCycleNumber(cycleNumber);
-      if (onCycleChange) {
-        onCycleChange(cycleNumber);
-      }
+      setSettingsTab("weeks");
     }
   };
 
@@ -435,12 +443,12 @@ export function ConfigSettingsDialog({
   };
 
   const handleSave = () => {
-    onUpdateCycleSettings(localSettings);
+    onUpdateCycleSettings(dialogCycleNumber, localSettings);
     setIsOpen(false);
   };
 
   const handleClose = () => {
-    setLocalSettings(cycleSettings);
+    setLocalSettings(cycleSettingsByCycle[dialogCycleNumber] || cycleSettingsByCycle[1] || {});
     setIsOpen(false);
   };
 
@@ -465,18 +473,23 @@ export function ConfigSettingsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="weeks" className="w-full">
+        <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as "cycles" | "weeks" | "about")} className="w-full">
           <TabsList className="grid w-full grid-cols-3 mb-4">
-            <TabsTrigger value="weeks">Week Settings</TabsTrigger>
             <TabsTrigger value="cycles">Cycles</TabsTrigger>
+            <TabsTrigger value="weeks">Week Settings</TabsTrigger>
             <TabsTrigger value="about">About</TabsTrigger>
           </TabsList>
 
           <TabsContent value="weeks" className="space-y-4">
+            <p className="text-sm text-muted-foreground">Editing cycle {dialogCycleNumber}</p>
             {Object.keys(localSettings).length === 0 ? (
               <p className="text-sm text-muted-foreground">No week settings available.</p>
             ) : (
-              <Tabs defaultValue="week1" className="w-full">
+              <Tabs
+                value={Object.prototype.hasOwnProperty.call(localSettings, selectedWeekKey) ? selectedWeekKey : Object.keys(localSettings)[0]}
+                onValueChange={setSelectedWeekKey}
+                className="w-full"
+              >
                 <TabsList
                   className="grid w-full gap-1"
                   style={{

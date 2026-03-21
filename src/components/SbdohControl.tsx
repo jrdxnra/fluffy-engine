@@ -1024,10 +1024,10 @@ export function SbdohControl({
     }
   };
 
-  const handleUpdateCycleSettings = async (newSettings: CycleSettings) => {
+  const handleUpdateCycleSettings = async (cycleNumber: number, newSettings: CycleSettings) => {
     const updatedSettings = {
       ...cycleSettingsByCycle,
-      [currentCycleNumber]: newSettings,
+      [cycleNumber]: newSettings,
     };
     setCycleSettingsByCycle(updatedSettings);
     
@@ -2041,7 +2041,7 @@ export function SbdohControl({
             {isAdminMode && (
               <div className="fixed bottom-6 right-6 z-40">
                 <ConfigSettingsDialog
-                  cycleSettings={cycleSettings}
+                  cycleSettingsByCycle={cycleSettingsByCycle}
                   onUpdateCycleSettings={handleUpdateCycleSettings}
                   cycleSchedulesByCycle={cycleSchedulesByCycle}
                   onUpdateCycleSchedule={handleUpdateCycleSchedule}
