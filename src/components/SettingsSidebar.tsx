@@ -60,6 +60,7 @@ type SettingsSidebarProps = {
   onLiftChange: (lift: Lift) => void;
   showLiftSelector?: boolean;
   showCycleSelector?: boolean;
+  footerSelectors?: boolean;
   topControls?: React.ReactNode;
   currentWeek: string;
   onWeekChange: (week: string) => void;
@@ -85,6 +86,7 @@ export function SettingsSidebar({
   onLiftChange,
   showLiftSelector = true,
   showCycleSelector = true,
+  footerSelectors = false,
   topControls,
   currentWeek,
   onWeekChange,
@@ -192,7 +194,7 @@ export function SettingsSidebar({
               </Select>
             </div>
           ) : null}
-          {showCycleSelector ? (
+          {!footerSelectors && showCycleSelector ? (
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-2">
                 <Button
@@ -217,51 +219,54 @@ export function SettingsSidebar({
               </div>
             </div>
           ) : null}
-          <div className="space-y-1">
-            <div className={`mb-2 text-xs font-semibold text-primary ${currentWeekIsSkippedDeload ? "line-through opacity-70" : ""}`}>
-              {currentWeekName}
-              {currentWeekIsSkippedDeload ? " (Skipped)" : ""}
+          {!footerSelectors ? (
+            <div className="space-y-1">
+              <div className={`mb-2 text-xs font-semibold text-primary ${currentWeekIsSkippedDeload ? "line-through opacity-70" : ""}`}>
+                {currentWeekName}
+                {currentWeekIsSkippedDeload ? " (Skipped)" : ""}
+              </div>
+              <div className="mb-2 text-[10px] text-muted-foreground">
+                Click to open week, double-click for options.
+              </div>
+              <div
+                className={`grid w-full ${
+                  Object.keys(cycleSettings).length > 3 ? "grid-cols-4" : "grid-cols-3"
+                } h-auto gap-0 border rounded-md overflow-hidden`}
+              >
+                {Object.keys(cycleSettings)
+                  .sort((a, b) => {
+                    const aNum = parseInt(a.match(/\d+/)?.[0] || "0", 10);
+                    const bNum = parseInt(b.match(/\d+/)?.[0] || "0", 10);
+                    return aNum - bNum;
+                  })
+                  .map((weekKey) => {
+                    const weekName = cycleSettings[weekKey].name;
+                    const shouldStrikeDeload = skipDeloadWeek && isDeloadWeek(weekKey, weekName);
+                    return (
+                      <div key={weekKey} className="flex-1 border-r last:border-r-0">
+                        <button
+                          onClick={() => onWeekChange(weekKey)}
+                          onDoubleClick={() => handleWeekClick(weekKey)}
+                          className={`w-full px-1 py-2 text-xs hover:bg-muted rounded-none text-center cursor-pointer transition-colors ${
+                            currentWeek === weekKey ? 'bg-muted border-b-2 border-b-primary' : ''
+                          }`}
+                          title="Click to open week. Double-click for week options."
+                        >
+                          <div className="flex flex-col items-center leading-tight">
+                            <span className={`font-medium ${shouldStrikeDeload ? "line-through opacity-70" : ""}`}>
+                              {weekName}
+                            </span>
+                            <span className="text-xxs text-muted-foreground">
+                              ({getRepScheme(cycleSettings[weekKey].reps.workset3)})
+                            </span>
+                          </div>
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
             </div>
-            <div className="mb-2 text-[10px] text-muted-foreground">
-              Click to open week, double-click for options.
-            </div>
-            <div
-              className={`grid w-full ${
-                Object.keys(cycleSettings).length > 3 ? "grid-cols-4" : "grid-cols-3"
-              } h-auto gap-0 border rounded-md overflow-hidden`}
-            >
-              {Object.keys(cycleSettings)
-                .sort((a, b) => {
-                  const aNum = parseInt(a.match(/\d+/)?.[0] || "0", 10);
-                  const bNum = parseInt(b.match(/\d+/)?.[0] || "0", 10);
-                  return aNum - bNum;
-                })
-                .map((weekKey) => {
-                  const weekName = cycleSettings[weekKey].name;
-                  const shouldStrikeDeload = skipDeloadWeek && isDeloadWeek(weekKey, weekName);
-                  return (
-                <div key={weekKey} className="flex-1 border-r last:border-r-0">
-                  <button
-                    onClick={() => onWeekChange(weekKey)}
-                    onDoubleClick={() => handleWeekClick(weekKey)}
-                    className={`w-full px-1 py-2 text-xs hover:bg-muted rounded-none text-center cursor-pointer transition-colors ${
-                      currentWeek === weekKey ? 'bg-muted border-b-2 border-b-primary' : ''
-                    }`}
-                    title="Click to open week. Double-click for week options."
-                  >
-                    <div className="flex flex-col items-center leading-tight">
-                      <span className={`font-medium ${shouldStrikeDeload ? "line-through opacity-70" : ""}`}>
-                        {weekName}
-                      </span>
-                      <span className="text-xxs text-muted-foreground">
-                        ({getRepScheme(cycleSettings[weekKey].reps.workset3)})
-                      </span>
-                    </div>
-                  </button>
-                </div>
-              )})}
-            </div>
-          </div>
+          ) : null}
         </SidebarHeader>
 
         <SidebarGroup>
@@ -276,7 +281,7 @@ export function SettingsSidebar({
                   <div className="flex items-center gap-1 w-full">
                     <SidebarMenuButton
                       className="justify-start flex-1 min-w-0"
-                      size="sm"
+                      size="lg"
                       onClick={() => onClientProfile(client)}
                       tooltip={{
                         children: `Edit profile for ${client.name}`,
@@ -318,6 +323,74 @@ export function SettingsSidebar({
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
+          {/* Cycle + week selectors — at the bottom for thumb-friendly access */}
+          {showCycleSelector ? (
+            <SidebarMenuItem>
+              <div className="px-1 pb-1 space-y-2">
+                <div className={`text-xs font-semibold text-primary ${currentWeekIsSkippedDeload ? "line-through opacity-70" : ""}`}>
+                  {currentWeekName}{currentWeekIsSkippedDeload ? " (Skipped)" : ""}
+                </div>
+                <div
+                  className={`grid w-full ${
+                    Object.keys(cycleSettings).length > 3 ? "grid-cols-4" : "grid-cols-3"
+                  } h-auto gap-0 border rounded-md overflow-hidden`}
+                >
+                  {Object.keys(cycleSettings)
+                    .sort((a, b) => {
+                      const aNum = parseInt(a.match(/\d+/)?.[0] || "0", 10);
+                      const bNum = parseInt(b.match(/\d+/)?.[0] || "0", 10);
+                      return aNum - bNum;
+                    })
+                    .map((weekKey) => {
+                      const weekName = cycleSettings[weekKey].name;
+                      const shouldStrikeDeload = skipDeloadWeek && isDeloadWeek(weekKey, weekName);
+                      return (
+                        <div key={weekKey} className="flex-1 border-r last:border-r-0">
+                          <button
+                            onClick={() => onWeekChange(weekKey)}
+                            onDoubleClick={() => handleWeekClick(weekKey)}
+                            className={`w-full px-1 py-2 text-xs hover:bg-muted rounded-none text-center cursor-pointer transition-colors ${
+                              currentWeek === weekKey ? 'bg-muted border-b-2 border-b-primary' : ''
+                            }`}
+                            title="Click to open week. Double-click for week options."
+                          >
+                            <div className="flex flex-col items-center leading-tight">
+                              <span className={`font-medium ${shouldStrikeDeload ? "line-through opacity-70" : ""}`}>
+                                {weekName}
+                              </span>
+                              <span className="text-xxs text-muted-foreground">
+                                ({getRepScheme(cycleSettings[weekKey].reps.workset3)})
+                              </span>
+                            </div>
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => prevCycleNumber && onCycleChange?.(prevCycleNumber)}
+                    disabled={prevCycleNumber === null}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="text-sm font-medium">Cycle {currentCycleNumber}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => nextCycleNumber && onCycleChange?.(nextCycleNumber)}
+                    disabled={nextCycleNumber === null}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </SidebarMenuItem>
+          ) : null}
           {isAdminMode && (
             <>
               <SidebarMenuItem>

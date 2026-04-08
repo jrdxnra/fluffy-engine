@@ -489,26 +489,7 @@ export function MobileDevShell({
   };
 
   // ── Sidebar controls ──────────────────────────────────────────────────────────
-  const sidebarTopControls = (
-    <div className="space-y-2">
-      <div className="inline-flex items-center overflow-hidden rounded-md border">
-        <button
-          type="button"
-          className={`h-8 px-3 text-sm font-medium transition-colors ${viewMode === "day" ? "bg-primary text-primary-foreground" : "bg-background text-foreground hover:bg-muted"}`}
-          onClick={() => setViewMode("day")}
-        >
-          Day View
-        </button>
-        <button
-          type="button"
-          className={`h-8 border-l px-3 text-sm font-medium transition-colors ${viewMode === "lift" ? "bg-primary text-primary-foreground" : "bg-background text-foreground hover:bg-muted"}`}
-          onClick={() => setViewMode("lift")}
-        >
-          Lift View
-        </button>
-      </div>
-    </div>
-  );
+  const sidebarTopControls = null;
 
   // ── Render ────────────────────────────────────────────────────────────────────
   const renderWorkoutCards = (workouts: CalculatedWorkout[], cardLift: Lift) =>
@@ -544,6 +525,7 @@ export function MobileDevShell({
         onLiftChange={setLift}
         showLiftSelector={false}
         showCycleSelector={true}
+        footerSelectors={true}
         topControls={sidebarTopControls}
         currentWeek={currentWeek}
         onWeekChange={setCurrentWeek}
