@@ -323,8 +323,8 @@ export function SettingsSidebar({
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
-          {/* Cycle + week selectors — at the bottom for thumb-friendly access */}
-          {showCycleSelector ? (
+          {/* Cycle + week selectors — only in footer when footerSelectors=true (mobile) */}
+          {footerSelectors && showCycleSelector ? (
             <SidebarMenuItem>
               <div className="px-1 pb-1 space-y-2">
                 <div className={`text-xs font-semibold text-primary ${currentWeekIsSkippedDeload ? "line-through opacity-70" : ""}`}>
