@@ -140,7 +140,7 @@ export function AddClientSheet({ open, onOpenChange, onClientAdded }: AddClientS
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:max-w-lg">
+      <SheetContent className="w-full sm:max-w-lg">
         <form onSubmit={handleSubmit(onSubmit)}>
           <SheetHeader>
             <SheetTitle>Add New Client</SheetTitle>
@@ -148,9 +148,9 @@ export function AddClientSheet({ open, onOpenChange, onClientAdded }: AddClientS
               Enter the client's name and their current estimated 1-Rep Maxes (1RMs). The 90% Training Max (TM) will be calculated automatically.
             </SheetDescription>
           </SheetHeader>
-          <div className="grid gap-4 py-6">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">
+          <div className="grid gap-5 py-6">
+            <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+              <Label htmlFor="name" className="text-left sm:text-right">
                 Name
               </Label>
               <Controller
@@ -158,11 +158,11 @@ export function AddClientSheet({ open, onOpenChange, onClientAdded }: AddClientS
                 control={control}
                 render={({ field }) => <Input id="name" {...field} className="col-span-3" />}
               />
-              {errors.name && <p className="col-span-4 text-right text-destructive text-sm">{errors.name.message}</p>}
+              {errors.name && <p className="col-span-4 text-left text-destructive text-sm sm:text-right">{errors.name.message}</p>}
             </div>
             {Lifts.map((lift: Lift) => (
-              <div key={lift} className="grid grid-cols-4 items-start gap-4">
-                <Label htmlFor={lift} className="text-right pt-2">
+              <div key={lift} className="grid grid-cols-1 items-start gap-2 sm:grid-cols-4 sm:gap-4">
+                <Label htmlFor={lift} className="pt-0 text-left sm:pt-2 sm:text-right">
                   {lift} 1RM
                 </Label>
                 <div className="col-span-3">
