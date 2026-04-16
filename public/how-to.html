@@ -181,13 +181,14 @@
     <h2>3) What Save Actually Does</h2>
     <div class="card">
       <div class="kpi">
-        <div class="box"><strong class="ok">Historical record saved</strong><p>Each entered set writes a historical record for trend/1RM logic.</p></div>
-        <div class="box"><strong class="ok">Week-scoped set snapshot saved</strong><p>Same values persist to client data under cycle/week/lift/set index.</p></div>
+        <div class="box"><strong class="ok">Best set logged to history</strong><p>The set with the highest estimated 1RM is written to historical records — one chart point per session day per lift.</p></div>
+        <div class="box"><strong class="ok">Week-scoped set snapshot saved</strong><p>All entered values (every set) persist to client data under cycle/week/lift/set index for full session recall.</p></div>
         <div class="box"><strong class="ok">UI reflects saved values</strong><p>Reopening Log Reps pre-fills values; table/copy can display persisted actuals.</p></div>
       </div>
       <div class="note">
         <strong>Data location (conceptual)</strong>
         <p class="mono">client.loggedSetInputsByCycle[cycle][weekKey][lift][setIndex] = { weight, reps, updatedAt }</p>
+        <p style="margin-top:6px">Historical records are separate — one best-set document per session in <code>historicalRecords</code>.</p>
       </div>
     </div>
 
@@ -236,9 +237,13 @@
         <li><strong>Per-week session modes:</strong> Every week can now run its own mode: <code>Normal</code>, <code>Slide</code>, <code>Jack Shit</code>, <code>Pause Week</code>, or <code>Recovery</code>, with legacy fallback support.</li>
         <li><strong>Slide catch-up flow:</strong> Slide uses <code>Use From</code> to pick a prior source week for catch-up behavior; invalid forward choices are hidden.</li>
         <li><strong>Copy output includes actuals:</strong> Exported day/lift text now includes logged weight/reps so handoffs match performed work.</li>
+        <li><strong>Copy uses correct lift:</strong> Copying from a Squat card in Day View now always copies Squat data — stale closure bug fixed.</li>
+        <li><strong>Mobile save reliability (iOS):</strong> Number inputs use <code>inputMode="numeric"</code> so iOS Safari fires onChange on every keystroke — saves no longer capture stale values.</li>
+        <li><strong>1RM progress chart cleaned up:</strong> Chart deduplicates to one point per calendar day (best estimated 1RM), eliminating multi-point clutter from warmup/work set logging.</li>
+        <li><strong>Best-set history logging:</strong> Saving a session logs only the single highest-estimated-1RM set to historical records — all sets still persist as week snapshots for copy/recall.</li>
         <li><strong>Prescribed sets stay stable:</strong> Logging actuals no longer mutates prescribed/top-set programming display.</li>
-        <li><strong>Stronger save reliability:</strong> Saving rep logs persists both historical records and week snapshots with clearer error behavior.</li>
         <li><strong>Cycle-scoped isolation:</strong> Week assignments, mode mappings, and logged sets are isolated by cycle, including after graduation.</li>
+        <li><strong>1RM Calculator:</strong> Quick inline calculator in the sidebar footer — enter any weight + reps to get estimated 1RM, 2RM, and 3RM equivalents.</li>
       </ul>
     </div>
 
@@ -254,8 +259,12 @@
     <h2>8) Quick Troubleshooting</h2>
     <div class="card">
       <h3>"I saved values but boxes look empty"</h3>
-      <p>Reopen the same cycle/week/lift row. If you changed week/lift, you’re looking at a different key.</p>
-      <h3>"Why are week values not in duplicated week?"</h3>
+      <p>Reopen the same cycle/week/lift row. If you changed week/lift, you’re looking at a different key.</p>      <h3>"On mobile, my save wasn't persisting"</h3>
+      <p>Fixed. iOS Safari previously only fired <code>onChange</code> on number inputs when the field lost focus, so tapping Save captured empty state. Inputs now use <code>inputMode="numeric"</code> to fire on every keystroke.</p>
+      <h3>"Progress chart shows too many points for one day"</h3>
+      <p>Fixed. The chart now groups by calendar day and shows only the best estimated 1RM for that session.</p>
+      <h3>"Copy from Squat was showing Deadlift data"</h3>
+      <p>Fixed. A stale closure was using the sidebar's active lift state instead of the card's own lift. Copy now always uses the correct lift.</p>      <h3>"Why are week values not in duplicated week?"</h3>
       <p>Intentional. New duplicated week starts blank so it represents a fresh training exposure.</p>
       <h3>"Sidebar minimized and I lose context"</h3>
       <p>Use the inline session header + toggle row; this is the intended workflow during active sessions.</p>
@@ -270,7 +279,7 @@
       <li>Confirm roster reorder persists after refresh.</li>
     </ul>
 
-    <p class="subtle">Last updated: 2026-02-22</p>
+    <p class="subtle">Last updated: 2026-04-13</p>
   </div>
 </body>
 </html>

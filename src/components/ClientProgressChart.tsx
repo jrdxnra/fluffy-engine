@@ -37,14 +37,26 @@ export function ClientProgressChart({
   currentOneRepMax,
   currentTrainingMax,
 }: ClientProgressChartProps) {
-  const historicalPoints = data.map(item => ({
-    ...item,
-    date: item.date,
-    formattedDate: format(new Date(item.date), "MMM d"),
-    actual1RM: item.estimated1RM,
-    recommendedTM: mround(item.estimated1RM * 0.9),
-    isCurrent: false,
-  }));
+  const historicalPoints = (() => {
+    // Deduplicate by calendar day — keep the best estimated1RM per day
+    const byDay = new Map<string, HistoricalRecord>();
+    for (const item of data) {
+      const day = format(new Date(item.date), "yyyy-MM-dd");
+      const existing = byDay.get(day);
+      if (!existing || item.estimated1RM > existing.estimated1RM) {
+        byDay.set(day, item);
+      }
+    }
+    return Array.from(byDay.values())
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(item => ({
+        ...item,
+        formattedDate: format(new Date(item.date), "MMM d"),
+        actual1RM: item.estimated1RM,
+        recommendedTM: mround(item.estimated1RM * 0.9),
+        isCurrent: false,
+      }));
+  })();
 
   const latestHistorical = historicalPoints[historicalPoints.length - 1];
   const effectiveCurrentOneRepMax = currentOneRepMax ?? latestHistorical?.actual1RM ?? 0;
@@ -105,24 +117,28 @@ export function ClientProgressChart({
             <ChartTooltipContent
               hideLabel
               indicator="dot"
-              formatter={(_value, _name, props) => (
-                <div className="flex flex-col gap-1 text-sm">
-                  <div className="font-bold text-foreground">{lift} - {format(new Date(props.payload.date), "PPP")}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Actual 1RM: {props.payload.actual1RM} lbs
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Recommended TM: {props.payload.recommendedTM} lbs
-                  </div>
-                  {props.payload.weight && props.payload.reps ? (
+              formatter={(_value, _name, props, index) => {
+                // Only render custom content for the first item to avoid duplication
+                if (index !== 0) return null;
+                return (
+                  <div className="flex flex-col gap-1 text-sm">
+                    <div className="font-bold text-foreground">{lift} - {format(new Date(props.payload.date), "PPP")}</div>
                     <div className="text-xs text-muted-foreground">
-                      {props.payload.weight} lbs x {props.payload.reps} reps
+                      Actual 1RM: {props.payload.actual1RM} lbs
                     </div>
-                  ) : (
-                    <div className="text-xs text-muted-foreground">Current profile settings</div>
-                  )}
-                </div>
-              )}
+                    <div className="text-xs text-muted-foreground">
+                      Recommended TM: {props.payload.recommendedTM} lbs
+                    </div>
+                    {props.payload.weight && props.payload.reps ? (
+                      <div className="text-xs text-muted-foreground">
+                        {props.payload.weight} lbs x {props.payload.reps} reps
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground">Current profile settings</div>
+                    )}
+                  </div>
+                );
+              }}
             />
           }
         />

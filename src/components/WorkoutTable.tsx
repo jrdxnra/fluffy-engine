@@ -332,11 +332,11 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
     setSavingRows(prev => ({ ...prev, [clientId]: true }));
     const loggedSetActuals: Record<number, { weight: number; reps: number }> = {};
     const persistedSetEntries: LoggedSetMap = {};
-    let attemptedCount = 0;
-    let failedCount = 0;
+    let bestE1RM = 0;
+    let bestWeight = 0;
+    let bestReps = 0;
 
     try {
-      let successCount = 0;
       for (const [setIndex, input] of Object.entries(rowData)) {
         const hasRepsInput = !!input.reps && input.reps.trim() !== "";
         const hasWeightInput = !!input.weight && input.weight.trim() !== "";
@@ -371,35 +371,32 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
           };
         }
 
-        attemptedCount++;
+        const e1RM = Math.round(actual * (1 + repCount / 30));
+        if (e1RM > bestE1RM) {
+          bestE1RM = e1RM;
+          bestWeight = actual;
+          bestReps = repCount;
+        }
+      }
+
+      // Log only the best set to historical records — avoids multiple chart points per day
+      let logged = false;
+      if (bestE1RM > 0) {
         try {
-          const result = await logRepRecordAction(clientId, lift, actual, repCount);
+          const result = await logRepRecordAction(clientId, lift, bestWeight, bestReps);
           if (result.success) {
-            successCount++;
-            const newRecord: HistoricalRecord = {
+            logged = true;
+            onRepRecordUpdate({
               clientId,
               date: new Date().toISOString(),
               lift,
-              weight: actual,
-              reps: repCount,
-              estimated1RM: Math.round(actual * (1 + repCount / 30)),
-            };
-            onRepRecordUpdate(newRecord);
-          } else {
-            failedCount++;
-            toast({
-              variant: "destructive",
-              title: `Failed to log ${set.label}`,
-              description: result.message || "Unable to save this set.",
+              weight: bestWeight,
+              reps: bestReps,
+              estimated1RM: bestE1RM,
             });
           }
         } catch {
-          failedCount++;
-          toast({
-            variant: "destructive",
-            title: `Failed to log ${set.label}`,
-            description: "Network/server error while logging set.",
-          });
+          // snapshot still saves
         }
       }
 
@@ -412,8 +409,8 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
             ...loggedSetActuals,
           },
         }));
-        if (successCount > 0) {
-          toast({ title: "Saved!", description: `${successCount} set(s) logged.` });
+        if (logged) {
+          toast({ title: "Saved!", description: "Best set logged to progress." });
         } else {
           toast({
             title: "Snapshot saved",
@@ -427,12 +424,6 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
           weekKey: effectiveWeekKey,
           lift,
           setEntries: persistedSetEntries,
-        });
-      } else if (attemptedCount > 0 && failedCount > 0) {
-        toast({
-          variant: "destructive",
-          title: "No sets were saved",
-          description: "Check the browser and server logs for details.",
         });
       }
     } catch (error) {

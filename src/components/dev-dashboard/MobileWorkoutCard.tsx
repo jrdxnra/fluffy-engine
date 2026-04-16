@@ -31,7 +31,8 @@ type MobileWorkoutCardProps = {
     setEntries: LoggedSetMap;
   }) => Promise<void>;
   onRepRecordUpdate: (newRecord: HistoricalRecord) => void;
-  onCopyText: (workout: CalculatedWorkout) => string;
+  onCopyText: (workout: CalculatedWorkout, lift: Lift) => string;
+  historicalData: HistoricalRecord[];
 };
 
 const plateColorMap: Record<string, string> = {
@@ -80,8 +81,19 @@ export function MobileWorkoutCard({
   onPersistLoggedSets,
   onRepRecordUpdate,
   onCopyText,
+  historicalData,
 }: MobileWorkoutCardProps) {
   const { client, sets, prTarget, sessionMode, effectiveWeekKey } = workout;
+
+  const topSet = sets.find((s) => s.type === "Work Set" && s.set === 3);
+  const targetReps = topSet ? parseInt(String(topSet.reps).replace("+", ""), 10) : null;
+  const lastLiftAtRepRange = targetReps
+    ? historicalData
+        .filter(
+          (r) => r.clientId === client.id && r.lift === lift && r.reps === targetReps
+        )
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null
+    : null;
   const { toast } = useToast();
 
   const [inputs, setInputs] = useState<Record<string, { weight: string; reps: string }>>({});
@@ -122,7 +134,9 @@ export function MobileWorkoutCard({
     if (!hasAnyInput) return;
     setIsSaving(true);
     const setEntries: LoggedSetMap = {};
-    let successCount = 0;
+    let bestE1RM = 0;
+    let bestWeight = 0;
+    let bestReps = 0;
 
     try {
       for (const [key, input] of Object.entries(inputs)) {
@@ -143,17 +157,28 @@ export function MobileWorkoutCard({
 
         setEntries[key] = { weight: actual, reps: repCount, updatedAt: new Date().toISOString() };
 
+        const e1RM = Math.round(actual * (1 + repCount / 30));
+        if (e1RM > bestE1RM) {
+          bestE1RM = e1RM;
+          bestWeight = actual;
+          bestReps = repCount;
+        }
+      }
+
+      // Log only the best set to historical records — avoids multiple chart points per day
+      let logged = false;
+      if (bestE1RM > 0) {
         try {
-          const result = await logRepRecordAction(client.id, lift, actual, repCount);
+          const result = await logRepRecordAction(client.id, lift, bestWeight, bestReps);
           if (result.success) {
-            successCount++;
+            logged = true;
             onRepRecordUpdate({
               clientId: client.id,
               date: new Date().toISOString(),
               lift,
-              weight: actual,
-              reps: repCount,
-              estimated1RM: Math.round(actual * (1 + repCount / 30)),
+              weight: bestWeight,
+              reps: bestReps,
+              estimated1RM: bestE1RM,
             });
           }
         } catch {
@@ -166,8 +191,8 @@ export function MobileWorkoutCard({
         setInputs({});
         if (!silent) {
           toast({
-            title: successCount > 0 ? "Saved!" : "Snapshot saved",
-            description: successCount > 0 ? `${successCount} set(s) logged.` : "Values saved for copy.",
+            title: logged ? "Saved!" : "Snapshot saved",
+            description: logged ? "Best set logged to progress." : "Values saved for copy.",
           });
         }
       }
@@ -190,7 +215,7 @@ export function MobileWorkoutCard({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(onCopyText(workout));
+      await navigator.clipboard.writeText(onCopyText(workout, lift));
       toast({ title: "Copied", description: `${client.name}'s workout copied.` });
     } catch {
       toast({ variant: "destructive", title: "Copy failed", description: "Could not copy." });
@@ -218,7 +243,7 @@ export function MobileWorkoutCard({
         onClick={onToggle}
         className="w-full rounded-xl border border-border bg-card/85 shadow-sm text-left transition-colors active:bg-muted/50"
       >
-        <div className="flex items-center justify-between gap-2 px-4 py-3">
+        <div className="flex flex-col gap-2 px-4 py-3 md:flex-row md:items-center md:justify-between md:gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="truncate text-base font-bold text-foreground">{client.name}</span>
             {sessionMode && sessionMode !== "normal" && (
@@ -227,7 +252,7 @@ export function MobileWorkoutCard({
               </Badge>
             )}
           </div>
-          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground md:self-center" />
         </div>
 
         {hasSets ? (
@@ -269,7 +294,7 @@ export function MobileWorkoutCard({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between gap-2 rounded-t-xl border-b border-border/60 bg-primary/10 px-4 py-3 text-left"
+        className="flex w-full flex-col gap-2 rounded-t-xl border-b border-border/60 bg-primary/10 px-4 py-3 text-left md:flex-row md:items-center md:justify-between md:gap-2 md:py-3"
       >
         <div className="flex items-center gap-2 min-w-0">
           <span className="truncate text-base font-bold text-foreground">{client.name}</span>
@@ -279,7 +304,7 @@ export function MobileWorkoutCard({
             </Badge>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center justify-end gap-2 md:justify-end">
           <ClientNotesDialog
             clientId={client.id}
             clientName={client.name}
@@ -317,8 +342,9 @@ export function MobileWorkoutCard({
                   <div className="flex flex-col gap-0.5">
                     <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Actual lbs</span>
                     <Input
-                      type="number"
+                      type="text"
                       inputMode="numeric"
+                      pattern="[0-9]*"
                       placeholder={String(set.weight)}
                       className="h-12 w-28 text-lg font-code [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       value={input.weight}
@@ -329,8 +355,9 @@ export function MobileWorkoutCard({
                   <div className="flex flex-col gap-0.5">
                     <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Reps done</span>
                     <Input
-                      type="number"
+                      type="text"
                       inputMode="numeric"
+                      pattern="[0-9]*"
                       placeholder={String(set.reps).replace("+", "")}
                       className="h-12 w-20 text-right text-lg font-code [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       value={input.reps}
@@ -345,9 +372,9 @@ export function MobileWorkoutCard({
         </div>
       )}
 
-      {prTarget && (
+      {lastLiftAtRepRange && (
         <div className="border-t border-border/50 px-4 py-2 text-xs text-muted-foreground">
-          PR target: {prTarget.reps} reps @ {prTarget.lastMonth1RM} lbs est. 1RM
+          Last time: {lastLiftAtRepRange.reps} reps @ {lastLiftAtRepRange.weight} lbs
         </div>
       )}
 

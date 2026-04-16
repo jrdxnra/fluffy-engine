@@ -474,14 +474,14 @@ export function MobileDevShell({
   };
 
   // ── Copy text builder ──────────────────────────────────────────────────────────
-  const buildCopyText = (workout: CalculatedWorkout): string => {
+  const buildCopyText = (workout: CalculatedWorkout, cardLift: Lift): string => {
     const effectiveWeekKey = workout.effectiveWeekKey || currentWeek;
-    const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, lift);
+    const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, cardLift);
     const persistedSetMap =
-      workout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[lift] || {};
+      workout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[cardLift] || {};
 
     return formatBasicWorkoutCopyText({
-      lift,
+      lift: cardLift,
       sets: workout.sets,
       accessories,
       persistedSetMap,
@@ -510,6 +510,7 @@ export function MobileDevShell({
         onPersistLoggedSets={handlePersistLoggedSets}
         onRepRecordUpdate={handleRepRecordUpdate}
         onCopyText={buildCopyText}
+        historicalData={historicalData}
       />
     ));
 

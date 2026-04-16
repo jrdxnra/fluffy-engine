@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import type { Client, CycleSettings, Lift } from "@/lib/types";
 import { Lifts } from "@/lib/types";
+import { OneRmCalcModal } from "@/components/OneRmCalcModal";
 import { useToast } from "@/hooks/use-toast";
 import { graduateTeamAction } from "@/app/actions";
 import { useState } from "react";
@@ -281,7 +282,7 @@ export function SettingsSidebar({
                   <div className="flex items-center gap-1 w-full">
                     <SidebarMenuButton
                       className="justify-start flex-1 min-w-0"
-                      size="lg"
+                      size="default"
                       onClick={() => onClientProfile(client)}
                       tooltip={{
                         children: `Edit profile for ${client.name}`,
@@ -424,12 +425,19 @@ export function SettingsSidebar({
             </>
           )}
           <SidebarMenuItem>
-            <a
-              href="/how-to.html"
-              className="block w-full px-2 py-1 text-center text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-            >
-              How To
-            </a>
+            <div className="flex w-full items-center">
+              <div className="flex flex-1 justify-center">
+                <a
+                  href="/how-to.html"
+                  className="px-2 py-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                >
+                  How To
+                </a>
+              </div>
+              <div className="flex flex-1 justify-center">
+                <OneRmCalcModal />
+              </div>
+            </div>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
