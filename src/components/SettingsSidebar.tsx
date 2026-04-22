@@ -11,6 +11,7 @@ import {
   SidebarMenuButton,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -26,6 +27,7 @@ import {
   Users,
   TrendingUp,
   Sparkles,
+  Search,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
@@ -110,6 +112,7 @@ export function SettingsSidebar({
     const { isAdminMode } = useAdminModeContext();
     const [isGraduating, setIsGraduating] = useState(false);
     const [isWeekOptionsOpen, setIsWeekOptionsOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState("");
     const [selectedWeekForOptions, setSelectedWeekForOptions] = useState<string | null>(null);
 
     const sortedCycleNumbers = (availableCycleNumbers.length > 0
@@ -274,50 +277,66 @@ export function SettingsSidebar({
             <Users className="mr-2" />
             Client Roster ({clients.length})
           </SidebarGroupLabel>
+          <div className="px-2 mb-2">
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search clients..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 h-9"
+              />
+            </div>
+          </div>
           <SidebarMenu>
-            {clients.map((client, index) => {
-              return (
-                <SidebarMenuItem key={client.id}>
-                  <div className="flex items-center gap-1 w-full">
-                    <SidebarMenuButton
-                      className="justify-start flex-1 min-w-0"
-                      size="lg"
-                      onClick={() => onClientProfile(client)}
-                      tooltip={{
-                        children: `Edit profile for ${client.name}`,
-                        side: "right",
-                        align: "center",
-                      }}
-                    >
-                      <Sparkles className="text-primary" />
-                      <span>{client.name}</span>
-                    </SidebarMenuButton>
-                    <div className="flex flex-col">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-4 w-4"
-                        disabled={index === 0}
-                        onClick={() => onReorderClient(client.id, "up")}
+            {clients
+              .filter((client) =>
+                client.name.toLowerCase().includes(searchQuery.toLowerCase())
+              )
+              .map((client) => {
+                const originalIndex = clients.findIndex((c) => c.id === client.id);
+                return (
+                  <SidebarMenuItem key={client.id}>
+                    <div className="flex items-center gap-1 w-full">
+                      <SidebarMenuButton
+                        className="justify-start flex-1 min-w-0"
+                        size="lg"
+                        onClick={() => onClientProfile(client)}
+                        tooltip={{
+                          children: `Edit profile for ${client.name}`,
+                          side: "right",
+                          align: "center",
+                        }}
                       >
-                        <ChevronUp className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-4 w-4"
-                        disabled={index === clients.length - 1}
-                        onClick={() => onReorderClient(client.id, "down")}
-                      >
-                        <ChevronDown className="h-3 w-3" />
-                      </Button>
+                        <Sparkles className="text-primary" />
+                        <span>{client.name}</span>
+                      </SidebarMenuButton>
+                      <div className="flex flex-col">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-4 w-4"
+                          disabled={originalIndex === 0}
+                          onClick={() => onReorderClient(client.id, "up")}
+                        >
+                          <ChevronUp className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-4 w-4"
+                          disabled={originalIndex === clients.length - 1}
+                          onClick={() => onReorderClient(client.id, "down")}
+                        >
+                          <ChevronDown className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                </SidebarMenuItem>
-              );
-            })}
+                  </SidebarMenuItem>
+                );
+              })}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
