@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -26,9 +26,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Settings, Trash2, Pencil, Check, X, ArrowUp, ArrowDown, Plus, Eye, EyeOff } from "lucide-react";
-import type { CycleScheduleSettings, CycleSettings, Lift } from "@/lib/types";
+import type { Client, CycleScheduleSettings, CycleSettings, Lift, MovementProfile } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { getEffectiveCycleSchedule } from "@/lib/schedule";
+import { getMovementClassTypeForLift, normalizeMovementName } from "@/lib/movement-profiles";
 
 const percentageDisplayOrder = ["warmup1", "warmup2", "workset1", "workset2", "workset3"] as const;
 
@@ -48,6 +49,11 @@ type ConfigSettingsDialogProps = {
   onRenameCycle?: (cycleNumber: number, newName: string) => void;
   onDeleteCycle?: (cycleNumber: number) => Promise<void>;
   onCycleChange?: (cycleNumber: number) => void;
+  globalMovementOptions?: string[];
+  onUpdateGlobalMovementOptions?: (movementOptions: string[]) => Promise<void>;
+  clients?: Client[];
+  onUpdateClientProfile?: (updatedClient: Client) => Promise<void> | void;
+  triggerLabel?: string;
 };
 
 export function ConfigSettingsDialog({
@@ -61,6 +67,11 @@ export function ConfigSettingsDialog({
   onRenameCycle,
   onDeleteCycle,
   onCycleChange,
+  globalMovementOptions = ["Deadlift", "Bench", "Squat", "Press"],
+  onUpdateGlobalMovementOptions,
+  clients = [],
+  onUpdateClientProfile,
+  triggerLabel = "Settings",
 }: ConfigSettingsDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [editingCycleId, setEditingCycleId] = useState<number | null>(null);
@@ -68,8 +79,14 @@ export function ConfigSettingsDialog({
   const [cycleToDelete, setCycleToDelete] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [dialogCycleNumber, setDialogCycleNumber] = useState<number>(currentCycleNumber);
-  const [settingsTab, setSettingsTab] = useState<"cycles" | "weeks" | "about">("cycles");
+  const [settingsTab, setSettingsTab] = useState<"cycles" | "weeks" | "movements" | "about">("cycles");
   const [selectedWeekKey, setSelectedWeekKey] = useState<string>(currentWeekKey || "week1");
+  const [newMovementName, setNewMovementName] = useState("");
+  const [selectedMovementClientId, setSelectedMovementClientId] = useState<string>("");
+  const [localMovementProfilesByClient, setLocalMovementProfilesByClient] = useState<
+    Record<string, Record<string, MovementProfile>>
+  >({});
+  const [isSavingMovementProfile, setIsSavingMovementProfile] = useState(false);
   const [localSettings, setLocalSettings] = useState<CycleSettings>(
     cycleSettingsByCycle[currentCycleNumber] || cycleSettingsByCycle[1] || {}
   );
@@ -86,6 +103,32 @@ export function ConfigSettingsDialog({
     "Saturday",
     "Sunday",
   ];
+  const protectedMovementNames = new Set(["Deadlift", "Bench", "Squat", "Press"]);
+  const usedMovementNames = new Set(
+    Object.values(cycleSchedulesByCycle).flatMap((schedule) => Object.values(schedule.liftDisplayNames || {}))
+  );
+
+  const selectedMovementClient = useMemo(
+    () => clients.find((client) => client.id === selectedMovementClientId) || null,
+    [clients, selectedMovementClientId]
+  );
+
+  const selectedClientMovementProfiles = useMemo(() => {
+    if (!selectedMovementClient) return {} as Record<string, MovementProfile>;
+    return (
+      localMovementProfilesByClient[selectedMovementClient.id] ||
+      selectedMovementClient.movementProfilesByCycle?.[dialogCycleNumber] ||
+      {}
+    );
+  }, [localMovementProfilesByClient, selectedMovementClient, dialogCycleNumber]);
+
+  const getTrackedSlotsForMovementInSelectedCycle = (movementName: string): Lift[] => {
+    const currentSchedule = getCurrentCycleSchedule();
+    return Lifts.filter((slot) => {
+      const slotDisplay = (currentSchedule.liftDisplayNames?.[slot] || slot).trim();
+      return slotDisplay.toLowerCase() === movementName.trim().toLowerCase();
+    });
+  };
 
   // Sync localSettings when selected cycle settings change
   useEffect(() => {
@@ -102,6 +145,26 @@ export function ConfigSettingsDialog({
       setSelectedWeekKey(currentWeekKey);
     }
   }, [currentWeekKey]);
+
+  useEffect(() => {
+    if (clients.length === 0) {
+      setSelectedMovementClientId("");
+      setLocalMovementProfilesByClient({});
+      return;
+    }
+
+    if (!selectedMovementClientId || !clients.some((client) => client.id === selectedMovementClientId)) {
+      setSelectedMovementClientId(clients[0].id);
+    }
+
+    const nextLocal: Record<string, Record<string, MovementProfile>> = {};
+    for (const client of clients) {
+      nextLocal[client.id] = {
+        ...(client.movementProfilesByCycle?.[dialogCycleNumber] || {}),
+      };
+    }
+    setLocalMovementProfilesByClient(nextLocal);
+  }, [clients, dialogCycleNumber]);
 
   // Reset dialog cycle number if it's no longer in available cycles
   useEffect(() => {
@@ -255,6 +318,156 @@ export function ConfigSettingsDialog({
     } finally {
       setIsLoadingScheduleDebug(false);
     }
+  };
+
+  const handleAddMovementOption = async () => {
+    const trimmed = newMovementName.trim();
+    if (!trimmed || globalMovementOptions.includes(trimmed) || !onUpdateGlobalMovementOptions) return;
+    await onUpdateGlobalMovementOptions([...globalMovementOptions, trimmed]);
+    setNewMovementName("");
+  };
+
+  const buildDefaultMovementProfilesForClient = (client: Client): Record<string, MovementProfile> => {
+    const defaults: Record<string, MovementProfile> = {};
+    const currentSchedule = getCurrentCycleSchedule();
+    const cycleTrainingMaxes = client.trainingMaxesByCycle?.[dialogCycleNumber] || client.trainingMaxes;
+
+    for (const lift of Lifts) {
+      const movementName = getCurrentCycleSchedule().liftDisplayNames?.[lift] || lift;
+      if (defaults[movementName]) continue;
+      defaults[movementName] = {
+        oneRepMax: client.oneRepMaxes[lift],
+        trainingMax: cycleTrainingMaxes[lift],
+        classType: getMovementClassTypeForLift(lift),
+        movementCycleNumber: 1,
+        calibrationPhaseActive: true,
+      };
+    }
+
+    return defaults;
+  };
+
+  const getEditableMovementProfilesForSelectedClient = (): Array<[string, MovementProfile]> => {
+    if (!selectedMovementClient) return [];
+
+    const defaults = buildDefaultMovementProfilesForClient(selectedMovementClient);
+    const merged: Record<string, MovementProfile> = {
+      ...defaults,
+      ...selectedClientMovementProfiles,
+    };
+
+    return Object.entries(merged).sort(([a], [b]) => a.localeCompare(b));
+  };
+
+  const inferClassTypeFromMovementName = (movementName: string, fallback: MovementProfile["classType"]): MovementProfile["classType"] => {
+    const normalized = normalizeMovementName(movementName);
+    const currentSchedule = getCurrentCycleSchedule();
+    const matchedLift = Lifts.find((lift) => {
+      const display = normalizeMovementName(currentSchedule.liftDisplayNames?.[lift] || lift);
+      return display === normalized;
+    });
+    if (!matchedLift) return fallback;
+    return getMovementClassTypeForLift(matchedLift);
+  };
+
+  const handleMovementProfileFieldChange = (
+    movementName: string,
+    field: "oneRepMax" | "trainingMax" | "movementCycleNumber",
+    rawValue: string
+  ) => {
+    if (!selectedMovementClient) return;
+    const parsed = parseInt(rawValue, 10);
+    if (Number.isNaN(parsed) || parsed <= 0) return;
+
+    setLocalMovementProfilesByClient((prev) => {
+      const currentForClient = {
+        ...(prev[selectedMovementClient.id] || selectedMovementClient.movementProfilesByCycle?.[dialogCycleNumber] || {}),
+      };
+
+      const existingProfile = currentForClient[movementName] || {
+        oneRepMax: parsed,
+        trainingMax: parsed,
+        classType: inferClassTypeFromMovementName(movementName, "upper"),
+        movementCycleNumber: 1,
+        calibrationPhaseActive: true,
+      };
+
+      return {
+        ...prev,
+        [selectedMovementClient.id]: {
+          ...currentForClient,
+          [movementName]: {
+            ...existingProfile,
+            classType: inferClassTypeFromMovementName(movementName, existingProfile.classType),
+            [field]: parsed,
+          },
+        },
+      };
+    });
+  };
+
+  const handleMovementCalibrationToggle = (movementName: string) => {
+    if (!selectedMovementClient) return;
+
+    setLocalMovementProfilesByClient((prev) => {
+      const currentForClient = {
+        ...(prev[selectedMovementClient.id] || selectedMovementClient.movementProfilesByCycle?.[dialogCycleNumber] || {}),
+      };
+
+      const existingProfile = currentForClient[movementName] || {
+        oneRepMax: 0,
+        trainingMax: 0,
+        classType: inferClassTypeFromMovementName(movementName, "upper"),
+        movementCycleNumber: 1,
+        calibrationPhaseActive: true,
+      };
+
+      return {
+        ...prev,
+        [selectedMovementClient.id]: {
+          ...currentForClient,
+          [movementName]: {
+            ...existingProfile,
+            classType: inferClassTypeFromMovementName(movementName, existingProfile.classType),
+            calibrationPhaseActive: !existingProfile.calibrationPhaseActive,
+          },
+        },
+      };
+    });
+  };
+
+  const handleSaveMovementProfilesForClient = async () => {
+    if (!selectedMovementClient || !onUpdateClientProfile) return;
+
+    const profilesForCycle = localMovementProfilesByClient[selectedMovementClient.id] || {};
+    setIsSavingMovementProfile(true);
+    try {
+      await onUpdateClientProfile({
+        ...selectedMovementClient,
+        movementProfilesByCycle: {
+          ...(selectedMovementClient.movementProfilesByCycle || {}),
+          [dialogCycleNumber]: profilesForCycle,
+        },
+      });
+      toast({
+        title: "Movement Profiles Saved",
+        description: `${selectedMovementClient.name} updated for Cycle ${dialogCycleNumber}.`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Save Failed",
+        description: String(error),
+      });
+    } finally {
+      setIsSavingMovementProfile(false);
+    }
+  };
+
+  const handleRemoveMovementOption = async (movementName: string) => {
+    if (!onUpdateGlobalMovementOptions) return;
+    if (protectedMovementNames.has(movementName) || usedMovementNames.has(movementName)) return;
+    await onUpdateGlobalMovementOptions(globalMovementOptions.filter((option) => option !== movementName));
   };
 
   const handlePercentageChange = (
@@ -447,9 +660,6 @@ export function ConfigSettingsDialog({
   };
 
   const isDeloadWeek = (weekKey: string, weekName: string) => {
-    const keyMatch = weekKey.match(/\d+/);
-    const weekNumber = keyMatch ? parseInt(keyMatch[0], 10) : 0;
-    if (weekNumber === 4) return true;
     return weekName.toLowerCase().includes("deload");
   };
 
@@ -463,26 +673,26 @@ export function ConfigSettingsDialog({
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         <Button
-          size="icon"
-          variant="outline"
-          className="rounded-full h-12 w-12 shadow-lg"
-          title="Configuration Settings"
+          variant="ghost"
+          className="block w-full px-2 py-1 text-center text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          title="Settings"
         >
-          <Settings className="h-5 w-5" />
+          {triggerLabel}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Configuration Settings</DialogTitle>
+          <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Manage cycle settings, week percentages, and cycle information.
+            Manage cycles, schedule settings, week templates, and global movement options.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as "cycles" | "weeks" | "about")} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-4">
+        <Tabs value={settingsTab} onValueChange={(value) => setSettingsTab(value as "cycles" | "weeks" | "movements" | "about")} className="w-full">
+          <TabsList className="mb-4 grid w-full grid-cols-4">
             <TabsTrigger value="cycles">Cycles</TabsTrigger>
             <TabsTrigger value="weeks">Week Settings</TabsTrigger>
+            <TabsTrigger value="movements">Movements</TabsTrigger>
             <TabsTrigger value="about">About</TabsTrigger>
           </TabsList>
 
@@ -837,8 +1047,30 @@ export function ConfigSettingsDialog({
                   <Label>Movement Day Assignments</Label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {Lifts.map((movement) => (
-                      <div key={`movement-day-${movement}`} className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">{movement}</Label>
+                      <div key={`movement-day-${movement}`} className="space-y-2 rounded-md border p-3">
+                        <Label className="text-xs text-muted-foreground">Tracked Slot: {movement}</Label>
+                        <Select
+                          value={getCurrentCycleSchedule().liftDisplayNames?.[movement] || movement}
+                          onValueChange={(value) => {
+                            void handleSchedulePatch({
+                              liftDisplayNames: {
+                                ...(getCurrentCycleSchedule().liftDisplayNames || {}),
+                                [movement]: value,
+                              },
+                            });
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select movement" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {globalMovementOptions.map((option) => (
+                              <SelectItem key={`movement-name-${movement}-${option}`} value={option}>
+                                {option}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <Select
                           value={getCurrentCycleSchedule().liftDayAssignments?.[movement] || "day1"}
                           onValueChange={(value) => {
@@ -889,6 +1121,169 @@ export function ConfigSettingsDialog({
                     </div>
                   ) : null}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="movements" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Global Movement Library</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Add movement names here once, then reuse them in cycle schedule and graduation setup.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  A movement becomes tracked for this cycle when it is assigned to one of the 4 tracked slots on the Cycles tab.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-end gap-2">
+                  <div className="flex-1 space-y-2">
+                    <Label htmlFor="global-movement-name">New Movement</Label>
+                    <Input
+                      id="global-movement-name"
+                      value={newMovementName}
+                      placeholder="Incline Press"
+                      onChange={(e) => setNewMovementName(e.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleAddMovementOption();
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => void handleAddMovementOption()}>
+                    Add
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {globalMovementOptions.map((movementName) => {
+                    const isProtected = protectedMovementNames.has(movementName);
+                    const isUsed = usedMovementNames.has(movementName);
+                    const trackedSlots = getTrackedSlotsForMovementInSelectedCycle(movementName);
+                    const slotLabel = trackedSlots.length > 0
+                      ? `Tracked in Cycle ${dialogCycleNumber} as ${trackedSlots.join(", ")} slot${trackedSlots.length > 1 ? "s" : ""}`
+                      : `Not tracked in Cycle ${dialogCycleNumber}`;
+                    return (
+                      <div key={movementName} className="flex items-center justify-between rounded-md border p-3">
+                        <div>
+                          <div className="font-medium">{movementName}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {isProtected ? "Core tracked movement" : isUsed ? "Currently used in a cycle" : "Custom movement"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">{slotLabel}</div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          disabled={isProtected || isUsed}
+                          onClick={() => void handleRemoveMovementOption(movementName)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Movement Recommendation Profiles</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Edit per-client movement 1RM/TM and calibration mode directly from Settings for Cycle {dialogCycleNumber}.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {clients.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No clients available.</p>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Select Client</Label>
+                      <Select value={selectedMovementClientId} onValueChange={setSelectedMovementClientId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select client" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {clients.map((client) => (
+                            <SelectItem key={client.id} value={client.id}>
+                              {client.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-3">
+                      {getEditableMovementProfilesForSelectedClient().map(([movementName, profile]) => (
+                        <div key={movementName} className="rounded-md border p-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                            <div className="space-y-1 sm:col-span-2">
+                              <Label className="text-xs">Movement</Label>
+                              <div className="h-10 rounded-md border px-3 flex items-center text-sm font-medium">
+                                {movementName}
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">1RM</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={profile.oneRepMax}
+                                onChange={(e) => handleMovementProfileFieldChange(movementName, "oneRepMax", e.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">TM</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={profile.trainingMax}
+                                onChange={(e) => handleMovementProfileFieldChange(movementName, "trainingMax", e.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Move Cycle</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={profile.movementCycleNumber}
+                                onChange={(e) => handleMovementProfileFieldChange(movementName, "movementCycleNumber", e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">Class: {profile.classType}</span>
+                            <Button
+                              type="button"
+                              variant={profile.calibrationPhaseActive ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => handleMovementCalibrationToggle(movementName)}
+                            >
+                              {profile.calibrationPhaseActive ? "Calibrating" : "Stable"}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleSaveMovementProfilesForClient()}
+                        disabled={!selectedMovementClient || !onUpdateClientProfile || isSavingMovementProfile}
+                      >
+                        {isSavingMovementProfile ? "Saving..." : "Save Movement Profiles"}
+                      </Button>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

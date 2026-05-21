@@ -31,9 +31,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Client, CycleSettings, HistoricalRecord, Lift, SessionMode } from "@/lib/types";
+import type { Client, CycleScheduleSettings, CycleSettings, HistoricalRecord, Lift, MovementProfile, SessionMode } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { calculateTrainingMaxes } from "@/lib/training-max";
+import { getLiftDisplayName } from "@/lib/schedule";
+import { getMovementClassTypeForLift, normalizeMovementName } from "@/lib/movement-profiles";
 import { ClientProgressChart } from "./ClientProgressChart";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
 
@@ -42,6 +44,7 @@ type ClientProfileModalProps = {
   onOpenChange: (open: boolean) => void;
   client: Client | null;
   cycleSettings: CycleSettings;
+  currentCycleSchedule?: CycleScheduleSettings;
   currentGlobalWeek: string;
   currentCycleNumber?: number;
   historicalData: HistoricalRecord[];
@@ -81,6 +84,7 @@ export function ClientProfileModal({
   onOpenChange,
   client,
   cycleSettings,
+  currentCycleSchedule,
   currentGlobalWeek,
   currentCycleNumber = 1,
   historicalData,
@@ -162,6 +166,98 @@ export function ClientProfileModal({
       oneRepMaxes: {
         ...localClient.oneRepMaxes,
         [lift]: numValue,
+      },
+    });
+  };
+
+  const movementProfileEntries = useMemo(() => {
+    if (!localClient) return [] as Array<{ name: string; profile: MovementProfile }>;
+
+    const cycleProfiles = localClient.movementProfilesByCycle?.[currentCycleNumber] || {};
+    const mapped = new Map<string, { name: string; profile: MovementProfile }>();
+
+    for (const lift of Lifts) {
+      const movementName = getLiftDisplayName(lift, currentCycleSchedule);
+      const normalizedName = normalizeMovementName(movementName);
+      const existingProfile = Object.entries(cycleProfiles).find(
+        ([profileName]) => normalizeMovementName(profileName) === normalizedName
+      )?.[1];
+
+      mapped.set(normalizedName, {
+        name: movementName,
+        profile: existingProfile || {
+          oneRepMax: localClient.oneRepMaxes[lift],
+          trainingMax: (localClient.trainingMaxesByCycle?.[currentCycleNumber] || localClient.trainingMaxes)[lift],
+          classType: getMovementClassTypeForLift(lift),
+          movementCycleNumber: 1,
+          calibrationPhaseActive: true,
+        },
+      });
+    }
+
+    for (const [profileName, profile] of Object.entries(cycleProfiles)) {
+      const normalizedName = normalizeMovementName(profileName);
+      if (!mapped.has(normalizedName)) {
+        mapped.set(normalizedName, {
+          name: profileName,
+          profile,
+        });
+      }
+    }
+
+    return Array.from(mapped.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [localClient, currentCycleNumber, currentCycleSchedule]);
+
+  const handleMovementProfileChange = (
+    movementName: string,
+    field: "oneRepMax" | "trainingMax" | "movementCycleNumber",
+    value: string
+  ) => {
+    if (!localClient) return;
+    const parsed = parseInt(value, 10);
+    if (Number.isNaN(parsed) || parsed <= 0) return;
+
+    const existingForCycle = localClient.movementProfilesByCycle?.[currentCycleNumber] || {};
+    const existing = existingForCycle[movementName] || {
+      oneRepMax: 0,
+      trainingMax: 0,
+      classType: "upper" as const,
+      movementCycleNumber: 1,
+      calibrationPhaseActive: true,
+    };
+
+    setLocalClient({
+      ...localClient,
+      movementProfilesByCycle: {
+        ...(localClient.movementProfilesByCycle || {}),
+        [currentCycleNumber]: {
+          ...existingForCycle,
+          [movementName]: {
+            ...existing,
+            [field]: parsed,
+          },
+        },
+      },
+    });
+  };
+
+  const handleMovementCalibrationToggle = (movementName: string, enabled: boolean) => {
+    if (!localClient) return;
+    const existingForCycle = localClient.movementProfilesByCycle?.[currentCycleNumber] || {};
+    const existing = existingForCycle[movementName];
+    if (!existing) return;
+
+    setLocalClient({
+      ...localClient,
+      movementProfilesByCycle: {
+        ...(localClient.movementProfilesByCycle || {}),
+        [currentCycleNumber]: {
+          ...existingForCycle,
+          [movementName]: {
+            ...existing,
+            calibrationPhaseActive: enabled,
+          },
+        },
       },
     });
   };
@@ -271,6 +367,7 @@ export function ClientProfileModal({
         },
         weekAssignmentsByCycle: cleanedAssignmentsByCycle,
         sessionStateByCycle: localClient.sessionStateByCycle,
+        movementProfilesByCycle: localClient.movementProfilesByCycle,
       };
 
       setIsSaving(true);
@@ -414,6 +511,64 @@ export function ClientProfileModal({
                       <p className="mt-2 text-[11px] text-muted-foreground">Applies to selected cycle and all later cycles.</p>
                     </div>
                   )}
+                </div>
+                <div className="rounded-md border p-3 bg-muted/30 space-y-3">
+                  <p className="text-sm font-medium">Movement Recommendation Profiles (Cycle {currentCycleNumber})</p>
+                  <p className="text-xs text-muted-foreground">
+                    These values drive movement recommendations for this cycle. New movements like Incline update here from top-set AMRAP calibration.
+                  </p>
+                  <div className="space-y-3">
+                    {movementProfileEntries.map(({ name, profile }) => (
+                      <div key={name} className="rounded-md border bg-background/80 p-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                          <div className="space-y-1 sm:col-span-2">
+                            <Label className="text-xs">Movement</Label>
+                            <div className="h-10 rounded-md border px-3 flex items-center text-sm font-medium">
+                              {name}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">1RM</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={profile.oneRepMax}
+                              onChange={(e) => handleMovementProfileChange(name, "oneRepMax", e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">TM</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={profile.trainingMax}
+                              onChange={(e) => handleMovementProfileChange(name, "trainingMax", e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Movement Cycle</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={profile.movementCycleNumber}
+                              onChange={(e) => handleMovementProfileChange(name, "movementCycleNumber", e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-xs text-muted-foreground">Class: {profile.classType}</span>
+                          <Button
+                            type="button"
+                            variant={profile.calibrationPhaseActive ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => handleMovementCalibrationToggle(name, !profile.calibrationPhaseActive)}
+                          >
+                            {profile.calibrationPhaseActive ? "Calibrating" : "Stable"}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {Lifts.map((lift) => {

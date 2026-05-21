@@ -1,4 +1,4 @@
-import type { CycleScheduleSettings, DaySlot, Lift, Weekday } from "@/lib/types";
+import type { CycleScheduleSettings, CycleSettings, DaySlot, Lift, Weekday } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 
 const weekdayOrder: Weekday[] = [
@@ -21,6 +21,12 @@ const defaultSchedule: CycleScheduleSettings = {
     Bench: "day1",
     Squat: "day2",
     Press: "day2",
+  },
+  liftDisplayNames: {
+    Deadlift: "Deadlift",
+    Bench: "Bench",
+    Squat: "Squat",
+    Press: "Press",
   },
 };
 
@@ -73,7 +79,19 @@ export const getEffectiveCycleSchedule = (
       ...defaultSchedule.liftDayAssignments,
       ...(schedule?.liftDayAssignments || {}),
     },
+    liftDisplayNames: {
+      ...defaultSchedule.liftDisplayNames,
+      ...(schedule?.liftDisplayNames || {}),
+    },
   };
+};
+
+export const getLiftDisplayName = (
+  lift: Lift,
+  schedule?: CycleScheduleSettings
+): string => {
+  const effective = getEffectiveCycleSchedule(schedule);
+  return effective.liftDisplayNames?.[lift] || lift;
 };
 
 export const getCycleWeekSchedule = (
@@ -133,4 +151,101 @@ export const getLiftsForDaySlot = (
 ): Lift[] => {
   const effective = getEffectiveCycleSchedule(schedule);
   return Lifts.filter((lift) => (effective.liftDayAssignments?.[lift] || "day1") === daySlot);
+};
+
+export type RecommendedSessionSelection = {
+  cycleNumber: number;
+  weekKey: string;
+  daySlot: DaySlot;
+};
+
+export const getRecommendedSessionSelection = (
+  cycleSettingsByCycle: Record<number, CycleSettings>,
+  cycleSchedulesByCycle: Record<number, CycleScheduleSettings>,
+  referenceDate: Date = new Date()
+): RecommendedSessionSelection | null => {
+  const today = new Date(referenceDate);
+  today.setHours(0, 0, 0, 0);
+
+  const toDate = (isoDate: string | undefined): Date | null => {
+    if (!isoDate) return null;
+    const parsed = new Date(`${isoDate}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return null;
+    parsed.setHours(0, 0, 0, 0);
+    return parsed;
+  };
+
+  const sessionCandidates: Array<{
+    date: Date;
+    cycleNumber: number;
+    weekKey: string;
+    daySlot: DaySlot;
+    weekNumber: number;
+  }> = [];
+
+  const cycleNumbers = Object.keys(cycleSettingsByCycle)
+    .map(Number)
+    .filter((value) => !Number.isNaN(value))
+    .sort((a, b) => a - b);
+
+  for (const cycleNumber of cycleNumbers) {
+    const cycleSettings = cycleSettingsByCycle[cycleNumber];
+    if (!cycleSettings) continue;
+
+    const weekKeys = Object.keys(cycleSettings).sort(
+      (a, b) => parseWeekNumber(a) - parseWeekNumber(b)
+    );
+
+    for (const weekKey of weekKeys) {
+      const weekSchedule = getCycleWeekSchedule(cycleSchedulesByCycle[cycleNumber], weekKey);
+      if (!weekSchedule.isConfigured) continue;
+
+      const day1Date = toDate(weekSchedule.day1Date);
+      if (day1Date) {
+        sessionCandidates.push({
+          date: day1Date,
+          cycleNumber,
+          weekKey,
+          daySlot: "day1",
+          weekNumber: parseWeekNumber(weekKey),
+        });
+      }
+
+      const day2Date = toDate(weekSchedule.day2Date);
+      if (day2Date) {
+        sessionCandidates.push({
+          date: day2Date,
+          cycleNumber,
+          weekKey,
+          daySlot: "day2",
+          weekNumber: parseWeekNumber(weekKey),
+        });
+      }
+    }
+  }
+
+  if (sessionCandidates.length === 0) return null;
+
+  const sortedCandidates = [...sessionCandidates].sort((a, b) => {
+    const dateDiff = a.date.getTime() - b.date.getTime();
+    if (dateDiff !== 0) return dateDiff;
+
+    const cycleDiff = a.cycleNumber - b.cycleNumber;
+    if (cycleDiff !== 0) return cycleDiff;
+
+    const weekDiff = a.weekNumber - b.weekNumber;
+    if (weekDiff !== 0) return weekDiff;
+
+    if (a.daySlot === b.daySlot) return 0;
+    return a.daySlot === "day1" ? -1 : 1;
+  });
+
+  const upcoming = sortedCandidates.find((candidate) => candidate.date.getTime() >= today.getTime());
+  const selected = upcoming || sortedCandidates[sortedCandidates.length - 1];
+
+  return {
+    cycleNumber: selected.cycleNumber,
+    weekKey: selected.weekKey,
+    daySlot: selected.daySlot,
+  };
 };

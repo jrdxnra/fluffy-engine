@@ -21,6 +21,9 @@ export interface CycleScheduleSettings {
   liftDayAssignments?: {
     [key in Lift]?: DaySlot;
   };
+  liftDisplayNames?: {
+    [key in Lift]?: string;
+  };
 }
 
 export type TrainingMaxes = {
@@ -41,6 +44,35 @@ export type LoggedSetInputsByCycle = {
   };
 };
 
+export type MovementCalibrationByCycle = {
+  [cycleNumber: number]: {
+    [key in Lift]?: {
+      needsCalibration: boolean;
+      calibratedAt?: string;
+      estimated1RM?: number;
+      sourceWeekKey?: string;
+    };
+  };
+};
+
+export type MovementClassType = 'upper' | 'lower';
+
+export type MovementProfile = {
+  oneRepMax: number;
+  trainingMax: number;
+  classType: MovementClassType;
+  movementCycleNumber: number;
+  calibrationPhaseActive: boolean;
+  lastUpdatedAt?: string;
+  sourceWeekKey?: string;
+};
+
+export type MovementProfilesByCycle = {
+  [cycleNumber: number]: {
+    [movementName: string]: MovementProfile;
+  };
+};
+
 export type SessionStateForCycle = {
   mode: SessionMode;
   flowWeekKey?: string;
@@ -55,6 +87,7 @@ export interface Client {
   name: string;
   rosterOrder?: number;
   oneRepMaxes: TrainingMaxes;
+  movementOneRepMaxes?: Record<string, number>;
   oneRepMaxesByCycle?: { [cycleNumber: number]: TrainingMaxes }; // Optional per-cycle 1RM snapshots
   trainingMaxes: TrainingMaxes; // Deprecated: use trainingMaxesByCycle instead
   trainingMaxesByCycle?: { [cycleNumber: number]: TrainingMaxes }; // Training max for each cycle
@@ -64,6 +97,8 @@ export interface Client {
   weekAssignmentsByCycle?: { [cycleNumber: number]: { [weekKey: string]: string } }; // Maps cycle number to week assignments
   sessionStateByCycle?: { [cycleNumber: number]: SessionStateForCycle };
   loggedSetInputsByCycle?: LoggedSetInputsByCycle;
+  movementCalibrationsByCycle?: MovementCalibrationByCycle;
+  movementProfilesByCycle?: MovementProfilesByCycle;
   notes?: string; // Client notes
 };
 

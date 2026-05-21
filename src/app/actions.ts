@@ -63,6 +63,7 @@ const calculate1RM = (weight: number, reps: number): number => {
 export async function addClientAction(clientData: {
   name: string;
   oneRepMaxes: { Squat: number; Bench: number; Deadlift: number; Press: number };
+  movementOneRepMaxes?: Record<string, number>;
   oneRepMaxesByCycle?: { [cycleNumber: number]: { Squat: number; Bench: number; Deadlift: number; Press: number } };
   trainingMaxes?: { Squat: number; Bench: number; Deadlift: number; Press: number };
   trainingMaxesByCycle?: { [cycleNumber: number]: { Squat: number; Bench: number; Deadlift: number; Press: number } };
@@ -80,6 +81,7 @@ export async function addClientAction(clientData: {
     const normalizedClientData = {
       name: clientData.name,
       oneRepMaxes: clientData.oneRepMaxes,
+      movementOneRepMaxes: clientData.movementOneRepMaxes || {},
       oneRepMaxesByCycle: {
         ...(clientData.oneRepMaxesByCycle || {}),
         1: clientData.oneRepMaxes,
@@ -145,12 +147,18 @@ export async function logRepRecordAction(
 }
 
 
-export async function graduateTeamAction(clients: any[]) {
+export async function graduateTeamAction(
+  clients: any[],
+  options?: {
+    noIncrementLifts?: Array<'Squat' | 'Bench' | 'Deadlift' | 'Press'>;
+    calibrationLifts?: Array<'Squat' | 'Bench' | 'Deadlift' | 'Press'>;
+  }
+) {
   "use server";
   try {
     const { graduateTeam, getClients } = await import("@/lib/data");
     console.log("Server Action: Graduating team");
-    await graduateTeam(clients);
+    await graduateTeam(clients, options);
     const updatedClients = await getClients();
     revalidatePath("/");
     
@@ -200,6 +208,21 @@ export async function updateClientProfileAction(
       modeByWeek?: Record<string, SessionMode>;
       flowWeekKeyByWeek?: Record<string, string>;
     }>;
+    movementCalibrationsByCycle?: Record<number, Record<string, {
+      needsCalibration: boolean;
+      calibratedAt?: string;
+      estimated1RM?: number;
+      sourceWeekKey?: string;
+    }>>;
+    movementProfilesByCycle?: Record<number, Record<string, {
+      oneRepMax: number;
+      trainingMax: number;
+      classType: 'upper' | 'lower';
+      movementCycleNumber: number;
+      calibrationPhaseActive: boolean;
+      lastUpdatedAt?: string;
+      sourceWeekKey?: string;
+    }>>;
   }
 ) {
   "use server";
@@ -286,7 +309,8 @@ export async function deleteCycleAction(
   cycleNumber: number,
   cycleSettingsByCycle: Record<number, CycleSettings>,
   cycleNames: Record<number, string>,
-  cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>
+  cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>,
+  globalMovementOptions?: string[]
 ) {
   "use server";
   try {
@@ -350,12 +374,23 @@ export async function deleteCycleAction(
     }
 
     const updatedCycleSchedulesByCycle = { ...(cycleSchedulesByCycle || {}) };
+    const deletedCycleMovementNames = Object.values(updatedCycleSchedulesByCycle[cycleNumber]?.liftDisplayNames || {})
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value));
     delete updatedCycleSchedulesByCycle[cycleNumber];
+
+    const preservedGlobalMovementOptions = Array.from(
+      new Set([
+        ...(globalMovementOptions || []),
+        ...deletedCycleMovementNames,
+      ])
+    );
 
     const saveResult = await saveAppSettings({
       cycleSettingsByCycle: updatedCycleSettingsByCycle,
       cycleNames: updatedCycleNames,
       cycleSchedulesByCycle: updatedCycleSchedulesByCycle,
+      globalMovementOptions: preservedGlobalMovementOptions,
     });
 
     // Mirror settings to clients for fallback/shared settings consistency
@@ -366,6 +401,7 @@ export async function deleteCycleAction(
           cycleSettingsByCycle: updatedCycleSettingsByCycle as any,
           cycleNames: updatedCycleNames as any,
           cycleSchedulesByCycle: updatedCycleSchedulesByCycle as any,
+          globalMovementOptions: (saveResult.globalMovementOptions || preservedGlobalMovementOptions) as any,
           settingsUpdatedAt: saveResult.settingsUpdatedAt as any,
         } as any);
       }
@@ -381,6 +417,7 @@ export async function deleteCycleAction(
       updatedCycleSettingsByCycle,
       updatedCycleNames,
       updatedCycleSchedulesByCycle,
+      globalMovementOptions: saveResult.globalMovementOptions || preservedGlobalMovementOptions,
     };
   } catch (error) {
     console.error("Error deleting cycle:", error);
@@ -391,7 +428,8 @@ export async function deleteCycleAction(
 export async function saveCycleSettingsAction(
   cycleSettingsByCycle: Record<number, CycleSettings>,
   cycleNames: Record<number, string>,
-  cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>
+  cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>,
+  globalMovementOptions?: string[]
 ) {
   "use server";
   try {
@@ -401,6 +439,7 @@ export async function saveCycleSettingsAction(
       cycleSettingsByCycle,
       cycleNames,
       cycleSchedulesByCycle,
+      globalMovementOptions,
     }) as any;
 
     // Keep fallback/shared client-stored settings in sync.
@@ -412,6 +451,7 @@ export async function saveCycleSettingsAction(
           cycleSettingsByCycle: cycleSettingsByCycle as any,
           cycleNames: cycleNames as any,
           cycleSchedulesByCycle: (saveResult.cycleSchedulesByCycle || cycleSchedulesByCycle || {}) as any,
+          globalMovementOptions: (saveResult.globalMovementOptions || globalMovementOptions || []) as any,
           settingsUpdatedAt: saveResult.settingsUpdatedAt as any,
         } as any);
       }
@@ -434,6 +474,7 @@ export async function saveCycleSettingsAction(
           cycleSettingsByCycle: cycleSettingsByCycle as any,
           cycleNames: cycleNames as any,
           cycleSchedulesByCycle: (cycleSchedulesByCycle || {}) as any,
+          globalMovementOptions: (globalMovementOptions || []) as any,
           settingsUpdatedAt: fallbackUpdatedAt as any,
         } as any);
       }
@@ -517,6 +558,7 @@ export async function upsertClientLoggedSetEntriesAction(args: {
   weekKey: string;
   lift: Lift;
   setEntries: LoggedSetMap;
+  removeSetIndexes?: string[];
 }) {
   "use server";
   try {
@@ -530,6 +572,14 @@ export async function upsertClientLoggedSetEntriesAction(args: {
     const cycleData = existing[args.cycleNumber] || {};
     const weekData = cycleData[args.weekKey] || {};
     const liftData = weekData[args.lift] || {};
+    const nextLiftData: LoggedSetMap = {
+      ...liftData,
+      ...args.setEntries,
+    };
+
+    for (const setIndex of args.removeSetIndexes || []) {
+      delete nextLiftData[setIndex];
+    }
 
     const merged: LoggedSetInputsByCycle = {
       ...existing,
@@ -537,10 +587,7 @@ export async function upsertClientLoggedSetEntriesAction(args: {
         ...cycleData,
         [args.weekKey]: {
           ...weekData,
-          [args.lift]: {
-            ...liftData,
-            ...args.setEntries,
-          },
+          [args.lift]: nextLiftData,
         },
       },
     };

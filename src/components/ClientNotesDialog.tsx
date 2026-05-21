@@ -15,6 +15,9 @@ type ClientNotesDialogProps = {
   onNotesSaved: (notes: string) => void;
   compact?: boolean;
   showLabel?: boolean;
+  /** Controlled mode — when provided, the trigger button is not rendered */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 export function ClientNotesDialog({
@@ -24,8 +27,16 @@ export function ClientNotesDialog({
   onNotesSaved,
   compact = false,
   showLabel = true,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
 }: ClientNotesDialogProps) {
-  const [open, setOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? controlledOpen! : internalOpen;
+  const setOpen = (val: boolean) => {
+    if (isControlled) controlledOnOpenChange?.(val);
+    else setInternalOpen(val);
+  };
   const [notes, setNotes] = useState(currentNotes || "");
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
@@ -49,16 +60,18 @@ export function ClientNotesDialog({
 
   return (
     <>
-      <Button
-        size="sm"
-        variant="outline"
-        className={compact ? "h-7 w-7 p-0" : "h-7 justify-center text-xs gap-1 px-2"}
-        onClick={() => setOpen(true)}
-        aria-label={showLabel ? undefined : `Open notes for ${clientName}`}
-      >
-        <FileText className="h-3 w-3" />
-        {showLabel ? "Notes" : null}
-      </Button>
+      {!isControlled && (
+        <Button
+          size="sm"
+          variant="outline"
+          className={compact ? "h-7 w-7 p-0" : "h-7 justify-center text-xs gap-1 px-2"}
+          onClick={() => setOpen(true)}
+          aria-label={showLabel ? undefined : `Open notes for ${clientName}`}
+        >
+          <FileText className="h-3 w-3" />
+          {showLabel ? "Notes" : null}
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">

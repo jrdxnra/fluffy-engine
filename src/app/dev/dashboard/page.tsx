@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 
 async function DevContent() {
   const clients = await getClients();
-  const { cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle } = await getAppSettings();
+  const { cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions } = await getAppSettings();
   const historicalData = await getHistoricalData();
 
   const sharedProps = {
@@ -27,6 +27,7 @@ async function DevContent() {
     initialCycleSettingsByCycle: cycleSettingsByCycle,
     initialCycleNames: cycleNames,
     initialCycleSchedulesByCycle: cycleSchedulesByCycle || {},
+    initialGlobalMovementOptions: globalMovementOptions || [],
     initialHistoricalData: historicalData,
   };
 

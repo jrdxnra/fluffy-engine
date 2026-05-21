@@ -99,11 +99,17 @@ export const calculateWorkout = (
   lift: Lift,
   weekSettings: CycleWeekSettings,
   historicalData: HistoricalRecord[],
-  cycleNumber: number = 1
+  cycleNumber: number = 1,
+  options?: {
+    oneRepMaxOverride?: number;
+    trainingMaxOverride?: number;
+  }
 ): CalculatedWorkout => {
-  const storedTm = resolveTrainingMaxForCycle(client, lift, cycleNumber);
-  const baseTmFromOneRepMax = mround(client.oneRepMaxes[lift] * 0.9);
-  const tm = cycleNumber === 1 && storedTm > client.oneRepMaxes[lift]
+  const effectiveOneRepMax = options?.oneRepMaxOverride ?? client.oneRepMaxes[lift];
+  const storedTm = options?.trainingMaxOverride ?? resolveTrainingMaxForCycle(client, lift, cycleNumber);
+  const baseTmFromOneRepMax = mround(effectiveOneRepMax * 0.9);
+  // Safety clamp: training max must not exceed client's actual 1RM (applies to all cycles, not just cycle 1)
+  const tm = storedTm > effectiveOneRepMax
     ? baseTmFromOneRepMax
     : storedTm;
   

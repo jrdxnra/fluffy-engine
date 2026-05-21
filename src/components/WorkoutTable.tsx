@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import type { CalculatedWorkout, CycleSettings, HistoricalRecord, Lift, WorkoutSet, LoggedSetMap } from "@/lib/types";
-import { Eye, Copy } from "lucide-react";
+import { Check, Copy, MoreVertical, FileText, User } from "lucide-react";
 import { logRepRecordAction } from "@/app/actions";
 import { ClientNotesDialog } from "./ClientNotesDialog";
 import type { Client } from "@/lib/types";
@@ -25,6 +25,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { formatBasicWorkoutCopyText } from "@/lib/copy-formatter";
 
@@ -43,6 +49,7 @@ type WorkoutTableProps = {
     weekKey: string;
     lift: Lift;
     setEntries: LoggedSetMap;
+    removeSetIndexes?: string[];
   }) => Promise<void>;
   layoutMode?: "horizontal" | "vertical";
   bulkLogAction?: {
@@ -53,6 +60,7 @@ type WorkoutTableProps = {
   isBulkLoggingActive?: boolean;
   onBulkLogToggle?: () => void;
   showWarmups?: boolean;
+  onOpenProfile?: (client: Client) => void;
 };
 
 type SetCellProps = {
@@ -70,6 +78,8 @@ type SetCellProps = {
   sizeMode?: "default" | "focused";
   inlineEditorMode?: "auto" | "alwaysWhenExpanded";
   platePosition?: "below" | "inline";
+  showPlates?: boolean;
+  showActualSummary?: boolean;
 };
 
 const SetCell = ({ 
@@ -87,9 +97,13 @@ const SetCell = ({
   sizeMode = "default",
   inlineEditorMode = "auto",
   platePosition = "below",
+  showPlates = true,
+  showActualSummary = false,
 }: SetCellProps) => {
   const setKey = `${setIndex}`;
   const input = setInputs[setKey] || { weight: "", reps: "" };
+  const hasRecommendedWeight = Number.isFinite(set.weight) && set.weight > 0;
+  const recommendedWeightLabel = hasRecommendedWeight ? `${set.weight} lbs` : "--";
 
   const plateTokens = set.plates
     ? set.plates.split(",").map((token) => token.trim()).filter(Boolean)
@@ -105,17 +119,22 @@ const SetCell = ({
   const isFocusedSize = sizeMode === "focused";
   const showInlineEditor = isExpanded && (isFocusedSize || inlineEditorMode === "alwaysWhenExpanded");
   const showInlinePlates = platePosition === "inline";
+  const hasActualWeight = input.weight && input.weight.trim() !== "";
+  const hasActualReps = input.reps && input.reps.trim() !== "";
+  const actualSummary = hasActualWeight || hasActualReps
+    ? `${hasActualWeight ? input.weight : "-"} lbs x ${hasActualReps ? input.reps : "-"}`
+    : "-";
 
   return (
     <div className="flex flex-col gap-1">
       <div className={`font-code font-bold text-foreground ${isFocusedSize ? "text-2xl" : "text-lg"} flex items-center gap-1.5 ${showInlineEditor ? "flex-nowrap" : "flex-wrap"}`}>
-        <span>{set.weight} lbs</span>
+        <span>{recommendedWeightLabel}</span>
         {showRepBadge ? (
           <Badge variant="secondary" className={`${isFocusedSize ? "text-sm px-2.5 py-0.5" : ""} font-sans`}>
             {set.reps} reps
           </Badge>
         ) : null}
-        {showInlinePlates ? (
+        {showPlates && showInlinePlates ? (
           <div className="flex flex-nowrap items-center gap-0.5 pl-2">
             {plateTokens.length > 0 ? plateTokens.map((plate, idx) => (
               <span
@@ -152,8 +171,14 @@ const SetCell = ({
             </div>
           </div>
         ) : null}
+        {showActualSummary && !showInlineEditor ? (
+          <span className="inline-flex items-center gap-1 rounded-sm border border-border/60 bg-muted/35 px-1.5 py-0.5 text-[11px] font-code text-muted-foreground whitespace-nowrap">
+            <span className="font-sans text-[10px] uppercase tracking-wide">A</span>
+            <span>{actualSummary}</span>
+          </span>
+        ) : null}
       </div>
-      {!showInlinePlates ? (
+      {showPlates && !showInlinePlates ? (
         <div className="text-xs text-muted-foreground font-code min-h-4">
           {plateTokens.length > 0 ? (
             <div className="flex flex-nowrap items-center gap-0.5">
@@ -197,7 +222,7 @@ const SetCell = ({
 };
 
 
-export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false }: WorkoutTableProps) {
+export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false, onOpenProfile }: WorkoutTableProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [clientNotes, setClientNotes] = useState<{ [key: string]: string }>({});
   const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({});
@@ -206,11 +231,8 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
   const [actualByClientSet, setActualByClientSet] = useState<Record<string, Record<number, { weight: number; reps: number }>>>({});
   const [selectedWorkout, setSelectedWorkout] = useState<CalculatedWorkout | null>(null);
   const [focusedClientId, setFocusedClientId] = useState<string | null>(null);
+  const [openNotesForClientId, setOpenNotesForClientId] = useState<string | null>(null);
   const { toast } = useToast();
-
-  if (!workouts.length) {
-    return <p>No clients on the roster. Add one to get started!</p>;
-  }
 
   const getVisibleSetIndexes = (sets: WorkoutSet[]): number[] => {
     return sets
@@ -315,20 +337,14 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
     );
   };
 
-  const handleSaveRowInputs = async (
+  const persistRowData = async (
     clientId: string,
     sets: WorkoutSet[],
     effectiveWeekKey: string,
-    persistedSetMap: LoggedSetMap
+    persistedSetMap: LoggedSetMap,
+    rowData: { [key: string]: { weight: string; reps: string } },
+    collapseOnSave = true,
   ) => {
-    const rowData = rowInputs[clientId];
-    
-    // If no data entered, silently close the row
-    if (!hasSetData(clientId)) {
-      setExpandedRows(prev => ({ ...prev, [clientId]: false }));
-      return;
-    }
-
     setSavingRows(prev => ({ ...prev, [clientId]: true }));
     const loggedSetActuals: Record<number, { weight: number; reps: number }> = {};
     const persistedSetEntries: LoggedSetMap = {};
@@ -379,7 +395,6 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
         }
       }
 
-      // Log only the best set to historical records — avoids multiple chart points per day
       let logged = false;
       if (bestE1RM > 0) {
         try {
@@ -418,7 +433,9 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
           });
         }
         setRowInputs(prev => ({ ...prev, [clientId]: {} }));
-        setExpandedRows(prev => ({ ...prev, [clientId]: false }));
+        if (collapseOnSave) {
+          setExpandedRows(prev => ({ ...prev, [clientId]: false }));
+        }
         await onPersistLoggedSets({
           clientId,
           weekKey: effectiveWeekKey,
@@ -431,6 +448,81 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
     } finally {
       setSavingRows(prev => ({ ...prev, [clientId]: false }));
     }
+  };
+
+  const handleRecommendedSetUse = async (
+    clientId: string,
+    setIndex: number,
+    set: WorkoutSet,
+    sets: WorkoutSet[],
+    effectiveWeekKey: string,
+    persistedSetMap: LoggedSetMap,
+  ) => {
+    const setKey = String(setIndex);
+    const rowEntry = rowInputs[clientId]?.[setKey];
+    const persistedEntry = persistedSetMap[setKey];
+    const currentWeight = rowEntry?.weight ?? (persistedEntry ? String(persistedEntry.weight) : "");
+    const currentReps = rowEntry?.reps ?? (persistedEntry ? String(persistedEntry.reps) : "");
+    const isRecommendedApplied = currentWeight === String(set.weight) && currentReps === String(set.reps);
+
+    if (isRecommendedApplied) {
+      setRowInputs((prev) => {
+        const clientRows = { ...(prev[clientId] || {}) };
+        delete clientRows[setKey];
+        return {
+          ...prev,
+          [clientId]: clientRows,
+        };
+      });
+      setActualByClientSet((prev) => {
+        const clientActuals = { ...(prev[clientId] || {}) };
+        delete clientActuals[setIndex];
+        return {
+          ...prev,
+          [clientId]: clientActuals,
+        };
+      });
+      await onPersistLoggedSets({
+        clientId,
+        weekKey: effectiveWeekKey,
+        lift,
+        setEntries: {},
+        removeSetIndexes: [setKey],
+      });
+      return;
+    }
+
+    const nextRowData = {
+      ...(rowInputs[clientId] || {}),
+      [setKey]: {
+        weight: String(set.weight),
+        reps: String(set.reps),
+      },
+    };
+
+    setRowInputs(prev => ({
+      ...prev,
+      [clientId]: nextRowData,
+    }));
+
+    await persistRowData(clientId, sets, effectiveWeekKey, persistedSetMap, nextRowData, false);
+  };
+
+  const handleSaveRowInputs = async (
+    clientId: string,
+    sets: WorkoutSet[],
+    effectiveWeekKey: string,
+    persistedSetMap: LoggedSetMap
+  ) => {
+    const rowData = rowInputs[clientId];
+    
+    // If no data entered, silently close the row
+    if (!hasSetData(clientId)) {
+      setExpandedRows(prev => ({ ...prev, [clientId]: false }));
+      return;
+    }
+
+    await persistRowData(clientId, sets, effectiveWeekKey, persistedSetMap, rowData);
   };
 
   const openAllRows = () => {
@@ -558,15 +650,23 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
     return { width: `${isFocused ? focusedShare : otherShare}%` } as const;
   };
 
+  if (!workouts.length) {
+    return (
+      <div ref={containerRef} className="relative w-full rounded-lg border border-border/90 bg-card/85 p-4 text-sm text-muted-foreground shadow-sm">
+        No clients in this cycle.
+      </div>
+    );
+  }
+
   return (
     <div ref={containerRef} className="relative w-full rounded-lg border border-border/90 bg-card/85 shadow-sm" style={{ perspective: "1200px" }}>
       {layoutMode === "horizontal" ? (
       <Table className="table-fixed w-full">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[180px] bg-muted/55">Client</TableHead>
+            <TableHead rowSpan={2} className="w-[280px] bg-muted/55 align-middle">Client</TableHead>
             {headerSets.map((s, index) => (
-              <TableHead key={index} className={`w-auto ${s.type === "Work Set" && s.set === 3 ? "text-primary" : ""}`}>
+              <TableHead key={index} colSpan={3} className={`w-auto text-center ${s.type === "Work Set" && s.set === 3 ? "text-primary" : ""}`}>
                 <div className="leading-tight">
                   <div>{s.label}</div>
                   <div className="mt-0.5 text-[10px] text-muted-foreground">{s.reps} reps</div>
@@ -574,9 +674,25 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
               </TableHead>
             ))}
           </TableRow>
+          <TableRow>
+            {headerSets.map((s, index) => (
+              <Fragment key={`sub-${index}`}>
+                <TableHead className={`text-center text-[10px] uppercase tracking-wide text-muted-foreground ${s.type === "Work Set" && s.set === 3 ? "bg-primary/5" : ""}`}>
+                  Recommended
+                </TableHead>
+                <TableHead className={`w-[44px] text-center text-[10px] uppercase tracking-wide text-muted-foreground ${s.type === "Work Set" && s.set === 3 ? "bg-primary/5" : ""}`}>
+                  Use
+                </TableHead>
+                <TableHead className={`text-center text-[10px] uppercase tracking-wide text-muted-foreground ${s.type === "Work Set" && s.set === 3 ? "bg-primary/5" : ""}`}>
+                  Actual
+                </TableHead>
+              </Fragment>
+            ))}
+          </TableRow>
         </TableHeader>
         <TableBody>
-          {workouts.map(({ client, sets, prTarget, sessionMode, effectiveWeekKey }, rowIndex) => {
+          {workouts.map((workout, rowIndex) => {
+            const { client, sets, prTarget, sessionMode, effectiveWeekKey } = workout;
             const isExpanded = expandedRows[client.id] || false;
             const isSaving = savingRows[client.id] || false;
             const visibleSetIndexes = getVisibleSetIndexes(sets);
@@ -586,95 +702,148 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
             const clientWeekKey = effectiveWeekKey || currentWeek;
             const persistedSetMap =
               client.loggedSetInputsByCycle?.[currentCycleNumber]?.[clientWeekKey]?.[lift] || {};
+            const mergedSetInputs = {
+              ...Object.entries(persistedSetMap).reduce<Record<string, { weight: string; reps: string }>>((acc, [key, value]) => {
+                acc[key] = {
+                  weight: String(value.weight),
+                  reps: String(value.reps),
+                };
+                return acc;
+              }, {}),
+              ...(rowInputs[client.id] || {}),
+            };
             
             return (
             <Fragment key={client.id}>
             <TableRow
               className={`${isFocusedClient ? "relative z-10 bg-primary/10 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.35)]" : rowIndex % 2 === 0 ? "bg-accent/20" : "bg-muted/45 dark:bg-muted/30"}`}
             >
-                <TableCell className="align-middle font-medium transition-colors duration-200">
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => handleClientNameClick(client.id)}
-                          className={`rounded-md py-1 font-bold text-foreground transition-[background-color,color] duration-200 dark:text-white ${isFocusedClient ? "px-2 bg-primary text-primary-foreground shadow-md text-lg" : "pl-0 pr-2 hover:bg-muted/70 text-base"}`}
-                        >
-                          {client.name}
-                        </button>
-                        {sessionMode && sessionMode !== "normal" && (
-                          <Badge variant="outline" className="text-[10px]">
-                            {sessionModeLabel[sessionMode] || sessionMode}
-                          </Badge>
-                        )}
-                        {effectiveWeekKey && effectiveWeekKey !== weekName.toLowerCase().replace(" ", "") && (
-                          <Badge variant="secondary" className="text-[10px]">
-                            {effectiveWeekKey}
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <ClientNotesDialog
-                          clientId={client.id}
-                          clientName={client.name}
-                          currentNotes={client.notes}
-                          onNotesSaved={(notes) => handleNotesSaved(client.id, notes)}
-                          compact
-                          showLabel={false}
-                        />
+                <TableCell className="align-top font-medium transition-colors duration-200">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-1 gap-y-1">
+                    <button
+                      type="button"
+                      onClick={() => handleClientNameClick(client.id)}
+                      className={`min-w-0 rounded-md py-1 text-left font-bold text-foreground transition-[background-color,color] duration-200 dark:text-white ${isFocusedClient ? "px-2 bg-primary text-primary-foreground shadow-md text-lg" : "pl-0 pr-2 hover:bg-muted/70 text-base"}`}
+                    >
+                      {client.name}
+                    </button>
+                    <div className="flex items-center gap-0.5 shrink-0 self-start">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setOpenNotesForClientId(client.id)}
+                        title="Notes"
+                      >
+                        <FileText className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 w-8 p-0"
+                        onClick={() => void handleCopyWorkout(workout)}
+                        disabled={!hasSets}
+                        title="Copy"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                      {onOpenProfile ? (
                         <Button
                           size="sm"
-                          variant="outline"
-                          className="h-7 w-8 p-0"
-                          onClick={() => {
-                            setSelectedWorkout({ client, sets, prTarget, sessionMode, effectiveWeekKey });
-                          }}
-                          disabled={!hasSets}
-                          aria-label={`View ${client.name} workout`}
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          onClick={() => onOpenProfile(client)}
+                          title="Profile"
                         >
-                          <Eye className="h-3 w-3" />
+                          <User className="h-4 w-4" />
                         </Button>
-                      </div>
+                      ) : null}
                     </div>
+                    <div className="col-start-1 min-w-0 flex items-center gap-1 flex-wrap">
+                      {sessionMode && sessionMode !== "normal" && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {sessionModeLabel[sessionMode] || sessionMode}
+                        </Badge>
+                      )}
+                      {effectiveWeekKey && effectiveWeekKey !== weekName.toLowerCase().replace(" ", "") && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          {effectiveWeekKey}
+                        </Badge>
+                      )}
+                    </div>
+                    <ClientNotesDialog
+                      clientId={client.id}
+                      clientName={client.name}
+                      currentNotes={client.notes}
+                      onNotesSaved={(notes) => handleNotesSaved(client.id, notes)}
+                      open={openNotesForClientId === client.id}
+                      onOpenChange={(open) => setOpenNotesForClientId(open ? client.id : null)}
+                    />
                   </div>
                 </TableCell>
                 {hasSets ? visibleSetIndexes.map((originalIndex) => {
                   const set = sets[originalIndex];
                   const isTopSet = set.type === "Work Set" && set.set === 3;
+                  const setInput = mergedSetInputs[String(originalIndex)] || { weight: "", reps: "" };
+                  const hasRecommendedWeight = Number.isFinite(set.weight) && set.weight > 0;
+                  const hasActual = (setInput.weight && setInput.weight.trim() !== "") || (setInput.reps && setInput.reps.trim() !== "");
                   return (
-                    <TableCell key={originalIndex} className={`align-top ${isTopSet ? "bg-primary/10" : ""}`}>
-                      <SetCell
-                        clientId={client.id}
-                        set={set}
-                        setIndex={originalIndex}
-                        lift={lift}
-                        isTopSet={isTopSet}
-                        isExpanded={isEffectivelyExpanded}
-                        sizeMode="default"
-                        inlineEditorMode="alwaysWhenExpanded"
-                        showRepBadge={false}
-                        platePosition="inline"
-                        setInputs={{
-                          ...Object.entries(persistedSetMap).reduce<Record<string, { weight: string; reps: string }>>((acc, [key, value]) => {
-                            acc[key] = {
-                              weight: String(value.weight),
-                              reps: String(value.reps),
-                            };
-                            return acc;
-                          }, {}),
-                          ...(rowInputs[client.id] || {}),
-                        }}
-                        onSetInputChange={(setIndex, field, value) => 
-                          handleSetInputChange(client.id, setIndex, field, value)
-                        }
-                        onSaveAll={() => handleSaveRowInputs(client.id, sets, clientWeekKey, persistedSetMap)}
-                        isSaving={isSaving}
-                      />
-                    </TableCell>
+                    <Fragment key={originalIndex}>
+                      <TableCell className={`align-middle text-center p-1 ${isTopSet ? "bg-primary/10" : ""}`}>
+                        <div className="font-code font-semibold text-sm text-foreground whitespace-nowrap">
+                          {hasRecommendedWeight ? `${set.weight} lbs` : "--"}
+                        </div>
+                      </TableCell>
+                      <TableCell className={`align-middle text-center p-1 ${isTopSet ? "bg-primary/10" : ""}`}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={hasActual && setInput.weight === String(set.weight) && setInput.reps === String(set.reps) ? "default" : "outline"}
+                          className="h-8 w-8 p-0"
+                          disabled={isSaving || !hasRecommendedWeight}
+                          onClick={() => void handleRecommendedSetUse(
+                            client.id,
+                            originalIndex,
+                            set,
+                            sets,
+                            clientWeekKey,
+                            persistedSetMap,
+                          )}
+                          title="Use recommended weight and reps"
+                        >
+                          <Check className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                      <TableCell className={`align-middle text-center p-1 ${isTopSet ? "bg-primary/10" : ""}`}>
+                        {isEffectivelyExpanded ? (
+                          <div className="mx-auto flex w-fit items-center gap-1">
+                            <Input
+                              type="number"
+                              placeholder="lbs"
+                              className="h-8 w-20 text-sm font-code [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                              value={setInput.weight}
+                              onChange={(e) => handleSetInputChange(client.id, originalIndex, "weight", e.target.value)}
+                              disabled={isSaving}
+                            />
+                            <Input
+                              type="number"
+                              placeholder="reps"
+                              className="h-8 w-14 text-right text-sm font-code [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                              value={setInput.reps}
+                              onChange={(e) => handleSetInputChange(client.id, originalIndex, "reps", e.target.value)}
+                              disabled={isSaving}
+                            />
+                          </div>
+                        ) : (
+                          <div className="text-[12px] font-code text-muted-foreground whitespace-nowrap">
+                            {hasActual ? `${setInput.weight || "-"} lbs x ${setInput.reps || "-"}` : "-"}
+                          </div>
+                        )}
+                      </TableCell>
+                    </Fragment>
                   );
                 }) : (
-                  <TableCell colSpan={Math.max(1, headerSets.length)} className="text-sm text-muted-foreground">
+                  <TableCell colSpan={Math.max(1, headerSets.length * 3)} className="text-sm text-muted-foreground">
                     {sessionMode === "pause_week"
                       ? "Paused this week. Client resumes on selected flow week."
                       : "No work sets scheduled for this client in current mode."}
@@ -692,7 +861,8 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
           <TableHeader>
             <TableRow>
               <TableHead className="w-[96px] text-left bg-gradient-to-r from-muted/80 to-accent/45">Set</TableHead>
-              {workouts.map(({ client, sessionMode, effectiveWeekKey }, columnIndex) => {
+              {workouts.map((workout, columnIndex) => {
+                const { client, sessionMode, effectiveWeekKey } = workout;
                 const isFocusedClient = client.id === focusedClientId;
                 return (
                 <TableHead
@@ -709,29 +879,38 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
                       >
                         {client.name}
                       </button>
-                      <div className="flex items-center gap-1 shrink-0">
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0">
+                              <MoreVertical className="h-3.5 w-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => setOpenNotesForClientId(client.id)}>
+                              <FileText className="mr-2 h-4 w-4" />
+                              Notes
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void handleCopyWorkout(workout)}>
+                              <Copy className="mr-2 h-4 w-4" />
+                              Copy
+                            </DropdownMenuItem>
+                            {onOpenProfile && (
+                              <DropdownMenuItem onSelect={() => onOpenProfile(client)}>
+                                <User className="mr-2 h-4 w-4" />
+                                Profile
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                         <ClientNotesDialog
                           clientId={client.id}
                           clientName={client.name}
                           currentNotes={client.notes}
                           onNotesSaved={(notes) => handleNotesSaved(client.id, notes)}
-                          compact={!isFocusedClient}
-                          showLabel={isFocusedClient}
+                          open={openNotesForClientId === client.id}
+                          onOpenChange={(open) => setOpenNotesForClientId(open ? client.id : null)}
                         />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className={isFocusedClient ? "h-7 px-2 text-xs" : "h-7 w-7 p-0"}
-                          onClick={() => {
-                            const workout = workouts.find((item) => item.client.id === client.id);
-                            if (!workout) return;
-                            setSelectedWorkout(workout);
-                          }}
-                          aria-label={isFocusedClient ? undefined : `View ${client.name} workout`}
-                        >
-                          <Eye className={isFocusedClient ? "h-3 w-3 mr-1" : "h-3 w-3"} />
-                          {isFocusedClient ? "View" : null}
-                        </Button>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 flex-wrap">

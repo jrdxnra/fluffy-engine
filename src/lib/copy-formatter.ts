@@ -96,6 +96,7 @@ export const formatDayWorkoutCopyText = ({
 
   tsvRows.push(dayHeader);
   tsvRows.push("MOVEMENTS\tSETS\tREC REPS\tREC LOAD\tACT REPS\tACT LOAD");
+  tsvRows.push("");
 
   for (const dayLift of dayLifts) {
     const liftEntry = liftEntries.find((item) => item.lift === dayLift);

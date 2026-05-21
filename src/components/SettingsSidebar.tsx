@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Weight,
   Plus,
@@ -36,16 +37,29 @@ import { Lifts } from "@/lib/types";
 import { OneRmCalcModal } from "@/components/OneRmCalcModal";
 import { useToast } from "@/hooks/use-toast";
 import { graduateTeamAction } from "@/app/actions";
-import { useState } from "react";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "./ui/alert-dialog";
+import { useMemo, useState } from "react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "./ui/dialog";
 import { WeekOptionsModal } from "@/components/WeekOptionsModal";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
+
+type DaySlot = "day1" | "day2";
+
+type GraduationOverrides = {
+  cycleStartDate: string;
+  day1Weekday: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday" | "Sunday";
+  day2Weekday: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday" | "Sunday";
+  liftDayAssignments: Record<Lift, DaySlot>;
+  liftDisplayNames: Record<Lift, string>;
+  calibrationLifts: Lift[];
+};
 
 // Helper function to extract rep scheme from week settings
 const getRepScheme = (workset3Reps: string | number | undefined): string => {
@@ -79,7 +93,18 @@ type SettingsSidebarProps = {
   isBulkLoggingActive?: boolean;
   onDuplicateWeek: (weekKey: string) => Promise<void>;
   onDeleteWeek: (weekKey: string) => Promise<boolean>;
-  onGraduateTeam?: (updatedClients: Client[], newCycleNumber: number) => void;
+  onGraduateTeam?: (updatedClients: Client[], newCycleNumber: number, overrides: GraduationOverrides) => void;
+  canGraduate?: boolean;
+  globalMovementOptions?: string[];
+  globalSettingsControl?: React.ReactNode;
+  currentCycleSchedule?: {
+    cycleStartDate?: string;
+    day1Weekday?: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday" | "Sunday";
+    day2Weekday?: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday" | "Sunday";
+    skipDeloadWeek?: boolean;
+    liftDayAssignments?: Partial<Record<Lift, DaySlot>>;
+    liftDisplayNames?: Partial<Record<Lift, string>>;
+  };
 };
 
 export function SettingsSidebar({
@@ -106,12 +131,73 @@ export function SettingsSidebar({
   onDuplicateWeek,
   onDeleteWeek,
   onGraduateTeam,
+  canGraduate = true,
+  globalMovementOptions = ["Deadlift", "Bench", "Squat", "Press"],
+  globalSettingsControl,
+  currentCycleSchedule,
 }: SettingsSidebarProps) {
     const { toast } = useToast();
     const { isAdminMode } = useAdminModeContext();
     const [isGraduating, setIsGraduating] = useState(false);
+    const [isGraduateModalOpen, setIsGraduateModalOpen] = useState(false);
     const [isWeekOptionsOpen, setIsWeekOptionsOpen] = useState(false);
     const [selectedWeekForOptions, setSelectedWeekForOptions] = useState<string | null>(null);
+    const [nextCycleStartDate, setNextCycleStartDate] = useState("");
+    const [nextDay1Weekday, setNextDay1Weekday] = useState<GraduationOverrides["day1Weekday"]>("Tuesday");
+    const [nextDay2Weekday, setNextDay2Weekday] = useState<GraduationOverrides["day2Weekday"]>("Thursday");
+    const [nextLiftDayAssignments, setNextLiftDayAssignments] = useState<Record<Lift, DaySlot>>({
+      Deadlift: "day1",
+      Bench: "day1",
+      Squat: "day2",
+      Press: "day2",
+    });
+    const [nextLiftDisplayNames, setNextLiftDisplayNames] = useState<Record<Lift, string>>({
+      Deadlift: "Deadlift",
+      Bench: "Bench",
+      Squat: "Squat",
+      Press: "Press",
+    });
+    const [selectedGraduateClientIds, setSelectedGraduateClientIds] = useState<string[]>([]);
+    const weekdayOptions: GraduationOverrides["day1Weekday"][] = [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday",
+    ];
+
+    const addDaysToIso = (isoDate: string, daysToAdd: number): string => {
+      if (!isoDate) return "";
+      const date = new Date(`${isoDate}T00:00:00`);
+      if (Number.isNaN(date.getTime())) return "";
+      date.setDate(date.getDate() + daysToAdd);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    const defaultLiftAssignments = useMemo(
+      () => ({
+        Deadlift: currentCycleSchedule?.liftDayAssignments?.Deadlift || "day1",
+        Bench: currentCycleSchedule?.liftDayAssignments?.Bench || "day1",
+        Squat: currentCycleSchedule?.liftDayAssignments?.Squat || "day2",
+        Press: currentCycleSchedule?.liftDayAssignments?.Press || "day2",
+      }),
+      [currentCycleSchedule]
+    );
+
+    const defaultLiftDisplayNames = useMemo(
+      () => ({
+        Deadlift: currentCycleSchedule?.liftDisplayNames?.Deadlift || "Deadlift",
+        Bench: currentCycleSchedule?.liftDisplayNames?.Bench || "Bench",
+        Squat: currentCycleSchedule?.liftDisplayNames?.Squat || "Squat",
+        Press: currentCycleSchedule?.liftDisplayNames?.Press || "Press",
+      }),
+      [currentCycleSchedule]
+    );
 
     const sortedCycleNumbers = (availableCycleNumbers.length > 0
       ? [...availableCycleNumbers]
@@ -121,6 +207,10 @@ export function SettingsSidebar({
       .sort((a, b) => a - b);
 
     const currentCycleIndex = sortedCycleNumbers.indexOf(currentCycleNumber);
+    const clientsInSelectedCycle = useMemo(
+      () => clients.filter((client) => (client.currentCycleNumber || 1) === currentCycleNumber),
+      [clients, currentCycleNumber]
+    );
     const prevCycleNumber = currentCycleIndex > 0 ? sortedCycleNumbers[currentCycleIndex - 1] : null;
     const nextCycleNumber =
       currentCycleIndex >= 0 && currentCycleIndex < sortedCycleNumbers.length - 1
@@ -133,19 +223,57 @@ export function SettingsSidebar({
     };
 
     const isDeloadWeek = (weekKey: string, weekName: string) => {
-      const weekMatch = weekKey.match(/\d+/);
-      const weekNumber = weekMatch ? parseInt(weekMatch[0], 10) : 0;
-      if (weekNumber === 4) return true;
       return weekName.toLowerCase().includes("deload");
     };
 
     const currentWeekName = cycleSettings[currentWeek]?.name || currentWeek;
+    const currentWeekSchemeLabel = getRepScheme(cycleSettings[currentWeek]?.reps?.workset3);
     const currentWeekIsSkippedDeload =
       skipDeloadWeek && isDeloadWeek(currentWeek, currentWeekName);
 
+    const openGraduateModal = () => {
+      const cycleLengthWeeks = currentCycleSchedule?.skipDeloadWeek ? 3 : 4;
+      const inferredStartDate = addDaysToIso(currentCycleSchedule?.cycleStartDate || "", cycleLengthWeeks * 7);
+      setNextCycleStartDate(inferredStartDate);
+      setNextDay1Weekday(currentCycleSchedule?.day1Weekday || "Tuesday");
+      setNextDay2Weekday(currentCycleSchedule?.day2Weekday || "Thursday");
+      setNextLiftDayAssignments(defaultLiftAssignments);
+      setNextLiftDisplayNames(defaultLiftDisplayNames);
+      setSelectedGraduateClientIds(clientsInSelectedCycle.map((client) => client.id));
+      setIsGraduateModalOpen(true);
+    };
+
     const handleGraduateTeam = async () => {
+      if (!canGraduate) {
+        toast({
+          variant: "destructive",
+          title: "Cycle Locked",
+          description: "Switch to the active cycle before graduating the team.",
+        });
+        return;
+      }
+
+        const changedLifts = Lifts.filter((trackedLift) => {
+          const previous = (defaultLiftDisplayNames[trackedLift] || trackedLift).trim().toLowerCase();
+          const next = (nextLiftDisplayNames[trackedLift] || trackedLift).trim().toLowerCase();
+          return previous !== next;
+        });
+
+        const selectedClients = clientsInSelectedCycle.filter((client) => selectedGraduateClientIds.includes(client.id));
+        if (selectedClients.length === 0) {
+          toast({
+            variant: "destructive",
+            title: "No Clients Selected",
+            description: "Select at least one client to move into the next cycle.",
+          });
+          return;
+        }
+
         setIsGraduating(true);
-        const result = await graduateTeamAction(clients);
+        const result = await graduateTeamAction(selectedClients, {
+            noIncrementLifts: changedLifts,
+            calibrationLifts: changedLifts,
+        });
         if (result.success) {
             toast({
                 title: "Success!",
@@ -153,8 +281,16 @@ export function SettingsSidebar({
             });
             // Notify parent component to update cycle number
             if (onGraduateTeam && result.newCycleNumber) {
-                onGraduateTeam(clients, result.newCycleNumber);
+              onGraduateTeam(selectedClients, result.newCycleNumber, {
+                cycleStartDate: nextCycleStartDate,
+                day1Weekday: nextDay1Weekday,
+                day2Weekday: nextDay2Weekday,
+                liftDayAssignments: nextLiftDayAssignments,
+                  liftDisplayNames: nextLiftDisplayNames,
+                  calibrationLifts: changedLifts,
+              });
             }
+            setIsGraduateModalOpen(false);
         } else {
             toast({
                 variant: "destructive",
@@ -273,7 +409,7 @@ export function SettingsSidebar({
         <SidebarGroup>
           <SidebarGroupLabel className="flex items-center">
             <Users className="mr-2" />
-            Client Roster ({clients.length})
+            All Clients ({clients.length})
           </SidebarGroupLabel>
           <SidebarMenu>
             {clients.map((client, index) => {
@@ -329,7 +465,7 @@ export function SettingsSidebar({
             <SidebarMenuItem>
               <div className="px-1 pb-1 space-y-2">
                 <div className={`text-xs font-semibold text-primary ${currentWeekIsSkippedDeload ? "line-through opacity-70" : ""}`}>
-                  {currentWeekName}{currentWeekIsSkippedDeload ? " (Skipped)" : ""}
+                  {currentWeekName} ({currentWeekSchemeLabel}){currentWeekIsSkippedDeload ? " (Skipped)" : ""}
                 </div>
                 <div
                   className={`grid w-full ${
@@ -392,38 +528,185 @@ export function SettingsSidebar({
               </div>
             </SidebarMenuItem>
           ) : null}
-          {isAdminMode && (
-            <>
-              <SidebarMenuItem>
-                <SidebarMenuButton onClick={onAddClient} tooltip="Add New Client">
-                  <Plus /> <span>Add Client</span>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={onAddClient} tooltip="Add New Client">
+              <Plus /> <span>Add Client</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <Dialog open={isGraduateModalOpen} onOpenChange={setIsGraduateModalOpen}>
+              <DialogTrigger asChild>
+                <SidebarMenuButton
+                  variant="outline"
+                  tooltip="Graduate Team"
+                  disabled={isGraduating || !canGraduate}
+                  onClick={openGraduateModal}
+                >
+                  <TrendingUp /> <span>Graduate Team</span>
                 </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <SidebarMenuButton variant="outline" tooltip="Graduate Team" disabled={isGraduating}>
-                      <TrendingUp /> <span>Graduate Team</span>
-                    </SidebarMenuButton>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This will permanently increase the Training Maxes for all clients on the roster (+5 lbs for Bench/Press, +10 lbs for Squat/Deadlift). This action cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleGraduateTeam} disabled={isGraduating}>
-                        {isGraduating ? 'Graduating...' : 'Yes, Graduate Team'}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </SidebarMenuItem>
-            </>
-          )}
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Graduate Team</DialogTitle>
+                  <DialogDescription>
+                    Confirm the next-cycle schedule before graduation. This advances all clients and keeps the next cycle explicit.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="next-cycle-start-date">Next Cycle Start Date</Label>
+                    <Input
+                      id="next-cycle-start-date"
+                      type="date"
+                      value={nextCycleStartDate}
+                      onChange={(e) => setNextCycleStartDate(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Day 1 Weekday</Label>
+                      <Select value={nextDay1Weekday} onValueChange={(value) => setNextDay1Weekday(value as GraduationOverrides["day1Weekday"])}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select weekday" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {weekdayOptions.map((weekday) => (
+                            <SelectItem key={`graduate-day1-${weekday}`} value={weekday}>
+                              {weekday}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Day 2 Weekday</Label>
+                      <Select value={nextDay2Weekday} onValueChange={(value) => setNextDay2Weekday(value as GraduationOverrides["day2Weekday"])}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select weekday" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {weekdayOptions.map((weekday) => (
+                            <SelectItem key={`graduate-day2-${weekday}`} value={weekday}>
+                              {weekday}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Clients Moving To Next Cycle</Label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedGraduateClientIds((prev) =>
+                            prev.length === clientsInSelectedCycle.length
+                              ? []
+                              : clientsInSelectedCycle.map((client) => client.id)
+                          );
+                        }}
+                      >
+                        {selectedGraduateClientIds.length === clientsInSelectedCycle.length ? "Clear All" : "Select All"}
+                      </Button>
+                    </div>
+                    <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border/70 p-2">
+                      {clientsInSelectedCycle.map((client) => {
+                        const checked = selectedGraduateClientIds.includes(client.id);
+                        return (
+                          <label key={`graduate-client-${client.id}`} className="flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/40">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                const isChecked = e.target.checked;
+                                setSelectedGraduateClientIds((prev) => {
+                                  if (isChecked) {
+                                    return prev.includes(client.id) ? prev : [...prev, client.id];
+                                  }
+                                  return prev.filter((id) => id !== client.id);
+                                });
+                              }}
+                            />
+                            <span>{client.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Selected: {selectedGraduateClientIds.length} of {clientsInSelectedCycle.length}</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Movement Day Assignments</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Movement label is display-only. Progression math follows the tracked slot:
+                      Deadlift/Squat = lower (+10 per cycle), Bench/Press = upper (+5 per cycle).
+                    </p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {Lifts.map((movement) => (
+                        <div key={`graduate-movement-day-${movement}`} className="space-y-2 rounded-md border border-border/70 p-2">
+                          <Label className="text-xs text-muted-foreground">
+                            Track Slot: {movement} {movement === "Squat" || movement === "Deadlift" ? "(Lower +10)" : "(Upper +5)"}
+                          </Label>
+                          <Select
+                            value={nextLiftDisplayNames[movement]}
+                            onValueChange={(value) => {
+                              setNextLiftDisplayNames((prev) => ({
+                                ...prev,
+                                [movement]: value,
+                              }));
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select movement" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {globalMovementOptions.map((option) => (
+                                <SelectItem key={`movement-option-${movement}-${option}`} value={option}>
+                                  {option}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={nextLiftDayAssignments[movement]}
+                            onValueChange={(value) => {
+                              setNextLiftDayAssignments((prev) => ({
+                                ...prev,
+                                [movement]: value as DaySlot,
+                              }));
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select day" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="day1">Day 1</SelectItem>
+                              <SelectItem value="day2">Day 2</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIsGraduateModalOpen(false)} disabled={isGraduating}>
+                    Cancel
+                  </Button>
+                  <Button type="button" onClick={handleGraduateTeam} disabled={isGraduating}>
+                    {isGraduating ? "Graduating..." : "Confirm & Graduate"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <div className="flex w-full items-center">
               <div className="flex flex-1 justify-center">
@@ -436,6 +719,9 @@ export function SettingsSidebar({
               </div>
               <div className="flex flex-1 justify-center">
                 <OneRmCalcModal />
+              </div>
+              <div className="flex flex-1 justify-center">
+                {globalSettingsControl}
               </div>
             </div>
           </SidebarMenuItem>

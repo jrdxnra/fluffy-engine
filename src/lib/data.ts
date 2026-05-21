@@ -65,13 +65,34 @@ type AppSettings = {
   cycleSettingsByCycle: Record<number, CycleSettings>;
   cycleNames: Record<number, string>;
   cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>;
+  globalMovementOptions?: string[];
 };
 
 type AppSettingsDocument = {
   cycleSettingsByCycle?: Record<string, CycleSettings>;
   cycleNames?: Record<string, string>;
   cycleSchedulesByCycle?: Record<string, CycleScheduleSettings>;
+  globalMovementOptions?: string[];
   settingsUpdatedAt?: string;
+};
+
+const defaultGlobalMovementOptions = ['Deadlift', 'Bench', 'Squat', 'Press'];
+
+const resolveGlobalMovementOptions = (
+  cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>,
+  existing?: string[]
+): string[] => {
+  const scheduleValues = Object.values(cycleSchedulesByCycle || {}).flatMap((schedule) =>
+    Object.values(schedule.liftDisplayNames || {})
+  );
+
+  return Array.from(
+    new Set(
+      [...defaultGlobalMovementOptions, ...(existing || []), ...scheduleValues]
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  );
 };
 
 const defaultCycleSchedule: CycleScheduleSettings = {
@@ -84,6 +105,12 @@ const defaultCycleSchedule: CycleScheduleSettings = {
     Bench: 'day1',
     Squat: 'day2',
     Press: 'day2',
+  },
+  liftDisplayNames: {
+    Deadlift: 'Deadlift',
+    Bench: 'Bench',
+    Squat: 'Squat',
+    Press: 'Press',
   },
 };
 
@@ -99,6 +126,10 @@ const withDefaultSchedules = (
       liftDayAssignments: {
         ...defaultCycleSchedule.liftDayAssignments,
         ...(schedules[cycleNumber]?.liftDayAssignments || {}),
+      },
+      liftDisplayNames: {
+        ...defaultCycleSchedule.liftDisplayNames,
+        ...(schedules[cycleNumber]?.liftDisplayNames || {}),
       },
     };
   }
@@ -267,6 +298,10 @@ export const getAppSettings = async (): Promise<AppSettings> => {
           cycleSettingsByCycle,
           cycleNames,
           cycleSchedulesByCycle: withDefaultSchedules(cycleSettingsByCycle, cycleSchedulesByCycle),
+          globalMovementOptions: resolveGlobalMovementOptions(
+            withDefaultSchedules(cycleSettingsByCycle, cycleSchedulesByCycle),
+            data.globalMovementOptions
+          ),
         };
       }
     }
@@ -291,6 +326,10 @@ export const getAppSettings = async (): Promise<AppSettings> => {
         cycleSettingsByCycle,
         cycleNames,
         cycleSchedulesByCycle: withDefaultSchedules(cycleSettingsByCycle, cycleSchedulesByCycle),
+        globalMovementOptions: resolveGlobalMovementOptions(
+          withDefaultSchedules(cycleSettingsByCycle, cycleSchedulesByCycle),
+          clientWithSettings.globalMovementOptions || []
+        ),
       };
     }
 
@@ -298,6 +337,7 @@ export const getAppSettings = async (): Promise<AppSettings> => {
       cycleSettingsByCycle: { 1: cycleSettings },
       cycleNames: { 1: 'Cycle 1' },
       cycleSchedulesByCycle: { 1: { ...defaultCycleSchedule } },
+      globalMovementOptions: [...defaultGlobalMovementOptions],
     };
   } catch (error) {
     console.error('Error getting app settings:', error);
@@ -305,6 +345,7 @@ export const getAppSettings = async (): Promise<AppSettings> => {
       cycleSettingsByCycle: { 1: cycleSettings },
       cycleNames: { 1: 'Cycle 1' },
       cycleSchedulesByCycle: { 1: { ...defaultCycleSchedule } },
+      globalMovementOptions: [...defaultGlobalMovementOptions],
     };
   }
 };
@@ -321,14 +362,16 @@ export const saveAppSettings = async (settings: AppSettings) => {
     const normalizedCycleSettingsByCycle = normalizeAccessoryVisibility(normalizeWarmupPercentages(settings.cycleSettingsByCycle));
     const resolvedSchedules = settings.cycleSchedulesByCycle || normalizeNumberKeyRecord<CycleScheduleSettings>(existingData.cycleSchedulesByCycle);
     const cycleSchedulesByCycle = withDefaultSchedules(normalizedCycleSettingsByCycle, resolvedSchedules);
+    const globalMovementOptions = resolveGlobalMovementOptions(cycleSchedulesByCycle, settings.globalMovementOptions || existingData.globalMovementOptions || []);
 
     await setDoc(settingsRef, {
       cycleSettingsByCycle: normalizedCycleSettingsByCycle,
       cycleNames: settings.cycleNames,
       cycleSchedulesByCycle,
+      globalMovementOptions,
       settingsUpdatedAt,
     });
-    return { success: true, settingsUpdatedAt, cycleSchedulesByCycle };
+    return { success: true, settingsUpdatedAt, cycleSchedulesByCycle, globalMovementOptions };
   } catch (error) {
     console.error('Error saving app settings:', error);
     throw error;
@@ -399,7 +442,13 @@ export const deleteClient = async (clientId: string) => {
   }
 };
 
-export const graduateTeam = async (clients: Client[]) => {
+export const graduateTeam = async (
+  clients: Client[],
+  options?: {
+    noIncrementLifts?: Lift[];
+    calibrationLifts?: Lift[];
+  }
+) => {
   try {
     // Pre-graduation validation
     const preValidation = validateAllClientsDataConsistency(clients);
@@ -408,15 +457,32 @@ export const graduateTeam = async (clients: Client[]) => {
       throw new Error('Cannot graduate team: data consistency errors detected');
     }
 
+    const noIncrementLiftSet = new Set(options?.noIncrementLifts || []);
+    const calibrationLiftSet = new Set(options?.calibrationLifts || []);
+
     const result = clients.map((client) => {
       const currentCycle = client.currentCycleNumber || 1;
       const nextCycle = currentCycle + 1;
 
+      const currentCycleCalibration = client.movementCalibrationsByCycle?.[currentCycle] || {};
+      const recentlyCalibratedLiftSet = new Set(
+        (Object.keys(currentCycleCalibration) as Lift[]).filter(
+          (lift) => currentCycleCalibration[lift]?.needsCalibration
+        )
+      );
+
+      const incrementByLift: Record<Lift, number> = {
+        Squat: noIncrementLiftSet.has('Squat') || recentlyCalibratedLiftSet.has('Squat') ? 0 : 10,
+        Deadlift: noIncrementLiftSet.has('Deadlift') || recentlyCalibratedLiftSet.has('Deadlift') ? 0 : 10,
+        Bench: noIncrementLiftSet.has('Bench') || recentlyCalibratedLiftSet.has('Bench') ? 0 : 5,
+        Press: noIncrementLiftSet.has('Press') || recentlyCalibratedLiftSet.has('Press') ? 0 : 5,
+      };
+
       const newTrainingMaxes = {
-        Squat: client.trainingMaxes.Squat + 10,
-        Deadlift: client.trainingMaxes.Deadlift + 10,
-        Bench: client.trainingMaxes.Bench + 5,
-        Press: client.trainingMaxes.Press + 5,
+        Squat: calibrationLiftSet.has('Squat') ? 0 : client.trainingMaxes.Squat + incrementByLift.Squat,
+        Deadlift: calibrationLiftSet.has('Deadlift') ? 0 : client.trainingMaxes.Deadlift + incrementByLift.Deadlift,
+        Bench: calibrationLiftSet.has('Bench') ? 0 : client.trainingMaxes.Bench + incrementByLift.Bench,
+        Press: calibrationLiftSet.has('Press') ? 0 : client.trainingMaxes.Press + incrementByLift.Press,
       };
 
       const updatedTrainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
@@ -428,18 +494,42 @@ export const graduateTeam = async (clients: Client[]) => {
       }
       updatedTrainingMaxesByCycle[nextCycle] = { ...newTrainingMaxes };
 
+      const previousOneRepMaxes = client.oneRepMaxesByCycle?.[currentCycle] || client.oneRepMaxes;
+      const nextOneRepMaxes = {
+        ...previousOneRepMaxes,
+      };
+
+      for (const lift of calibrationLiftSet) {
+        nextOneRepMaxes[lift] = 0;
+      }
+
+      const movementCalibrationsForNextCycle = {
+        ...(client.movementCalibrationsByCycle?.[nextCycle] || {}),
+      };
+
+      for (const lift of calibrationLiftSet) {
+        movementCalibrationsForNextCycle[lift] = {
+          needsCalibration: true,
+        };
+      }
+
       const updatedClient = {
         ...client,
         currentCycleNumber: nextCycle,
         oneRepMaxesByCycle: {
           ...(client.oneRepMaxesByCycle || {}),
-          [nextCycle]: client.oneRepMaxesByCycle?.[currentCycle] || client.oneRepMaxes,
+          [nextCycle]: nextOneRepMaxes,
         },
+        oneRepMaxes: nextOneRepMaxes,
         trainingMaxes: newTrainingMaxes,
         trainingMaxesByCycle: updatedTrainingMaxesByCycle,
         weekAssignmentsByCycle: {
           ...(client.weekAssignmentsByCycle || {}),
           [nextCycle]: { week1: '5', week2: '3', week3: '1' },
+        },
+        movementCalibrationsByCycle: {
+          ...(client.movementCalibrationsByCycle || {}),
+          [nextCycle]: movementCalibrationsForNextCycle,
         },
       };
 

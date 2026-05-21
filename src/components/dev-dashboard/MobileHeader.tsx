@@ -39,14 +39,6 @@ export function MobileHeader({
   scrollLift,
   onTitleClick,
 }: MobileHeaderProps) {
-  const lifts: Lift[] = ["Deadlift", "Bench", "Squat", "Press"];
-  const liftAbbr: Record<Lift, string> = {
-    Deadlift: "DL",
-    Bench: "B",
-    Squat: "SQ",
-    Press: "P",
-  };
-
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-sm">
       {/* Row 1: title (absolutely centered) | theme toggle */}
@@ -78,67 +70,29 @@ export function MobileHeader({
         </Button>
       </div>
 
-      {/* Row 2: view mode toggle (left) | day/lift selector (right) */}
+      {/* Row 2: day selector */}
       <div className="flex h-10 items-center justify-between gap-2 overflow-x-auto px-3 pb-1">
-        {/* View mode segmented control */}
-        <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border text-xs">
-          <button
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Day View</div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
             type="button"
-            className={`h-8 px-3 font-medium transition-colors ${viewMode === "day" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}
-            onClick={() => onViewModeChange("day")}
+            size="sm"
+            variant={dayViewSlot === "day1" ? "default" : "outline"}
+            className="h-8 px-3 text-xs whitespace-nowrap"
+            onClick={() => onDayViewSlotChange("day1")}
           >
-            Day
-          </button>
-          <button
+            {day1Label}
+          </Button>
+          <Button
             type="button"
-            className={`h-8 border-l px-3 font-medium transition-colors ${viewMode === "lift" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}
-            onClick={() => onViewModeChange("lift")}
+            size="sm"
+            variant={dayViewSlot === "day2" ? "default" : "outline"}
+            className="h-8 px-3 text-xs whitespace-nowrap"
+            onClick={() => onDayViewSlotChange("day2")}
           >
-            Lift
-          </button>
+            {day2Label}
+          </Button>
         </div>
-
-        {/* Day selector */}
-        {viewMode === "day" && (
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
-              type="button"
-              size="sm"
-              variant={dayViewSlot === "day1" ? "default" : "outline"}
-              className="h-8 px-3 text-xs whitespace-nowrap"
-              onClick={() => onDayViewSlotChange("day1")}
-            >
-              {day1Label}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={dayViewSlot === "day2" ? "default" : "outline"}
-              className="h-8 px-3 text-xs whitespace-nowrap"
-              onClick={() => onDayViewSlotChange("day2")}
-            >
-              {day2Label}
-            </Button>
-          </div>
-        )}
-
-        {/* Lift selector */}
-        {viewMode === "lift" && (
-          <div className="flex shrink-0 items-center gap-1">
-            {lifts.map((l) => (
-              <Button
-                key={l}
-                type="button"
-                size="sm"
-                variant={lift === l ? "default" : "outline"}
-                className="h-8 px-3 text-xs"
-                onClick={() => onLiftChange(l)}
-              >
-                {liftAbbr[l]}
-              </Button>
-            ))}
-          </div>
-        )}
       </div>
     </header>
   );

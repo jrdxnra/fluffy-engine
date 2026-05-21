@@ -28,13 +28,17 @@ import { useToast } from "@/hooks/use-toast";
 import { calculateWorkout } from "@/lib/utils";
 import {
   getEffectiveCycleSchedule,
+  getLiftDisplayName,
   getLiftDaySlot,
   getLiftsForDaySlot,
   getCycleWeekSchedule,
+  getRecommendedSessionSelection,
 } from "@/lib/schedule";
 import { calculateTrainingMaxes } from "@/lib/training-max";
-import { formatBasicWorkoutCopyText } from "@/lib/copy-formatter";
+import { formatBasicWorkoutCopyText, formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
+import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
+import { getMovementClassTypeForLift, getMovementProfileForCycle } from "@/lib/movement-profiles";
 import {
   upsertClientLoggedSetEntriesAction,
   updateClientProfileAction,
@@ -49,6 +53,7 @@ type MobileDevShellProps = {
   initialCycleSettingsByCycle: Record<number, CycleSettings>;
   initialCycleNames: Record<number, string>;
   initialCycleSchedulesByCycle: Record<number, CycleScheduleSettings>;
+  initialGlobalMovementOptions?: string[];
   initialHistoricalData: HistoricalRecord[];
 };
 
@@ -57,6 +62,7 @@ export function MobileDevShell({
   initialCycleSettingsByCycle,
   initialCycleNames,
   initialCycleSchedulesByCycle,
+  initialGlobalMovementOptions,
   initialHistoricalData,
 }: MobileDevShellProps) {
   const { toast } = useToast();
@@ -97,9 +103,10 @@ export function MobileDevShell({
           }
   );
 
-  const [currentCycleNumber, setCurrentCycleNumber] = useState<number>(() =>
-    initialClients.length > 0 ? (initialClients[0]?.currentCycleNumber || 1) : 1
-  );
+  const [currentCycleNumber, setCurrentCycleNumber] = useState<number>(() => {
+    if (initialClients.length === 0) return 1;
+    return initialClients.reduce((maxCycle, client) => Math.max(maxCycle, client.currentCycleNumber || 1), 1);
+  });
   const [currentWeek, setCurrentWeek] = useState<string>("week1");
   const [lift, setLift] = useState<Lift>("Deadlift");
   const [viewMode, setViewMode] = useState<"day" | "lift">("day");
@@ -114,6 +121,7 @@ export function MobileDevShell({
   const [activeDayLift, setActiveDayLift] = useState<string | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const hasAutoDateSelectionRef = useRef(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -138,6 +146,23 @@ export function MobileDevShell({
     [currentCycleSchedule, currentWeek]
   );
 
+  useEffect(() => {
+    if (hasAutoDateSelectionRef.current) return;
+
+    const selection = getRecommendedSessionSelection(
+      cycleSettingsByCycle,
+      cycleSchedulesByCycle,
+      new Date()
+    );
+
+    if (!selection) return;
+
+    setCurrentCycleNumber(selection.cycleNumber);
+    setCurrentWeek(selection.weekKey);
+    setDayViewSlot(selection.daySlot);
+    hasAutoDateSelectionRef.current = true;
+  }, [cycleSettingsByCycle, cycleSchedulesByCycle]);
+
   const availableCycles = useMemo(
     () =>
       Object.keys(cycleSettingsByCycle)
@@ -146,6 +171,19 @@ export function MobileDevShell({
         .map((n) => ({ cycleNumber: n, name: cycleNames[n] || `Cycle ${n}` })),
     [cycleSettingsByCycle, cycleNames]
   );
+
+  const activeTeamCycleNumber = useMemo(() => {
+    if (clients.length === 0) return 1;
+    return clients.reduce((maxCycle, client) => Math.max(maxCycle, client.currentCycleNumber || 1), 1);
+  }, [clients]);
+
+  const isHistoricalCycleView = currentCycleNumber < activeTeamCycleNumber;
+  const clientsInSelectedCycle = useMemo(() => {
+    if (isHistoricalCycleView) {
+      return clients;
+    }
+    return clients.filter((client) => (client.currentCycleNumber || 1) === currentCycleNumber);
+  }, [clients, currentCycleNumber, isHistoricalCycleView]);
 
   const dayLifts: Lift[] = getLiftsForDaySlot(dayViewSlot, currentCycleSchedule);
 
@@ -227,7 +265,7 @@ export function MobileDevShell({
   const getCalculatedWorkoutsForLift = (targetLift: Lift): CalculatedWorkout[] => {
     const weekSettings = cycleSettings[currentWeek];
     if (!weekSettings) {
-      return clients.map((client) => ({ client, sets: [], prTarget: undefined }));
+      return clientsInSelectedCycle.map((client) => ({ client, sets: [], prTarget: undefined }));
     }
 
     const sortedWeekKeys = Object.keys(cycleSettings).sort((a, b) => {
@@ -236,7 +274,7 @@ export function MobileDevShell({
       return an - bn;
     });
 
-    return clients.map((client) => {
+    return clientsInSelectedCycle.map((client) => {
       const sessionState = client.sessionStateByCycle?.[currentCycleNumber];
       const mode: SessionMode =
         sessionState?.modeByWeek?.[currentWeek] || sessionState?.mode || "normal";
@@ -262,21 +300,44 @@ export function MobileDevShell({
       }
 
       const clientAssignments = client.weekAssignmentsByCycle?.[currentCycleNumber] || {};
-      const globalScheme =
-        String(cycleSettings[effectiveWeekKey]?.reps?.workset3 ?? "").replace(/\D/g, "") || "5";
-      const assignedScheme = clientAssignments[effectiveWeekKey] || globalScheme;
+      const assignedScheme = clientAssignments[effectiveWeekKey] || undefined;
 
       if (assignedScheme === "N/A") {
         return { client, sets: [], prTarget: undefined, sessionMode: mode, effectiveWeekKey };
       }
 
+      const workoutWeekSettings =
+        resolveWorkoutWeekSettings(cycleSettings, effectiveWeekKey, assignedScheme) ||
+        effectiveWeekSettings;
+
+      const movementName = getLiftDisplayName(targetLift, currentCycleSchedule);
+      const movementProfile = getMovementProfileForCycle(client, currentCycleNumber, movementName);
+
       const workout = calculateWorkout(
         client,
         targetLift,
-        effectiveWeekSettings,
+        workoutWeekSettings,
         historicalData,
-        currentCycleNumber
+        currentCycleNumber,
+        movementProfile
+          ? {
+              oneRepMaxOverride: movementProfile.oneRepMax,
+              trainingMaxOverride: movementProfile.trainingMax,
+            }
+          : undefined
       );
+
+      const calibrationState = client.movementCalibrationsByCycle?.[currentCycleNumber]?.[targetLift];
+      const effectiveWeekNumber = parseInt((effectiveWeekKey.match(/\d+/)?.[0] || "0"), 10);
+      const hidePrescribedForCalibration = Boolean(calibrationState?.needsCalibration) && effectiveWeekNumber === 1;
+
+      if (hidePrescribedForCalibration) {
+        workout.sets = workout.sets.map((set) => ({
+          ...set,
+          weight: 0,
+          plates: "",
+        }));
+      }
 
       if (mode === "recovery") {
         workout.prTarget = undefined;
@@ -300,7 +361,7 @@ export function MobileDevShell({
   const liftWorkouts = useMemo(
     () => getCalculatedWorkoutsForLift(lift),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clients, lift, currentWeek, cycleSettings, historicalData, currentCycleNumber]
+    [clientsInSelectedCycle, lift, currentWeek, cycleSettings, historicalData, currentCycleNumber]
   );
 
   const dayWorkoutsByLift = useMemo(() => {
@@ -310,32 +371,44 @@ export function MobileDevShell({
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clients, dayLifts, currentWeek, cycleSettings, historicalData, currentCycleNumber]);
+  }, [clientsInSelectedCycle, dayLifts, currentWeek, cycleSettings, historicalData, currentCycleNumber]);
 
   // ── Header labels ─────────────────────────────────────────────────────────────
   const weekdayAbbr: Record<string, string> = {
     Monday: "Mon", Tuesday: "Tues", Wednesday: "Wed",
     Thursday: "Thu", Friday: "Fri", Saturday: "Sat", Sunday: "Sun",
   };
-  const liftAbbr: Record<Lift, string> = { Deadlift: "DL", Bench: "B", Squat: "SQ", Press: "P" };
+  const getMovementAbbreviation = (targetLift: Lift) => {
+    const display = getLiftDisplayName(targetLift, currentCycleSchedule);
+    const words = display
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter(Boolean);
+    if (words.length >= 2) {
+      return `${words[0][0] || ""}${words[1][0] || ""}`.toUpperCase();
+    }
+    return display.slice(0, 3).toUpperCase();
+  };
 
   const getDayLabel = (slot: "day1" | "day2") => {
     const liftsForSlot = getLiftsForDaySlot(slot, currentCycleSchedule);
-    const liftText = liftsForSlot.map((l) => liftAbbr[l]).join("+");
+    const liftText = liftsForSlot.map((l) => getMovementAbbreviation(l)).join("+");
     const weekday = slot === "day1" ? currentWeekSchedule.day1Weekday : currentWeekSchedule.day2Weekday;
     return `${liftText} (${weekdayAbbr[weekday] || weekday.slice(0, 3)})`;
   };
 
   const currentWeekLabel = cycleSettings[currentWeek]?.name || currentWeek;
+  const currentWeekSchemeLabel = cycleSettings[currentWeek]?.reps?.workset3
+    ? String(cycleSettings[currentWeek].reps.workset3)
+    : "?";
   const isDeload =
-    parseInt(currentWeek.match(/\d+/)?.[0] || "0", 10) === 4 ||
     currentWeekLabel.toLowerCase().includes("deload");
   const strikeTitle = Boolean(currentCycleSchedule.skipDeloadWeek) && isDeload;
 
   const sessionTitle =
     viewMode === "day"
-      ? `${getDayLabel(dayViewSlot)} · C${currentCycleNumber} ${currentWeekLabel}`
-      : `${lift} · C${currentCycleNumber} ${currentWeekLabel}`;
+      ? `${getDayLabel(dayViewSlot)} · C${currentCycleNumber} ${currentWeekLabel} (${currentWeekSchemeLabel})`
+      : `${getLiftDisplayName(lift, currentCycleSchedule)} · C${currentCycleNumber} ${currentWeekLabel} (${currentWeekSchemeLabel})`;
 
   // ── Action handlers ───────────────────────────────────────────────────────────
   const handleRepRecordUpdate = (record: HistoricalRecord) => {
@@ -347,11 +420,13 @@ export function MobileDevShell({
     weekKey,
     lift: targetLift,
     setEntries,
+    removeSetIndexes = [],
   }: {
     clientId: string;
     weekKey: string;
     lift: Lift;
     setEntries: LoggedSetMap;
+    removeSetIndexes?: string[];
   }) => {
     const target = clients.find((c) => c.id === clientId);
     if (!target) return;
@@ -360,12 +435,20 @@ export function MobileDevShell({
     const cycleData = existing[currentCycleNumber] || {};
     const weekData = cycleData[weekKey] || {};
     const liftData = (weekData[targetLift] as LoggedSetMap) || {};
+    const nextLiftData: LoggedSetMap = {
+      ...liftData,
+      ...setEntries,
+    };
+
+    for (const setIndex of removeSetIndexes) {
+      delete nextLiftData[setIndex];
+    }
 
     const updated: LoggedSetInputsByCycle = {
       ...existing,
       [currentCycleNumber]: {
         ...cycleData,
-        [weekKey]: { ...weekData, [targetLift]: { ...liftData, ...setEntries } },
+        [weekKey]: { ...weekData, [targetLift]: nextLiftData },
       },
     };
 
@@ -379,6 +462,7 @@ export function MobileDevShell({
       weekKey,
       lift: targetLift,
       setEntries,
+      removeSetIndexes,
     });
 
     if (!result.success) {
@@ -393,6 +477,122 @@ export function MobileDevShell({
         )
       );
     }
+
+    const calibrationClient = clients.find((c) => c.id === clientId);
+    const calibrationState = calibrationClient?.movementCalibrationsByCycle?.[currentCycleNumber]?.[targetLift];
+
+    if (!calibrationClient || !calibrationState?.needsCalibration) {
+      return;
+    }
+
+    const topSetEntry = Object.entries(setEntries)
+      .filter(([, entry]) => Boolean(entry && entry.weight > 0 && entry.reps > 0))
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .pop()?.[1];
+
+    const priorEstimated1RM = calibrationState.estimated1RM || 0;
+    const topSetEstimated1RM = topSetEntry
+      ? Math.round(topSetEntry.weight * (1 + topSetEntry.reps / 30))
+      : 0;
+    const bestEstimated1RM = Math.max(priorEstimated1RM, topSetEstimated1RM);
+    if (bestEstimated1RM <= 0) {
+      return;
+    }
+
+    const roundedOneRepMax = Math.round(bestEstimated1RM / 5) * 5;
+    const roundedTrainingMax = Math.round((roundedOneRepMax * 0.9) / 5) * 5;
+
+    const nextOneRepMaxesByCycle = {
+      ...(calibrationClient.oneRepMaxesByCycle || {}),
+      [currentCycleNumber]: {
+        ...(calibrationClient.oneRepMaxesByCycle?.[currentCycleNumber] || calibrationClient.oneRepMaxes),
+        [targetLift]: roundedOneRepMax,
+      },
+    };
+
+    const nextTrainingMaxesByCycle = {
+      ...(calibrationClient.trainingMaxesByCycle || {}),
+      [currentCycleNumber]: {
+        ...(calibrationClient.trainingMaxesByCycle?.[currentCycleNumber] || calibrationClient.trainingMaxes),
+        [targetLift]: roundedTrainingMax,
+      },
+    };
+
+    const nextCalibrationState = {
+      ...(calibrationClient.movementCalibrationsByCycle || {}),
+      [currentCycleNumber]: {
+        ...(calibrationClient.movementCalibrationsByCycle?.[currentCycleNumber] || {}),
+        [targetLift]: {
+          needsCalibration: true,
+          calibratedAt: new Date().toISOString(),
+          estimated1RM: bestEstimated1RM,
+          sourceWeekKey: weekKey,
+        },
+      },
+    };
+
+    const movementName = getLiftDisplayName(targetLift, currentCycleSchedule);
+    const nextMovementProfilesByCycle = {
+      ...(calibrationClient.movementProfilesByCycle || {}),
+      [currentCycleNumber]: {
+        ...(calibrationClient.movementProfilesByCycle?.[currentCycleNumber] || {}),
+        [movementName]: {
+          oneRepMax: roundedOneRepMax,
+          trainingMax: roundedTrainingMax,
+          classType: getMovementClassTypeForLift(targetLift),
+          movementCycleNumber:
+            calibrationClient.movementProfilesByCycle?.[currentCycleNumber]?.[movementName]?.movementCycleNumber || 1,
+          calibrationPhaseActive: true,
+          lastUpdatedAt: new Date().toISOString(),
+          sourceWeekKey: weekKey,
+        },
+      },
+    };
+
+    const nextOneRepMaxes = {
+      ...calibrationClient.oneRepMaxes,
+      [targetLift]: roundedOneRepMax,
+    };
+
+    const nextTrainingMaxes = {
+      ...calibrationClient.trainingMaxes,
+      [targetLift]: roundedTrainingMax,
+    };
+
+    setClients((prev) =>
+      prev.map((c) =>
+        c.id === clientId
+          ? {
+              ...c,
+              oneRepMaxes: nextOneRepMaxes,
+              oneRepMaxesByCycle: nextOneRepMaxesByCycle,
+              trainingMaxes: nextTrainingMaxes,
+              trainingMaxesByCycle: nextTrainingMaxesByCycle,
+              movementCalibrationsByCycle: nextCalibrationState,
+              movementProfilesByCycle: nextMovementProfilesByCycle,
+            }
+          : c
+      )
+    );
+
+    const calibrationUpdateResult = await updateClientProfileAction(clientId, {
+      oneRepMaxes: nextOneRepMaxes as any,
+      oneRepMaxesByCycle: nextOneRepMaxesByCycle as any,
+      trainingMaxes: nextTrainingMaxes as any,
+      trainingMaxesByCycle: nextTrainingMaxesByCycle as any,
+      movementCalibrationsByCycle: nextCalibrationState as any,
+      movementProfilesByCycle: nextMovementProfilesByCycle as any,
+    });
+
+    if (!calibrationUpdateResult.success) {
+      toast({ variant: "destructive", title: "Calibration Save Failed", description: calibrationUpdateResult.message });
+      return;
+    }
+
+    toast({
+      title: "Calibration Updated",
+      description: `${getLiftDisplayName(targetLift, currentCycleSchedule)} updated from ${weekKey} sets.`,
+    });
   };
 
   const handleUpdateClient = async (updatedClient: Client) => {
@@ -419,6 +619,7 @@ export function MobileDevShell({
       trainingMaxesByCycle: normalizedClient.trainingMaxesByCycle,
       weekAssignmentsByCycle: normalizedClient.weekAssignmentsByCycle,
       sessionStateByCycle: normalizedClient.sessionStateByCycle as Parameters<typeof updateClientProfileAction>[1]["sessionStateByCycle"],
+      movementProfilesByCycle: normalizedClient.movementProfilesByCycle as any,
     });
 
     if (!result.success) {
@@ -474,18 +675,53 @@ export function MobileDevShell({
   };
 
   // ── Copy text builder ──────────────────────────────────────────────────────────
+  const formatShortDate = (isoDate?: string) => {
+    if (!isoDate) return "—";
+    const date = new Date(`${isoDate}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return "—";
+    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
+  };
+
   const buildCopyText = (workout: CalculatedWorkout, cardLift: Lift): string => {
+    // In day view — copy all lifts for the client's full session
+    if (viewMode === "day") {
+      const dayWeekday = dayViewSlot === "day1" ? currentWeekSchedule.day1Weekday : currentWeekSchedule.day2Weekday;
+      const dayDate = dayViewSlot === "day1" ? currentWeekSchedule.day1Date : currentWeekSchedule.day2Date;
+      const dayDateLabel = `${dayWeekday}${dayDate ? ` (${formatShortDate(dayDate)})` : ""}`;
+
+      const liftEntries = dayLifts
+        .map((dl) => {
+          const liftWorkout = (dayWorkoutsByLift[dl] || []).find((w) => w.client.id === workout.client.id);
+          if (!liftWorkout || !liftWorkout.sets || liftWorkout.sets.length === 0) return null;
+          const effectiveWeekKey = liftWorkout.effectiveWeekKey || currentWeek;
+          const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, dl);
+          const persistedSetMap =
+            liftWorkout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[dl] || {};
+          return { lift: dl, sets: liftWorkout.sets, accessories, persistedSetMap };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+      const fallback = formatBasicWorkoutCopyText({
+        lift: cardLift,
+        sets: workout.sets,
+        accessories: resolveVisibleAccessories(cycleSettings, workout.effectiveWeekKey || currentWeek, cardLift),
+        persistedSetMap: workout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[workout.effectiveWeekKey || currentWeek]?.[cardLift] || {},
+      });
+
+      return formatDayWorkoutCopyText({
+        dayHeader: `${dayLifts.map((item) => getLiftDisplayName(item, currentCycleSchedule)).join(" + ")} ${dayDateLabel}`,
+        dayLifts,
+        liftEntries,
+        fallbackText: fallback,
+      });
+    }
+
+    // In lift view — copy just the current lift
     const effectiveWeekKey = workout.effectiveWeekKey || currentWeek;
     const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, cardLift);
     const persistedSetMap =
       workout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[cardLift] || {};
-
-    return formatBasicWorkoutCopyText({
-      lift: cardLift,
-      sets: workout.sets,
-      accessories,
-      persistedSetMap,
-    });
+    return formatBasicWorkoutCopyText({ lift: cardLift, sets: workout.sets, accessories, persistedSetMap });
   };
 
   // ── Sidebar controls ──────────────────────────────────────────────────────────
@@ -511,6 +747,10 @@ export function MobileDevShell({
         onRepRecordUpdate={handleRepRecordUpdate}
         onCopyText={buildCopyText}
         historicalData={historicalData}
+        onOpenProfile={(client) => {
+          setSelectedClientForProfile(client);
+          setClientProfileOpen(true);
+        }}
       />
     ));
 
@@ -551,6 +791,7 @@ export function MobileDevShell({
         onDuplicateWeek={async (_weekKey: string): Promise<void> => {}}
         onDeleteWeek={async (_weekKey: string): Promise<boolean> => false}
         onGraduateTeam={() => {}}
+        currentCycleSchedule={currentCycleSchedule}
       />
 
       {/* Column wrapper: sticky header + scrollable content + fixed bottom bar */}
@@ -606,7 +847,7 @@ export function MobileDevShell({
                 className={idx > 0 ? "border-t border-border/50 pt-4" : undefined}
               >
                 <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {dayLift}
+                  {getLiftDisplayName(dayLift, currentCycleSchedule)}
                 </h2>
                 <div className="flex flex-col gap-3">
                   {renderWorkoutCards(dayWorkoutsByLift[dayLift] || [], dayLift)}
@@ -648,6 +889,12 @@ export function MobileDevShell({
             }}
             onDeleteCycle={async (_cycleNumber: number): Promise<void> => {}}
             onCycleChange={setCurrentCycleNumber}
+            globalMovementOptions={initialGlobalMovementOptions || []}
+            onUpdateGlobalMovementOptions={async (movementOptions) => {
+              await saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, movementOptions).catch(console.error);
+            }}
+            clients={clients}
+            onUpdateClientProfile={handleUpdateClient}
           />
         </div>
       )}
@@ -656,6 +903,8 @@ export function MobileDevShell({
       <AddClientSheet
         open={isAddClientSheetOpen}
         onOpenChange={setAddClientSheetOpen}
+        liftDisplayNames={currentCycleSchedule.liftDisplayNames}
+        globalMovementOptions={initialGlobalMovementOptions || []}
         onClientAdded={(newClient) => setClients((prev) => [...prev, newClient])}
       />
       <AiInsightsDialog
@@ -680,6 +929,7 @@ export function MobileDevShell({
         onOpenChange={setClientProfileOpen}
         client={selectedClientForProfile}
         cycleSettings={cycleSettings}
+        currentCycleSchedule={currentCycleSchedule}
         currentGlobalWeek={currentWeek}
         currentCycleNumber={currentCycleNumber}
         historicalData={historicalData}
