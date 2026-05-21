@@ -73,6 +73,14 @@ export type MovementProfilesByCycle = {
   };
 };
 
+export type GlobalMovementSetting = {
+  classType: MovementClassType;
+};
+
+export type GlobalMovementSettings = {
+  [movementName: string]: GlobalMovementSetting;
+};
+
 export type SessionStateForCycle = {
   mode: SessionMode;
   flowWeekKey?: string;

@@ -26,10 +26,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Settings, Trash2, Pencil, Check, X, ArrowUp, ArrowDown, Plus, Eye, EyeOff } from "lucide-react";
-import type { Client, CycleScheduleSettings, CycleSettings, Lift, MovementProfile } from "@/lib/types";
+import type { CycleScheduleSettings, CycleSettings, GlobalMovementSettings, Lift } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { getEffectiveCycleSchedule } from "@/lib/schedule";
-import { getMovementClassTypeForLift, normalizeMovementName } from "@/lib/movement-profiles";
+import { buildGlobalMovementSettings } from "@/lib/movement-profiles";
 
 const percentageDisplayOrder = ["warmup1", "warmup2", "workset1", "workset2", "workset3"] as const;
 
@@ -51,8 +51,8 @@ type ConfigSettingsDialogProps = {
   onCycleChange?: (cycleNumber: number) => void;
   globalMovementOptions?: string[];
   onUpdateGlobalMovementOptions?: (movementOptions: string[]) => Promise<void>;
-  clients?: Client[];
-  onUpdateClientProfile?: (updatedClient: Client) => Promise<void> | void;
+  globalMovementSettings?: GlobalMovementSettings;
+  onUpdateGlobalMovementSettings?: (movementSettings: GlobalMovementSettings) => Promise<void>;
   triggerLabel?: string;
 };
 
@@ -69,8 +69,8 @@ export function ConfigSettingsDialog({
   onCycleChange,
   globalMovementOptions = ["Deadlift", "Bench", "Squat", "Press"],
   onUpdateGlobalMovementOptions,
-  clients = [],
-  onUpdateClientProfile,
+  globalMovementSettings = {},
+  onUpdateGlobalMovementSettings,
   triggerLabel = "Settings",
 }: ConfigSettingsDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -82,11 +82,10 @@ export function ConfigSettingsDialog({
   const [settingsTab, setSettingsTab] = useState<"cycles" | "weeks" | "movements" | "about">("cycles");
   const [selectedWeekKey, setSelectedWeekKey] = useState<string>(currentWeekKey || "week1");
   const [newMovementName, setNewMovementName] = useState("");
-  const [selectedMovementClientId, setSelectedMovementClientId] = useState<string>("");
-  const [localMovementProfilesByClient, setLocalMovementProfilesByClient] = useState<
-    Record<string, Record<string, MovementProfile>>
-  >({});
-  const [isSavingMovementProfile, setIsSavingMovementProfile] = useState(false);
+  const [localGlobalMovementSettings, setLocalGlobalMovementSettings] = useState<GlobalMovementSettings>(() =>
+    buildGlobalMovementSettings(globalMovementOptions, globalMovementSettings)
+  );
+  const [isSavingMovementSettings, setIsSavingMovementSettings] = useState(false);
   const [localSettings, setLocalSettings] = useState<CycleSettings>(
     cycleSettingsByCycle[currentCycleNumber] || cycleSettingsByCycle[1] || {}
   );
@@ -108,24 +107,14 @@ export function ConfigSettingsDialog({
     Object.values(cycleSchedulesByCycle).flatMap((schedule) => Object.values(schedule.liftDisplayNames || {}))
   );
 
-  const selectedMovementClient = useMemo(
-    () => clients.find((client) => client.id === selectedMovementClientId) || null,
-    [clients, selectedMovementClientId]
-  );
-
-  const selectedClientMovementProfiles = useMemo(() => {
-    if (!selectedMovementClient) return {} as Record<string, MovementProfile>;
-    return (
-      localMovementProfilesByClient[selectedMovementClient.id] ||
-      selectedMovementClient.movementProfilesByCycle?.[dialogCycleNumber] ||
-      {}
-    );
-  }, [localMovementProfilesByClient, selectedMovementClient, dialogCycleNumber]);
-
   // Sync localSettings when selected cycle settings change
   useEffect(() => {
     setLocalSettings(cycleSettingsByCycle[dialogCycleNumber] || cycleSettingsByCycle[1] || {});
   }, [cycleSettingsByCycle, dialogCycleNumber]);
+
+  useEffect(() => {
+    setLocalGlobalMovementSettings(buildGlobalMovementSettings(globalMovementOptions, globalMovementSettings));
+  }, [globalMovementOptions, globalMovementSettings]);
 
   // Sync dialog cycle number when currentCycleNumber changes externally
   useEffect(() => {
@@ -137,26 +126,6 @@ export function ConfigSettingsDialog({
       setSelectedWeekKey(currentWeekKey);
     }
   }, [currentWeekKey]);
-
-  useEffect(() => {
-    if (clients.length === 0) {
-      setSelectedMovementClientId("");
-      setLocalMovementProfilesByClient({});
-      return;
-    }
-
-    if (!selectedMovementClientId || !clients.some((client) => client.id === selectedMovementClientId)) {
-      setSelectedMovementClientId(clients[0].id);
-    }
-
-    const nextLocal: Record<string, Record<string, MovementProfile>> = {};
-    for (const client of clients) {
-      nextLocal[client.id] = {
-        ...(client.movementProfilesByCycle?.[dialogCycleNumber] || {}),
-      };
-    }
-    setLocalMovementProfilesByClient(nextLocal);
-  }, [clients, dialogCycleNumber]);
 
   // Reset dialog cycle number if it's no longer in available cycles
   useEffect(() => {
@@ -319,126 +288,21 @@ export function ConfigSettingsDialog({
     setNewMovementName("");
   };
 
-  const buildDefaultMovementProfilesForClient = (client: Client): Record<string, MovementProfile> => {
-    const defaults: Record<string, MovementProfile> = {};
-    const cycleTrainingMaxes = client.trainingMaxesByCycle?.[dialogCycleNumber] || client.trainingMaxes;
-
-    for (const lift of Lifts) {
-      const movementName = getCurrentCycleSchedule().liftDisplayNames?.[lift] || lift;
-      if (defaults[movementName]) continue;
-      defaults[movementName] = {
-        oneRepMax: client.oneRepMaxes[lift],
-        trainingMax: cycleTrainingMaxes[lift],
-        classType: getMovementClassTypeForLift(lift),
-        movementCycleNumber: 1,
-        calibrationPhaseActive: true,
-      };
-    }
-
-    return defaults;
+  const handleMovementClassTypeChange = (movementName: string, classType: "upper" | "lower") => {
+    setLocalGlobalMovementSettings((prev) => ({
+      ...prev,
+      [movementName]: { classType },
+    }));
   };
 
-  const getMovementProfileForSelectedClient = (movementName: string): MovementProfile | null => {
-    if (!selectedMovementClient) return null;
-
-    const defaults = buildDefaultMovementProfilesForClient(selectedMovementClient);
-    const existing = selectedClientMovementProfiles[movementName];
-    return existing || defaults[movementName] || null;
-  };
-
-  const inferClassTypeFromMovementName = (movementName: string, fallback: MovementProfile["classType"]): MovementProfile["classType"] => {
-    const normalized = normalizeMovementName(movementName);
-    const currentSchedule = getCurrentCycleSchedule();
-    const matchedLift = Lifts.find((lift) => {
-      const display = normalizeMovementName(currentSchedule.liftDisplayNames?.[lift] || lift);
-      return display === normalized;
-    });
-    if (!matchedLift) return fallback;
-    return getMovementClassTypeForLift(matchedLift);
-  };
-
-  const handleMovementProfileFieldChange = (
-    movementName: string,
-    field: "oneRepMax" | "trainingMax" | "movementCycleNumber",
-    rawValue: string
-  ) => {
-    if (!selectedMovementClient) return;
-    const parsed = parseInt(rawValue, 10);
-    if (Number.isNaN(parsed) || parsed <= 0) return;
-
-    setLocalMovementProfilesByClient((prev) => {
-      const currentForClient = {
-        ...(prev[selectedMovementClient.id] || selectedMovementClient.movementProfilesByCycle?.[dialogCycleNumber] || {}),
-      };
-
-      const existingProfile = currentForClient[movementName] || {
-        oneRepMax: parsed,
-        trainingMax: parsed,
-        classType: inferClassTypeFromMovementName(movementName, "upper"),
-        movementCycleNumber: 1,
-        calibrationPhaseActive: true,
-      };
-
-      return {
-        ...prev,
-        [selectedMovementClient.id]: {
-          ...currentForClient,
-          [movementName]: {
-            ...existingProfile,
-            classType: inferClassTypeFromMovementName(movementName, existingProfile.classType),
-            [field]: parsed,
-          },
-        },
-      };
-    });
-  };
-
-  const handleMovementCalibrationToggle = (movementName: string) => {
-    if (!selectedMovementClient) return;
-
-    setLocalMovementProfilesByClient((prev) => {
-      const currentForClient = {
-        ...(prev[selectedMovementClient.id] || selectedMovementClient.movementProfilesByCycle?.[dialogCycleNumber] || {}),
-      };
-
-      const existingProfile = currentForClient[movementName] || {
-        oneRepMax: 0,
-        trainingMax: 0,
-        classType: inferClassTypeFromMovementName(movementName, "upper"),
-        movementCycleNumber: 1,
-        calibrationPhaseActive: true,
-      };
-
-      return {
-        ...prev,
-        [selectedMovementClient.id]: {
-          ...currentForClient,
-          [movementName]: {
-            ...existingProfile,
-            classType: inferClassTypeFromMovementName(movementName, existingProfile.classType),
-            calibrationPhaseActive: !existingProfile.calibrationPhaseActive,
-          },
-        },
-      };
-    });
-  };
-
-  const handleSaveMovementProfilesForClient = async () => {
-    if (!selectedMovementClient || !onUpdateClientProfile) return;
-
-    const profilesForCycle = localMovementProfilesByClient[selectedMovementClient.id] || {};
-    setIsSavingMovementProfile(true);
+  const handleSaveGlobalMovementSettings = async () => {
+    if (!onUpdateGlobalMovementSettings) return;
+    setIsSavingMovementSettings(true);
     try {
-      await onUpdateClientProfile({
-        ...selectedMovementClient,
-        movementProfilesByCycle: {
-          ...(selectedMovementClient.movementProfilesByCycle || {}),
-          [dialogCycleNumber]: profilesForCycle,
-        },
-      });
+      await onUpdateGlobalMovementSettings(buildGlobalMovementSettings(globalMovementOptions, localGlobalMovementSettings));
       toast({
-        title: "Movement Profiles Saved",
-        description: `${selectedMovementClient.name} updated for Cycle ${dialogCycleNumber}.`,
+        title: "Global Settings Updated",
+        description: "Movement settings were saved.",
       });
     } catch (error) {
       toast({
@@ -447,7 +311,7 @@ export function ConfigSettingsDialog({
         description: String(error),
       });
     } finally {
-      setIsSavingMovementProfile(false);
+      setIsSavingMovementSettings(false);
     }
   };
 
@@ -1121,26 +985,11 @@ export function ConfigSettingsDialog({
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
-                {clients.length > 0 ? (
-                  <div className="space-y-2 rounded-md border p-3">
-                    <Label>Select Client For Movement Settings</Label>
-                    <Select value={selectedMovementClientId} onValueChange={setSelectedMovementClientId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select client" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {clients.map((client) => (
-                          <SelectItem key={client.id} value={client.id}>
-                            {client.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Edit movement recommendation settings for Cycle {dialogCycleNumber} directly under each movement.
-                    </p>
-                  </div>
-                ) : null}
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">
+                    Global movement settings apply app-wide. Client-specific 1RM and calibration data stays in each client profile.
+                  </p>
+                </div>
                 <div className="flex items-end gap-2">
                   <div className="flex-1 space-y-2">
                     <Label htmlFor="global-movement-name">New Movement</Label>
@@ -1165,7 +1014,7 @@ export function ConfigSettingsDialog({
                   {globalMovementOptions.map((movementName) => {
                     const isProtected = protectedMovementNames.has(movementName);
                     const isUsed = usedMovementNames.has(movementName);
-                    const profile = getMovementProfileForSelectedClient(movementName);
+                    const movementSetting = localGlobalMovementSettings[movementName] || { classType: "upper" as const };
                     return (
                       <div key={movementName} className="rounded-md border p-3">
                         <div className="flex items-start justify-between gap-3">
@@ -1187,53 +1036,29 @@ export function ConfigSettingsDialog({
                           </Button>
                         </div>
 
-                        {selectedMovementClient && profile ? (
+                        {movementSetting ? (
                           <div className="mt-3 space-y-3 rounded-md border bg-muted/20 p-3">
-                            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                               <div className="space-y-1">
-                                <Label className="text-xs">1RM</Label>
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  value={profile.oneRepMax}
-                                  onChange={(e) => handleMovementProfileFieldChange(movementName, "oneRepMax", e.target.value)}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">TM</Label>
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  value={profile.trainingMax}
-                                  onChange={(e) => handleMovementProfileFieldChange(movementName, "trainingMax", e.target.value)}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Move Cycle</Label>
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  value={profile.movementCycleNumber}
-                                  onChange={(e) => handleMovementProfileFieldChange(movementName, "movementCycleNumber", e.target.value)}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Class</Label>
-                                <div className="h-10 rounded-md border px-3 flex items-center text-sm">
-                                  {profile.classType}
-                                </div>
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Mode</Label>
-                                <Button
-                                  type="button"
-                                  variant={profile.calibrationPhaseActive ? "default" : "outline"}
-                                  size="sm"
-                                  className="w-full"
-                                  onClick={() => handleMovementCalibrationToggle(movementName)}
+                                <Label className="text-xs">Movement Class</Label>
+                                <Select
+                                  value={movementSetting.classType}
+                                  onValueChange={(value) => handleMovementClassTypeChange(movementName, value as "upper" | "lower")}
                                 >
-                                  {profile.calibrationPhaseActive ? "Calibrating" : "Stable"}
-                                </Button>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="upper">Upper</SelectItem>
+                                    <SelectItem value="lower">Lower</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Progression Rule</Label>
+                                <div className="h-10 rounded-md border px-3 flex items-center text-sm text-muted-foreground">
+                                  {movementSetting.classType === "upper" ? "+5 progression family" : "+10 progression family"}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -1243,18 +1068,16 @@ export function ConfigSettingsDialog({
                   })}
                 </div>
 
-                {selectedMovementClient ? (
-                  <div className="flex justify-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void handleSaveMovementProfilesForClient()}
-                      disabled={!onUpdateClientProfile || isSavingMovementProfile}
-                    >
-                      {isSavingMovementProfile ? "Saving..." : `Save ${selectedMovementClient.name}'s Movement Settings`}
-                    </Button>
-                  </div>
-                ) : null}
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleSaveGlobalMovementSettings()}
+                    disabled={!onUpdateGlobalMovementSettings || isSavingMovementSettings}
+                  >
+                    {isSavingMovementSettings ? "Saving..." : "Save Global Movement Settings"}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

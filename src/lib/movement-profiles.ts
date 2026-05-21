@@ -1,4 +1,4 @@
-import type { Client, Lift, MovementClassType, MovementProfile } from "@/lib/types";
+import type { Client, GlobalMovementSettings, Lift, MovementClassType, MovementProfile } from "@/lib/types";
 
 export const normalizeMovementName = (name: string): string => {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
@@ -6,6 +6,53 @@ export const normalizeMovementName = (name: string): string => {
 
 export const getMovementClassTypeForLift = (lift: Lift): MovementClassType => {
   return lift === "Bench" || lift === "Press" ? "upper" : "lower";
+};
+
+export const inferMovementClassTypeFromName = (movementName: string): MovementClassType => {
+  const normalized = normalizeMovementName(movementName);
+  if (normalized.includes("bench") || normalized.includes("press") || normalized.includes("dip") || normalized.includes("push")) {
+    return "upper";
+  }
+  return "lower";
+};
+
+export const resolveMovementClassType = (
+  movementName: string,
+  globalMovementSettings?: GlobalMovementSettings,
+  fallbackLift?: Lift
+): MovementClassType => {
+  const normalized = normalizeMovementName(movementName);
+  const exactEntry = globalMovementSettings?.[movementName];
+  if (exactEntry) return exactEntry.classType;
+
+  const matchedEntry = Object.entries(globalMovementSettings || {}).find(([key]) => normalizeMovementName(key) === normalized);
+  if (matchedEntry) return matchedEntry[1].classType;
+
+  if (fallbackLift) return getMovementClassTypeForLift(fallbackLift);
+  return inferMovementClassTypeFromName(movementName);
+};
+
+export const buildGlobalMovementSettings = (
+  movementOptions: string[],
+  existing?: GlobalMovementSettings
+): GlobalMovementSettings => {
+  const result: GlobalMovementSettings = {};
+
+  for (const movementName of movementOptions) {
+    const trimmed = movementName.trim();
+    if (!trimmed) continue;
+    result[trimmed] = {
+      classType: resolveMovementClassType(trimmed, existing),
+    };
+  }
+
+  for (const [movementName, value] of Object.entries(existing || {})) {
+    if (!result[movementName]) {
+      result[movementName] = value;
+    }
+  }
+
+  return result;
 };
 
 export const getMovementProfileForCycle = (

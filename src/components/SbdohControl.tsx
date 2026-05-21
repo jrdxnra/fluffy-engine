@@ -9,6 +9,7 @@ import type {
   HistoricalRecord,
   Lift,
   CalculatedWorkout,
+  GlobalMovementSettings,
   SessionMode,
   LoggedSetMap,
   LoggedSetInputsByCycle,
@@ -30,7 +31,7 @@ import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 import { normalizeCycleSettingsByCycle } from "@/lib/cycle-settings-normalizer";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
-import { getMovementClassTypeForLift, getMovementProfileForCycle } from "@/lib/movement-profiles";
+import { buildGlobalMovementSettings, getMovementProfileForCycle, resolveMovementClassType } from "@/lib/movement-profiles";
 import { Columns3, Moon, Rows3, Sun } from "lucide-react";
 import {
   deleteClientAction,
@@ -59,6 +60,7 @@ type SbdohControlProps = {
   initialCycleNames: Record<number, string>;
   initialCycleSchedulesByCycle: Record<number, CycleScheduleSettings>;
   initialGlobalMovementOptions: string[];
+  initialGlobalMovementSettings: GlobalMovementSettings;
   initialHistoricalData: HistoricalRecord[];
 };
 
@@ -68,6 +70,7 @@ export function SbdohControl({
   initialCycleNames,
   initialCycleSchedulesByCycle,
   initialGlobalMovementOptions,
+  initialGlobalMovementSettings,
   initialHistoricalData,
 }: SbdohControlProps) {
   const router = useRouter();
@@ -202,13 +205,19 @@ export function SbdohControl({
   const [globalMovementOptions, setGlobalMovementOptions] = useState<string[]>(() => {
     return Array.from(new Set(["Deadlift", "Bench", "Squat", "Press", ...initialGlobalMovementOptions].filter(Boolean)));
   });
+  const [globalMovementSettings, setGlobalMovementSettings] = useState<GlobalMovementSettings>(() =>
+    buildGlobalMovementSettings(
+      Array.from(new Set(["Deadlift", "Bench", "Squat", "Press", ...initialGlobalMovementOptions].filter(Boolean))),
+      initialGlobalMovementSettings
+    )
+  );
   
   useEffect(() => {
     if (!normalizedInitial.changed) return;
-    saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions).catch(error => {
+    saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings).catch(error => {
       console.error("Failed to save normalized week names:", error);
     });
-  }, [cycleNames, cycleSchedulesByCycle, cycleSettingsByCycle, globalMovementOptions, normalizedInitial.changed]);
+  }, [cycleNames, cycleSchedulesByCycle, cycleSettingsByCycle, globalMovementOptions, globalMovementSettings, normalizedInitial.changed]);
   
   // Helper to get current cycle's settings
   const cycleSettings = cycleSettingsByCycle[currentCycleNumber] || cycleSettingsByCycle[1];
@@ -938,7 +947,7 @@ export function SbdohControl({
         [movementName]: {
           oneRepMax: roundedOneRepMax,
           trainingMax: roundedTrainingMax,
-          classType: getMovementClassTypeForLift(lift),
+          classType: resolveMovementClassType(movementName, globalMovementSettings, lift),
           movementCycleNumber:
             calibrationClient.movementProfilesByCycle?.[currentCycleNumber]?.[movementName]?.movementCycleNumber || 1,
           calibrationPhaseActive: true,
@@ -1037,7 +1046,7 @@ export function SbdohControl({
     setCycleSettingsByCycle(updatedSettings);
     
     try {
-      await saveCycleSettingsAction(updatedSettings, cycleNames, cycleSchedulesByCycle, globalMovementOptions);
+      await saveCycleSettingsAction(updatedSettings, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings);
     } catch (error) {
       console.error("Failed to save cycle settings:", error);
     }
@@ -1052,7 +1061,7 @@ export function SbdohControl({
     };
     setCycleSchedulesByCycle(updatedSchedules);
     try {
-      await saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, updatedSchedules, globalMovementOptions);
+      await saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, updatedSchedules, globalMovementOptions, globalMovementSettings);
     } catch (error) {
       console.error("Failed to save cycle schedules:", error);
     }
@@ -1068,7 +1077,7 @@ export function SbdohControl({
     setCycleNames(updatedNames);
     
     try {
-      await saveCycleSettingsAction(cycleSettingsByCycle, updatedNames, cycleSchedulesByCycle, globalMovementOptions);
+      await saveCycleSettingsAction(cycleSettingsByCycle, updatedNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings);
     } catch (error) {
       console.error("Failed to save cycle names:", error);
     }
@@ -1089,8 +1098,11 @@ export function SbdohControl({
       cycleSettingsByCycle,
       cycleNames,
       cycleSchedulesByCycle,
-      normalized
+      normalized,
+      buildGlobalMovementSettings(normalized, globalMovementSettings)
     );
+
+    setGlobalMovementSettings(buildGlobalMovementSettings(normalized, globalMovementSettings));
 
     if (!result.success) {
       toast({
@@ -1122,7 +1134,8 @@ export function SbdohControl({
         cycleSettingsByCycle,
         cycleNames,
         cycleSchedulesByCycle,
-        globalMovementOptions
+        globalMovementOptions,
+        globalMovementSettings
       );
       
       if (!result.success) {
@@ -1397,7 +1410,7 @@ export function SbdohControl({
     setCycleNames(updatedCycleNames);
     setCycleSchedulesByCycle(updatedCycleSchedules);
     
-    saveCycleSettingsAction(updatedCycleSettingsByCycle, updatedCycleNames, updatedCycleSchedules, globalMovementOptions).catch(error => {
+    saveCycleSettingsAction(updatedCycleSettingsByCycle, updatedCycleNames, updatedCycleSchedules, globalMovementOptions, globalMovementSettings).catch(error => {
       console.error("Failed to save cycle settings after graduation:", error);
     });
     
@@ -1611,7 +1624,7 @@ export function SbdohControl({
       }));
     
     try {
-      const cycleSettingsResult = await saveCycleSettingsAction(updatedCycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions);
+      const cycleSettingsResult = await saveCycleSettingsAction(updatedCycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings);
       if (!cycleSettingsResult.success) {
         throw new Error(cycleSettingsResult.message || "Failed to save cycle settings.");
       }
@@ -1803,7 +1816,7 @@ export function SbdohControl({
       }));
 
     try {
-      const cycleSettingsResult = await saveCycleSettingsAction(updatedCycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions);
+      const cycleSettingsResult = await saveCycleSettingsAction(updatedCycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings);
       if (!cycleSettingsResult.success) {
         console.error("Failed to persist cycle settings while deleting week:", cycleSettingsResult.message);
         return false;
@@ -1931,8 +1944,14 @@ export function SbdohControl({
               onCycleChange={setCurrentCycleNumber}
               globalMovementOptions={globalMovementOptions}
               onUpdateGlobalMovementOptions={handleUpdateGlobalMovementOptions}
-              clients={clients}
-              onUpdateClientProfile={handleUpdateClient}
+              globalMovementSettings={globalMovementSettings}
+              onUpdateGlobalMovementSettings={async (nextMovementSettings) => {
+                setGlobalMovementSettings(nextMovementSettings);
+                const result = await saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, nextMovementSettings);
+                if (!result.success) {
+                  throw new Error(result.message);
+                }
+              }}
               triggerLabel="Settings"
             />
           )}
@@ -2157,6 +2176,7 @@ export function SbdohControl({
         client={selectedClientForProfile}
         cycleSettings={cycleSettings}
         currentCycleSchedule={currentCycleSchedule}
+        globalMovementSettings={globalMovementSettings}
         currentGlobalWeek={currentWeek}
         currentCycleNumber={currentCycleNumber}
         historicalData={historicalData}

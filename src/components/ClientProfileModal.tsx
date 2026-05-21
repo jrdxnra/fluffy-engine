@@ -31,11 +31,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Client, CycleScheduleSettings, CycleSettings, HistoricalRecord, Lift, MovementProfile, SessionMode } from "@/lib/types";
+import type { Client, CycleScheduleSettings, CycleSettings, GlobalMovementSettings, HistoricalRecord, Lift, MovementProfile, SessionMode } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 import { getLiftDisplayName } from "@/lib/schedule";
-import { getMovementClassTypeForLift, normalizeMovementName } from "@/lib/movement-profiles";
+import { normalizeMovementName, resolveMovementClassType } from "@/lib/movement-profiles";
 import { ClientProgressChart } from "./ClientProgressChart";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
 
@@ -45,6 +45,7 @@ type ClientProfileModalProps = {
   client: Client | null;
   cycleSettings: CycleSettings;
   currentCycleSchedule?: CycleScheduleSettings;
+  globalMovementSettings?: GlobalMovementSettings;
   currentGlobalWeek: string;
   currentCycleNumber?: number;
   historicalData: HistoricalRecord[];
@@ -85,6 +86,7 @@ export function ClientProfileModal({
   client,
   cycleSettings,
   currentCycleSchedule,
+  globalMovementSettings,
   currentGlobalWeek,
   currentCycleNumber = 1,
   historicalData,
@@ -188,7 +190,7 @@ export function ClientProfileModal({
         profile: existingProfile || {
           oneRepMax: localClient.oneRepMaxes[lift],
           trainingMax: (localClient.trainingMaxesByCycle?.[currentCycleNumber] || localClient.trainingMaxes)[lift],
-          classType: getMovementClassTypeForLift(lift),
+            classType: resolveMovementClassType(movementName, globalMovementSettings, lift),
           movementCycleNumber: 1,
           calibrationPhaseActive: true,
         },
@@ -206,7 +208,7 @@ export function ClientProfileModal({
     }
 
     return Array.from(mapped.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [localClient, currentCycleNumber, currentCycleSchedule]);
+  }, [localClient, currentCycleNumber, currentCycleSchedule, globalMovementSettings]);
 
   const handleMovementProfileChange = (
     movementName: string,

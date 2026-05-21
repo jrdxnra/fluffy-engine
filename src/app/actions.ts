@@ -310,7 +310,8 @@ export async function deleteCycleAction(
   cycleSettingsByCycle: Record<number, CycleSettings>,
   cycleNames: Record<number, string>,
   cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>,
-  globalMovementOptions?: string[]
+  globalMovementOptions?: string[],
+  globalMovementSettings?: Record<string, { classType: 'upper' | 'lower' }>
 ) {
   "use server";
   try {
@@ -391,6 +392,7 @@ export async function deleteCycleAction(
       cycleNames: updatedCycleNames,
       cycleSchedulesByCycle: updatedCycleSchedulesByCycle,
       globalMovementOptions: preservedGlobalMovementOptions,
+      globalMovementSettings,
     });
 
     // Mirror settings to clients for fallback/shared settings consistency
@@ -402,6 +404,7 @@ export async function deleteCycleAction(
           cycleNames: updatedCycleNames as any,
           cycleSchedulesByCycle: updatedCycleSchedulesByCycle as any,
           globalMovementOptions: (saveResult.globalMovementOptions || preservedGlobalMovementOptions) as any,
+          globalMovementSettings: (saveResult.globalMovementSettings || globalMovementSettings || {}) as any,
           settingsUpdatedAt: saveResult.settingsUpdatedAt as any,
         } as any);
       }
@@ -418,6 +421,7 @@ export async function deleteCycleAction(
       updatedCycleNames,
       updatedCycleSchedulesByCycle,
       globalMovementOptions: saveResult.globalMovementOptions || preservedGlobalMovementOptions,
+      globalMovementSettings: saveResult.globalMovementSettings || globalMovementSettings || {},
     };
   } catch (error) {
     console.error("Error deleting cycle:", error);
@@ -429,7 +433,8 @@ export async function saveCycleSettingsAction(
   cycleSettingsByCycle: Record<number, CycleSettings>,
   cycleNames: Record<number, string>,
   cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>,
-  globalMovementOptions?: string[]
+  globalMovementOptions?: string[],
+  globalMovementSettings?: Record<string, { classType: 'upper' | 'lower' }>
 ) {
   "use server";
   try {
@@ -440,6 +445,7 @@ export async function saveCycleSettingsAction(
       cycleNames,
       cycleSchedulesByCycle,
       globalMovementOptions,
+      globalMovementSettings,
     }) as any;
 
     // Keep fallback/shared client-stored settings in sync.
@@ -452,6 +458,7 @@ export async function saveCycleSettingsAction(
           cycleNames: cycleNames as any,
           cycleSchedulesByCycle: (saveResult.cycleSchedulesByCycle || cycleSchedulesByCycle || {}) as any,
           globalMovementOptions: (saveResult.globalMovementOptions || globalMovementOptions || []) as any,
+          globalMovementSettings: (saveResult.globalMovementSettings || globalMovementSettings || {}) as any,
           settingsUpdatedAt: saveResult.settingsUpdatedAt as any,
         } as any);
       }
@@ -475,6 +482,7 @@ export async function saveCycleSettingsAction(
           cycleNames: cycleNames as any,
           cycleSchedulesByCycle: (cycleSchedulesByCycle || {}) as any,
           globalMovementOptions: (globalMovementOptions || []) as any,
+          globalMovementSettings: (globalMovementSettings || {}) as any,
           settingsUpdatedAt: fallbackUpdatedAt as any,
         } as any);
       }

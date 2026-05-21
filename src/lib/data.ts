@@ -1,4 +1,4 @@
-import type { Client, CycleScheduleSettings, CycleSettings, HistoricalRecord, Lift } from './types';
+import type { Client, CycleScheduleSettings, CycleSettings, GlobalMovementSettings, HistoricalRecord, Lift } from './types';
 import { accessoryMap } from './workout-content';
 import {
   addDoc,
@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { logDataConsistencyValidation, validateAllClientsDataConsistency } from './data-validation';
+import { buildGlobalMovementSettings } from './movement-profiles';
 
 const cycleSettings: CycleSettings = {
   week1: {
@@ -66,6 +67,7 @@ type AppSettings = {
   cycleNames: Record<number, string>;
   cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>;
   globalMovementOptions?: string[];
+  globalMovementSettings?: GlobalMovementSettings;
 };
 
 type AppSettingsDocument = {
@@ -73,6 +75,7 @@ type AppSettingsDocument = {
   cycleNames?: Record<string, string>;
   cycleSchedulesByCycle?: Record<string, CycleScheduleSettings>;
   globalMovementOptions?: string[];
+  globalMovementSettings?: GlobalMovementSettings;
   settingsUpdatedAt?: string;
 };
 
@@ -302,6 +305,10 @@ export const getAppSettings = async (): Promise<AppSettings> => {
             withDefaultSchedules(cycleSettingsByCycle, cycleSchedulesByCycle),
             data.globalMovementOptions
           ),
+          globalMovementSettings: buildGlobalMovementSettings(
+            resolveGlobalMovementOptions(withDefaultSchedules(cycleSettingsByCycle, cycleSchedulesByCycle), data.globalMovementOptions),
+            data.globalMovementSettings
+          ),
         };
       }
     }
@@ -330,6 +337,10 @@ export const getAppSettings = async (): Promise<AppSettings> => {
           withDefaultSchedules(cycleSettingsByCycle, cycleSchedulesByCycle),
           clientWithSettings.globalMovementOptions || []
         ),
+        globalMovementSettings: buildGlobalMovementSettings(
+          resolveGlobalMovementOptions(withDefaultSchedules(cycleSettingsByCycle, cycleSchedulesByCycle), clientWithSettings.globalMovementOptions || []),
+          clientWithSettings.globalMovementSettings || {}
+        ),
       };
     }
 
@@ -338,6 +349,7 @@ export const getAppSettings = async (): Promise<AppSettings> => {
       cycleNames: { 1: 'Cycle 1' },
       cycleSchedulesByCycle: { 1: { ...defaultCycleSchedule } },
       globalMovementOptions: [...defaultGlobalMovementOptions],
+      globalMovementSettings: buildGlobalMovementSettings(defaultGlobalMovementOptions),
     };
   } catch (error) {
     console.error('Error getting app settings:', error);
@@ -346,6 +358,7 @@ export const getAppSettings = async (): Promise<AppSettings> => {
       cycleNames: { 1: 'Cycle 1' },
       cycleSchedulesByCycle: { 1: { ...defaultCycleSchedule } },
       globalMovementOptions: [...defaultGlobalMovementOptions],
+      globalMovementSettings: buildGlobalMovementSettings(defaultGlobalMovementOptions),
     };
   }
 };
@@ -363,15 +376,20 @@ export const saveAppSettings = async (settings: AppSettings) => {
     const resolvedSchedules = settings.cycleSchedulesByCycle || normalizeNumberKeyRecord<CycleScheduleSettings>(existingData.cycleSchedulesByCycle);
     const cycleSchedulesByCycle = withDefaultSchedules(normalizedCycleSettingsByCycle, resolvedSchedules);
     const globalMovementOptions = resolveGlobalMovementOptions(cycleSchedulesByCycle, settings.globalMovementOptions || existingData.globalMovementOptions || []);
+    const globalMovementSettings = buildGlobalMovementSettings(
+      globalMovementOptions,
+      settings.globalMovementSettings || existingData.globalMovementSettings || {}
+    );
 
     await setDoc(settingsRef, {
       cycleSettingsByCycle: normalizedCycleSettingsByCycle,
       cycleNames: settings.cycleNames,
       cycleSchedulesByCycle,
       globalMovementOptions,
+      globalMovementSettings,
       settingsUpdatedAt,
     });
-    return { success: true, settingsUpdatedAt, cycleSchedulesByCycle, globalMovementOptions };
+    return { success: true, settingsUpdatedAt, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings };
   } catch (error) {
     console.error('Error saving app settings:', error);
     throw error;

@@ -9,7 +9,7 @@ export const revalidate = 0;
 
 async function ControlContent() {
   const clients = await getClients();
-  const { cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions } = await getAppSettings();
+  const { cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings } = await getAppSettings();
   const historicalData = await getHistoricalData();
 
   const sharedProps = {
@@ -18,6 +18,7 @@ async function ControlContent() {
     initialCycleNames: cycleNames,
     initialCycleSchedulesByCycle: cycleSchedulesByCycle || {},
     initialGlobalMovementOptions: globalMovementOptions || [],
+    initialGlobalMovementSettings: globalMovementSettings || {},
     initialHistoricalData: historicalData,
   };
 
