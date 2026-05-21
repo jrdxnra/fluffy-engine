@@ -122,14 +122,6 @@ export function ConfigSettingsDialog({
     );
   }, [localMovementProfilesByClient, selectedMovementClient, dialogCycleNumber]);
 
-  const getTrackedSlotsForMovementInSelectedCycle = (movementName: string): Lift[] => {
-    const currentSchedule = getCurrentCycleSchedule();
-    return Lifts.filter((slot) => {
-      const slotDisplay = (currentSchedule.liftDisplayNames?.[slot] || slot).trim();
-      return slotDisplay.toLowerCase() === movementName.trim().toLowerCase();
-    });
-  };
-
   // Sync localSettings when selected cycle settings change
   useEffect(() => {
     setLocalSettings(cycleSettingsByCycle[dialogCycleNumber] || cycleSettingsByCycle[1] || {});
@@ -329,7 +321,6 @@ export function ConfigSettingsDialog({
 
   const buildDefaultMovementProfilesForClient = (client: Client): Record<string, MovementProfile> => {
     const defaults: Record<string, MovementProfile> = {};
-    const currentSchedule = getCurrentCycleSchedule();
     const cycleTrainingMaxes = client.trainingMaxesByCycle?.[dialogCycleNumber] || client.trainingMaxes;
 
     for (const lift of Lifts) {
@@ -347,16 +338,12 @@ export function ConfigSettingsDialog({
     return defaults;
   };
 
-  const getEditableMovementProfilesForSelectedClient = (): Array<[string, MovementProfile]> => {
-    if (!selectedMovementClient) return [];
+  const getMovementProfileForSelectedClient = (movementName: string): MovementProfile | null => {
+    if (!selectedMovementClient) return null;
 
     const defaults = buildDefaultMovementProfilesForClient(selectedMovementClient);
-    const merged: Record<string, MovementProfile> = {
-      ...defaults,
-      ...selectedClientMovementProfiles,
-    };
-
-    return Object.entries(merged).sort(([a], [b]) => a.localeCompare(b));
+    const existing = selectedClientMovementProfiles[movementName];
+    return existing || defaults[movementName] || null;
   };
 
   const inferClassTypeFromMovementName = (movementName: string, fallback: MovementProfile["classType"]): MovementProfile["classType"] => {
@@ -1132,11 +1119,28 @@ export function ConfigSettingsDialog({
                 <p className="text-xs text-muted-foreground">
                   Add movement names here once, then reuse them in cycle schedule and graduation setup.
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  A movement becomes tracked for this cycle when it is assigned to one of the 4 tracked slots on the Cycles tab.
-                </p>
               </CardHeader>
               <CardContent className="space-y-4">
+                {clients.length > 0 ? (
+                  <div className="space-y-2 rounded-md border p-3">
+                    <Label>Select Client For Movement Settings</Label>
+                    <Select value={selectedMovementClientId} onValueChange={setSelectedMovementClientId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select client" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {clients.map((client) => (
+                          <SelectItem key={client.id} value={client.id}>
+                            {client.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Edit movement recommendation settings for Cycle {dialogCycleNumber} directly under each movement.
+                    </p>
+                  </div>
+                ) : null}
                 <div className="flex items-end gap-2">
                   <div className="flex-1 space-y-2">
                     <Label htmlFor="global-movement-name">New Movement</Label>
@@ -1161,129 +1165,96 @@ export function ConfigSettingsDialog({
                   {globalMovementOptions.map((movementName) => {
                     const isProtected = protectedMovementNames.has(movementName);
                     const isUsed = usedMovementNames.has(movementName);
-                    const trackedSlots = getTrackedSlotsForMovementInSelectedCycle(movementName);
-                    const slotLabel = trackedSlots.length > 0
-                      ? `Tracked in Cycle ${dialogCycleNumber} as ${trackedSlots.join(", ")} slot${trackedSlots.length > 1 ? "s" : ""}`
-                      : `Not tracked in Cycle ${dialogCycleNumber}`;
+                    const profile = getMovementProfileForSelectedClient(movementName);
                     return (
-                      <div key={movementName} className="flex items-center justify-between rounded-md border p-3">
-                        <div>
-                          <div className="font-medium">{movementName}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {isProtected ? "Core tracked movement" : isUsed ? "Currently used in a cycle" : "Custom movement"}
+                      <div key={movementName} className="rounded-md border p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-medium">{movementName}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {isProtected ? "Core tracked movement" : isUsed ? "Currently used in a cycle" : "Custom movement"}
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground">{slotLabel}</div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive"
+                            disabled={isProtected || isUsed}
+                            onClick={() => void handleRemoveMovementOption(movementName)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive hover:text-destructive"
-                          disabled={isProtected || isUsed}
-                          onClick={() => void handleRemoveMovementOption(movementName)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+
+                        {selectedMovementClient && profile ? (
+                          <div className="mt-3 space-y-3 rounded-md border bg-muted/20 p-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                              <div className="space-y-1">
+                                <Label className="text-xs">1RM</Label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={profile.oneRepMax}
+                                  onChange={(e) => handleMovementProfileFieldChange(movementName, "oneRepMax", e.target.value)}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">TM</Label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={profile.trainingMax}
+                                  onChange={(e) => handleMovementProfileFieldChange(movementName, "trainingMax", e.target.value)}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Move Cycle</Label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={profile.movementCycleNumber}
+                                  onChange={(e) => handleMovementProfileFieldChange(movementName, "movementCycleNumber", e.target.value)}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Class</Label>
+                                <div className="h-10 rounded-md border px-3 flex items-center text-sm">
+                                  {profile.classType}
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Mode</Label>
+                                <Button
+                                  type="button"
+                                  variant={profile.calibrationPhaseActive ? "default" : "outline"}
+                                  size="sm"
+                                  className="w-full"
+                                  onClick={() => handleMovementCalibrationToggle(movementName)}
+                                >
+                                  {profile.calibrationPhaseActive ? "Calibrating" : "Stable"}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
                 </div>
-              </CardContent>
-            </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Movement Recommendation Profiles</CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  Edit per-client movement 1RM/TM and calibration mode directly from Settings for Cycle {dialogCycleNumber}.
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {clients.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No clients available.</p>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <Label>Select Client</Label>
-                      <Select value={selectedMovementClientId} onValueChange={setSelectedMovementClientId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select client" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {clients.map((client) => (
-                            <SelectItem key={client.id} value={client.id}>
-                              {client.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-3">
-                      {getEditableMovementProfilesForSelectedClient().map(([movementName, profile]) => (
-                        <div key={movementName} className="rounded-md border p-3">
-                          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
-                            <div className="space-y-1 sm:col-span-2">
-                              <Label className="text-xs">Movement</Label>
-                              <div className="h-10 rounded-md border px-3 flex items-center text-sm font-medium">
-                                {movementName}
-                              </div>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">1RM</Label>
-                              <Input
-                                type="number"
-                                min={1}
-                                value={profile.oneRepMax}
-                                onChange={(e) => handleMovementProfileFieldChange(movementName, "oneRepMax", e.target.value)}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">TM</Label>
-                              <Input
-                                type="number"
-                                min={1}
-                                value={profile.trainingMax}
-                                onChange={(e) => handleMovementProfileFieldChange(movementName, "trainingMax", e.target.value)}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Move Cycle</Label>
-                              <Input
-                                type="number"
-                                min={1}
-                                value={profile.movementCycleNumber}
-                                onChange={(e) => handleMovementProfileFieldChange(movementName, "movementCycleNumber", e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          <div className="mt-2 flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">Class: {profile.classType}</span>
-                            <Button
-                              type="button"
-                              variant={profile.calibrationPhaseActive ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => handleMovementCalibrationToggle(movementName)}
-                            >
-                              {profile.calibrationPhaseActive ? "Calibrating" : "Stable"}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handleSaveMovementProfilesForClient()}
-                        disabled={!selectedMovementClient || !onUpdateClientProfile || isSavingMovementProfile}
-                      >
-                        {isSavingMovementProfile ? "Saving..." : "Save Movement Profiles"}
-                      </Button>
-                    </div>
-                  </>
-                )}
+                {selectedMovementClient ? (
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleSaveMovementProfilesForClient()}
+                      disabled={!onUpdateClientProfile || isSavingMovementProfile}
+                    >
+                      {isSavingMovementProfile ? "Saving..." : `Save ${selectedMovementClient.name}'s Movement Settings`}
+                    </Button>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           </TabsContent>
