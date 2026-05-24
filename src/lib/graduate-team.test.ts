@@ -132,4 +132,40 @@ describe('graduateTeam logic', () => {
     expect(nextCycle1).toBe(2); // 1 -> 2
     expect(nextCycle2).toBe(3); // 2 -> 3
   });
+
+  it('overwrites stale future-cycle values instead of compounding when reusing a cycle number', () => {
+    const client = createMockClient({
+      currentCycleNumber: 4,
+      trainingMaxes: { Squat: 220, Bench: 160, Deadlift: 260, Press: 110 },
+      trainingMaxesByCycle: {
+        4: { Squat: 220, Bench: 160, Deadlift: 260, Press: 110 },
+        // Simulates a previously-created then deleted/recreated cycle slot with stale values.
+        5: { Squat: 300, Bench: 210, Deadlift: 340, Press: 150 },
+      },
+    });
+
+    const nextCycle = (client.currentCycleNumber || 1) + 1;
+    const newTrainingMaxes = {
+      Squat: client.trainingMaxes.Squat + 10,
+      Deadlift: client.trainingMaxes.Deadlift + 10,
+      Bench: client.trainingMaxes.Bench + 5,
+      Press: client.trainingMaxes.Press + 5,
+    };
+
+    const updatedTrainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
+    for (const cycleKey of Object.keys(updatedTrainingMaxesByCycle)) {
+      const cycle = Number(cycleKey);
+      if (!Number.isNaN(cycle) && cycle >= nextCycle) {
+        updatedTrainingMaxesByCycle[cycle] = { ...newTrainingMaxes };
+      }
+    }
+    updatedTrainingMaxesByCycle[nextCycle] = { ...newTrainingMaxes };
+
+    expect(updatedTrainingMaxesByCycle[5]).toEqual({
+      Squat: 230,
+      Bench: 165,
+      Deadlift: 270,
+      Press: 115,
+    });
+  });
 });

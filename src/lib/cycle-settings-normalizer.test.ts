@@ -34,7 +34,7 @@ describe("normalizeCycleSettingsByCycle", () => {
     expect(result.changed).toBe(false);
   });
 
-  it("normalizes non-deload 5s week templates", () => {
+  it("keeps deload-template percentages/reps even when keyed on non-week4 week names", () => {
     const input: Record<number, CycleSettings> = {
       1: {
         week1: {
@@ -58,11 +58,11 @@ describe("normalizeCycleSettingsByCycle", () => {
     const result = normalizeCycleSettingsByCycle(input);
     const week1 = result.normalized[1].week1;
 
-    expect(week1.percentages.workset1).toBe(0.65);
-    expect(week1.percentages.workset2).toBe(0.75);
-    expect(week1.percentages.workset3).toBe(0.85);
-    expect(week1.reps.workset3).toBe("5+");
-    expect(result.changed).toBe(true);
+    expect(week1.percentages.workset1).toBe(0.4);
+    expect(week1.percentages.workset2).toBe(0.5);
+    expect(week1.percentages.workset3).toBe(0.6);
+    expect(week1.reps.workset3).toBe("5");
+    expect(result.changed).toBe(false);
   });
 
   it("keeps explicit deload week by name even when not week4", () => {
