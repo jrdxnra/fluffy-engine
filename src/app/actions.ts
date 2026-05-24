@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { CycleScheduleSettings, CycleSettings, Lift, LoggedSetInputsByCycle, LoggedSetMap, SessionMode } from "@/lib/types";
 import { calculateTrainingMaxes } from "@/lib/training-max";
+import { withCycleRemoved } from "@/lib/cycle-membership";
 
 const getRepScheme = (workset3Reps: string | number | undefined): string => {
   if (workset3Reps === undefined || workset3Reps === null) return "?";
@@ -92,6 +93,7 @@ export async function addClientAction(clientData: {
         1: computedTrainingMaxes,
       },
       currentCycleNumber: clientData.currentCycleNumber || 1,
+      cycleMembership: [1],
       weekAssignmentsByCycle: clientData.weekAssignmentsByCycle || { 1: { week1: "5", week2: "3", week3: "1" } },
       rosterOrder: existingClients.length,
     };
@@ -116,14 +118,18 @@ export async function logRepRecordAction(
   clientId: string,
   lift: string,
   weight: number,
-  reps: number
+  reps: number,
+  workoutDateIso?: string
 ) {
   "use server";
   try {
     const { addHistoricalRecord } = await import("@/lib/data");
+    const resolvedDate = workoutDateIso && /^\d{4}-\d{2}-\d{2}$/.test(workoutDateIso)
+      ? `${workoutDateIso}T12:00:00.000Z`
+      : new Date().toISOString();
     const record = {
       clientId,
-      date: new Date().toISOString(),
+      date: resolvedDate,
       lift: lift as 'Squat' | 'Bench' | 'Deadlift' | 'Press',
       weight,
       reps,
@@ -133,7 +139,7 @@ export async function logRepRecordAction(
     console.log("Server Action: Logging rep record", record);
     await addHistoricalRecord(record);
     revalidatePath("/");
-    return { success: true, message: "Workout logged." };
+    return { success: true, message: "Workout logged.", loggedAt: resolvedDate };
   } catch (error) {
     console.error("Error logging rep record:", error);
     const message =
@@ -208,6 +214,7 @@ export async function updateClientProfileAction(
       modeByWeek?: Record<string, SessionMode>;
       flowWeekKeyByWeek?: Record<string, string>;
     }>;
+    cycleMembership?: number[];
     movementCalibrationsByCycle?: Record<number, Record<string, {
       needsCalibration: boolean;
       calibratedAt?: string;
@@ -341,6 +348,7 @@ export async function deleteCycleAction(
         // Reassign to Cycle 1
         await updateClient(client.id, {
           currentCycleNumber: 1,
+          cycleMembership: withCycleRemoved(client as any, cycleNumber),
           trainingMaxes: fallbackTrainingMaxes,
           weekAssignmentsByCycle: newAssignments,
           trainingMaxesByCycle: newTrainingMaxesByCycle,
@@ -356,6 +364,7 @@ export async function deleteCycleAction(
         console.log(`Removing cycle ${cycleNumber} references from ${client.name}`);
         
         await updateClient(client.id, {
+          cycleMembership: withCycleRemoved(client as any, cycleNumber),
           weekAssignmentsByCycle: newAssignments,
           trainingMaxesByCycle: newTrainingMaxesByCycle,
         });

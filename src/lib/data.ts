@@ -14,6 +14,7 @@ import {
 import { db } from './firebase';
 import { logDataConsistencyValidation, validateAllClientsDataConsistency } from './data-validation';
 import { buildGlobalMovementSettings } from './movement-profiles';
+import { withCycleAdded } from './cycle-membership';
 
 const cycleSettings: CycleSettings = {
   week1: {
@@ -534,6 +535,7 @@ export const graduateTeam = async (
       const updatedClient = {
         ...client,
         currentCycleNumber: nextCycle,
+        cycleMembership: withCycleAdded(client, nextCycle),
         oneRepMaxesByCycle: {
           ...(client.oneRepMaxesByCycle || {}),
           [nextCycle]: nextOneRepMaxes,

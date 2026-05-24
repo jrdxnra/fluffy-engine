@@ -32,6 +32,7 @@ import { calculateTrainingMaxes } from "@/lib/training-max";
 import { normalizeCycleSettingsByCycle } from "@/lib/cycle-settings-normalizer";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
 import { buildGlobalMovementSettings, getMovementProfileForCycle, resolveMovementClassType } from "@/lib/movement-profiles";
+import { getEffectiveCycleMembership, isClientInCycle, withCycleAdded, withCycleRemoved } from "@/lib/cycle-membership";
 import { Columns3, Moon, Rows3, Sun } from "lucide-react";
 import {
   deleteClientAction,
@@ -136,6 +137,7 @@ export function SbdohControl({
 
       return {
         ...client,
+        cycleMembership: getEffectiveCycleMembership(client),
         trainingMaxesByCycle,
       };
     });
@@ -295,7 +297,7 @@ export function SbdohControl({
   );
 
   const clientsInSelectedCycle = useMemo(
-    () => clients.filter((client) => (client.currentCycleNumber || 1) === currentCycleNumber),
+    () => clients.filter((client) => isClientInCycle(client, currentCycleNumber)),
     [clients, currentCycleNumber]
   );
 
@@ -488,7 +490,8 @@ export function SbdohControl({
       const calibrationState = client.movementCalibrationsByCycle?.[currentCycleNumber]?.[targetLift];
       const needsCalibration = Boolean(calibrationState?.needsCalibration);
       const effectiveWeekNumber = parseInt((effectiveWeekKey.match(/\d+/)?.[0] || "0"), 10);
-      const hidePrescribedForCalibration = needsCalibration && effectiveWeekNumber === 1;
+      const hasMovementOneRepMax = Boolean(movementProfile && movementProfile.oneRepMax > 0);
+      const hidePrescribedForCalibration = needsCalibration && effectiveWeekNumber === 1 && !hasMovementOneRepMax;
 
       if (hidePrescribedForCalibration) {
         workout.sets = workout.sets.map((set) => ({
@@ -559,6 +562,10 @@ export function SbdohControl({
     const weekday = slot === "day1" ? currentWeekSchedule.day1Weekday : currentWeekSchedule.day2Weekday;
     const date = slot === "day1" ? currentWeekSchedule.day1Date : currentWeekSchedule.day2Date;
     return `${weekday}${date ? ` (${formatShortDate(date)})` : ""}`;
+  };
+  const getLiftDateIso = (targetLift: Lift): string | undefined => {
+    const slot = getLiftDaySlot(targetLift, currentCycleSchedule);
+    return slot === "day1" ? currentWeekSchedule.day1Date : currentWeekSchedule.day2Date;
   };
   const currentWeekLabel = cycleSettings[currentWeek]?.name || currentWeek;
   const currentWeekSchemeLabel = cycleSettings[currentWeek]?.reps?.workset3
@@ -655,7 +662,13 @@ export function SbdohControl({
   };
   
   const handleUpdateClient = async (updatedClient: Client) => {
-    const currentCycleForClient = updatedClient.currentCycleNumber || currentCycleNumber || 1;
+    const normalizedCycleMembership = getEffectiveCycleMembership(updatedClient);
+    const normalizedCurrentCycleNumber =
+      normalizedCycleMembership.includes(updatedClient.currentCycleNumber || 0)
+        ? (updatedClient.currentCycleNumber || 1)
+        : Math.max(...normalizedCycleMembership);
+
+    const currentCycleForClient = normalizedCurrentCycleNumber || currentCycleNumber || 1;
     const cycleOneRepMaxes =
       updatedClient.oneRepMaxesByCycle?.[currentCycleForClient] ||
       updatedClient.oneRepMaxes;
@@ -695,6 +708,8 @@ export function SbdohControl({
 
     const normalizedClient: Client = {
       ...updatedClient,
+      currentCycleNumber: normalizedCurrentCycleNumber,
+      cycleMembership: normalizedCycleMembership,
       oneRepMaxes: cycleOneRepMaxes,
       oneRepMaxesByCycle: existingOneRepMaxesByCycle,
       trainingMaxes: recalculatedTrainingMaxes,
@@ -709,6 +724,7 @@ export function SbdohControl({
       trainingMaxes: normalizedClient.trainingMaxes,
       trainingMaxesByCycle: normalizedClient.trainingMaxesByCycle,
       initialWeights: normalizedClient.initialWeights as any,
+      cycleMembership: normalizedClient.cycleMembership,
       weekAssignmentsByCycle: normalizedClient.weekAssignmentsByCycle,
       sessionStateByCycle: normalizedClient.sessionStateByCycle as any,
       movementProfilesByCycle: normalizedClient.movementProfilesByCycle as any,
@@ -1133,6 +1149,10 @@ export function SbdohControl({
       setClients(prev => prev.map(client => {
         // If client is on the deleted cycle, move them to Cycle 1
         const newCycleNumber = client.currentCycleNumber === cycleNumber ? 1 : client.currentCycleNumber;
+        const nextCycleMembership = withCycleRemoved(client, cycleNumber);
+        const normalizedCurrentCycleNumber = nextCycleMembership.includes(newCycleNumber || 0)
+          ? (newCycleNumber || 1)
+          : Math.max(...nextCycleMembership);
         
         const newAssignments = { ...(client.weekAssignmentsByCycle || {}) };
         delete newAssignments[cycleNumber];
@@ -1147,7 +1167,8 @@ export function SbdohControl({
         
         return {
           ...client,
-          currentCycleNumber: newCycleNumber,
+          currentCycleNumber: normalizedCurrentCycleNumber,
+          cycleMembership: nextCycleMembership,
           trainingMaxes: fallbackTrainingMaxes,
           weekAssignmentsByCycle: newAssignments,
           trainingMaxesByCycle: newTrainingMaxesByCycle,
@@ -1258,6 +1279,7 @@ export function SbdohControl({
       return {
         ...client,
         currentCycleNumber: newCycleNumber,
+        cycleMembership: withCycleAdded(client, newCycleNumber),
         oneRepMaxesByCycle: {
           ...(client.oneRepMaxesByCycle || {}),
           [newCycleNumber]: nextOneRepMaxes,
@@ -2013,6 +2035,7 @@ export function SbdohControl({
                   lift={lift}
                   weekName={cycleSettings[currentWeek]?.name || currentWeek}
                   workoutDateLabel={getLiftDateLabel(lift)}
+                  workoutDateIso={getLiftDateIso(lift)}
                   cycleSettings={cycleSettings}
                   currentWeek={currentWeek}
                   currentCycleNumber={currentCycleNumber}
@@ -2101,6 +2124,7 @@ export function SbdohControl({
                         lift={dayLift}
                         weekName={cycleSettings[currentWeek]?.name || currentWeek}
                         workoutDateLabel={getLiftDateLabel(dayLift)}
+                        workoutDateIso={getLiftDateIso(dayLift)}
                         cycleSettings={cycleSettings}
                         currentWeek={currentWeek}
                         currentCycleNumber={currentCycleNumber}
@@ -2163,6 +2187,7 @@ export function SbdohControl({
         globalMovementSettings={globalMovementSettings}
         currentGlobalWeek={currentWeek}
         currentCycleNumber={currentCycleNumber}
+        availableCycleNumbers={availableCycles.map((c) => c.cycleNumber)}
         historicalData={historicalData}
         onUpdateClient={handleUpdateClient}
         onResetTrainingMax={handleResetClientTrainingMax}

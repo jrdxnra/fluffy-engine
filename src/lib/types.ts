@@ -102,6 +102,7 @@ export interface Client {
   initialWeights?: TrainingMaxes; // Starting weights for first cycle
   actualWeights?: TrainingMaxes; // Latest actual weights lifted
   currentCycleNumber?: number; // Track which cycle the client is on (defaults to 1)
+  cycleMembership?: number[]; // Explicit list of cycles this client participates in
   weekAssignmentsByCycle?: { [cycleNumber: number]: { [weekKey: string]: string } }; // Maps cycle number to week assignments
   sessionStateByCycle?: { [cycleNumber: number]: SessionStateForCycle };
   loggedSetInputsByCycle?: LoggedSetInputsByCycle;

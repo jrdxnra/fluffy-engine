@@ -36,6 +36,7 @@ import { Lifts } from "@/lib/types";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 import { getLiftDisplayName } from "@/lib/schedule";
 import { normalizeMovementName, resolveMovementClassType } from "@/lib/movement-profiles";
+import { getEffectiveCycleMembership } from "@/lib/cycle-membership";
 import { ClientProgressChart } from "./ClientProgressChart";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
 
@@ -48,6 +49,7 @@ type ClientProfileModalProps = {
   globalMovementSettings?: GlobalMovementSettings;
   currentGlobalWeek: string;
   currentCycleNumber?: number;
+  availableCycleNumbers?: number[];
   historicalData: HistoricalRecord[];
   onUpdateClient: (updatedClient: Client) => Promise<void> | void;
   onResetTrainingMax: (clientId: string, cycleNumber: number) => Promise<void>;
@@ -89,6 +91,7 @@ export function ClientProfileModal({
   globalMovementSettings,
   currentGlobalWeek,
   currentCycleNumber = 1,
+  availableCycleNumbers = [1, 2, 3, 4],
   historicalData,
   onUpdateClient,
   onResetTrainingMax,
@@ -109,8 +112,10 @@ export function ClientProfileModal({
     }
 
     const cycleOneRepMaxes = client.oneRepMaxesByCycle?.[currentCycleNumber];
+    const cycleMembership = getEffectiveCycleMembership(client);
     setLocalClient({
       ...client,
+      cycleMembership,
       oneRepMaxes: cycleOneRepMaxes || client.oneRepMaxes,
     });
     setResetCycleNumber(currentCycleNumber);
@@ -295,6 +300,30 @@ export function ClientProfileModal({
     });
   };
 
+  const cycleMembershipOptions = useMemo(() => {
+    const fromClient = localClient ? getEffectiveCycleMembership(localClient) : [];
+    const merged = Array.from(new Set([...availableCycleNumbers, ...fromClient])).sort((a, b) => a - b);
+    return merged;
+  }, [availableCycleNumbers, localClient]);
+
+  const handleCycleMembershipToggle = (cycleNumber: number, enabled: boolean) => {
+    if (!localClient) return;
+
+    const nextMembership = enabled
+      ? Array.from(new Set([...(localClient.cycleMembership || []), cycleNumber])).sort((a, b) => a - b)
+      : (localClient.cycleMembership || []).filter((value) => value !== cycleNumber);
+
+    if (nextMembership.length === 0) return;
+
+    setLocalClient({
+      ...localClient,
+      cycleMembership: nextMembership,
+      currentCycleNumber: nextMembership.includes(localClient.currentCycleNumber || 0)
+        ? localClient.currentCycleNumber
+        : Math.max(...nextMembership),
+    });
+  };
+
   const handleSessionModeChange = (cycleNumber: number, weekKey: string, mode: SessionMode) => {
     if (!localClient) return;
     const currentCycleState = localClient.sessionStateByCycle?.[cycleNumber] || { mode: "normal" as SessionMode };
@@ -360,6 +389,10 @@ export function ClientProfileModal({
 
       const clientToSave: Client = {
         ...localClient,
+        currentCycleNumber: localClient.cycleMembership?.includes(localClient.currentCycleNumber || 0)
+          ? localClient.currentCycleNumber
+          : Math.max(...getEffectiveCycleMembership(localClient)),
+        cycleMembership: getEffectiveCycleMembership(localClient),
         oneRepMaxesByCycle: cycleOneRepMaxes,
         oneRepMaxes: localClient.oneRepMaxes,
         trainingMaxes: calculateTrainingMaxes(localClient.oneRepMaxes),
@@ -652,6 +685,27 @@ export function ClientProfileModal({
                       )}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-2 rounded-md border p-3">
+                  <Label className="text-sm font-medium">Client Cycle Membership</Label>
+                  <p className="text-xs text-muted-foreground">Checked cycles are where this client appears.</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {cycleMembershipOptions.map((cycleNumber) => {
+                      const checked = (localClient.cycleMembership || []).includes(cycleNumber);
+                      return (
+                        <label key={`membership-${cycleNumber}`} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) => handleCycleMembershipToggle(cycleNumber, event.target.checked)}
+                            className="h-4 w-4"
+                          />
+                          <span>Cycle {cycleNumber}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <p className="text-sm text-muted-foreground">

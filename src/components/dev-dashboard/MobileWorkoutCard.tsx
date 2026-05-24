@@ -27,6 +27,7 @@ import type {
 type MobileWorkoutCardProps = {
   workout: CalculatedWorkout;
   lift: Lift;
+  workoutDateIso?: string;
   currentWeek: string;
   currentCycleNumber: number;
   showWarmups: boolean;
@@ -88,6 +89,7 @@ function formatActualSummary(weight?: number, reps?: number) {
 export function MobileWorkoutCard({
   workout,
   lift,
+  workoutDateIso,
   currentWeek,
   currentCycleNumber,
   showWarmups,
@@ -186,12 +188,12 @@ export function MobileWorkoutCard({
       let logged = false;
       if (bestE1RM > 0) {
         try {
-          const result = await logRepRecordAction(client.id, lift, bestWeight, bestReps);
+          const result = await logRepRecordAction(client.id, lift, bestWeight, bestReps, workoutDateIso);
           if (result.success) {
             logged = true;
             onRepRecordUpdate({
               clientId: client.id,
-              date: new Date().toISOString(),
+              date: result.loggedAt || new Date().toISOString(),
               lift,
               weight: bestWeight,
               reps: bestReps,

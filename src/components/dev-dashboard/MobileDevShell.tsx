@@ -40,6 +40,7 @@ import { formatBasicWorkoutCopyText, formatDayWorkoutCopyText } from "@/lib/copy
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
 import { buildGlobalMovementSettings, getMovementProfileForCycle, resolveMovementClassType } from "@/lib/movement-profiles";
+import { getEffectiveCycleMembership, isClientInCycle } from "@/lib/cycle-membership";
 import {
   upsertClientLoggedSetEntriesAction,
   updateClientProfileAction,
@@ -81,7 +82,7 @@ export function MobileDevShell({
       const currentCycle = client.currentCycleNumber || 1;
       const trainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
       if (!trainingMaxesByCycle[1]) trainingMaxesByCycle[1] = client.trainingMaxes;
-      return { ...client, trainingMaxesByCycle };
+      return { ...client, cycleMembership: getEffectiveCycleMembership(client), trainingMaxesByCycle };
     })
   );
 
@@ -185,7 +186,7 @@ export function MobileDevShell({
   );
 
   const clientsInSelectedCycle = useMemo(
-    () => clients.filter((client) => (client.currentCycleNumber || 1) === currentCycleNumber),
+    () => clients.filter((client) => isClientInCycle(client, currentCycleNumber)),
     [clients, currentCycleNumber]
   );
 
@@ -333,7 +334,8 @@ export function MobileDevShell({
 
       const calibrationState = client.movementCalibrationsByCycle?.[currentCycleNumber]?.[targetLift];
       const effectiveWeekNumber = parseInt((effectiveWeekKey.match(/\d+/)?.[0] || "0"), 10);
-      const hidePrescribedForCalibration = Boolean(calibrationState?.needsCalibration) && effectiveWeekNumber === 1;
+      const hasMovementOneRepMax = Boolean(movementProfile && movementProfile.oneRepMax > 0);
+      const hidePrescribedForCalibration = Boolean(calibrationState?.needsCalibration) && effectiveWeekNumber === 1 && !hasMovementOneRepMax;
 
       if (hidePrescribedForCalibration) {
         workout.sets = workout.sets.map((set) => ({
@@ -399,6 +401,10 @@ export function MobileDevShell({
     const liftText = liftsForSlot.map((l) => getMovementAbbreviation(l)).join("+");
     const weekday = slot === "day1" ? currentWeekSchedule.day1Weekday : currentWeekSchedule.day2Weekday;
     return `${liftText} (${weekdayAbbr[weekday] || weekday.slice(0, 3)})`;
+  };
+  const getLiftDateIso = (targetLift: Lift): string | undefined => {
+    const slot = getLiftDaySlot(targetLift, currentCycleSchedule);
+    return slot === "day1" ? currentWeekSchedule.day1Date : currentWeekSchedule.day2Date;
   };
 
   const currentWeekLabel = cycleSettings[currentWeek]?.name || currentWeek;
@@ -600,13 +606,20 @@ export function MobileDevShell({
   };
 
   const handleUpdateClient = async (updatedClient: Client) => {
-    const cycleForClient = updatedClient.currentCycleNumber || currentCycleNumber || 1;
+    const normalizedCycleMembership = getEffectiveCycleMembership(updatedClient);
+    const normalizedCurrentCycleNumber =
+      normalizedCycleMembership.includes(updatedClient.currentCycleNumber || 0)
+        ? (updatedClient.currentCycleNumber || 1)
+        : Math.max(...normalizedCycleMembership);
+    const cycleForClient = normalizedCurrentCycleNumber || currentCycleNumber || 1;
     const cycleOneRepMaxes =
       updatedClient.oneRepMaxesByCycle?.[cycleForClient] || updatedClient.oneRepMaxes;
     const recalcTMs = calculateTrainingMaxes(cycleOneRepMaxes);
 
     const normalizedClient: Client = {
       ...updatedClient,
+      currentCycleNumber: normalizedCurrentCycleNumber,
+      cycleMembership: normalizedCycleMembership,
       oneRepMaxes: cycleOneRepMaxes,
       trainingMaxes: recalcTMs,
       trainingMaxesByCycle: {
@@ -621,6 +634,7 @@ export function MobileDevShell({
       oneRepMaxes: normalizedClient.oneRepMaxes,
       trainingMaxes: normalizedClient.trainingMaxes,
       trainingMaxesByCycle: normalizedClient.trainingMaxesByCycle,
+      cycleMembership: normalizedClient.cycleMembership,
       weekAssignmentsByCycle: normalizedClient.weekAssignmentsByCycle,
       sessionStateByCycle: normalizedClient.sessionStateByCycle as Parameters<typeof updateClientProfileAction>[1]["sessionStateByCycle"],
       movementProfilesByCycle: normalizedClient.movementProfilesByCycle as any,
@@ -738,6 +752,7 @@ export function MobileDevShell({
         key={workout.client.id}
         workout={workout}
         lift={cardLift}
+        workoutDateIso={getLiftDateIso(cardLift)}
         currentWeek={currentWeek}
         currentCycleNumber={currentCycleNumber}
         showWarmups={showWarmups}
@@ -944,6 +959,7 @@ export function MobileDevShell({
         globalMovementSettings={globalMovementSettings}
         currentGlobalWeek={currentWeek}
         currentCycleNumber={currentCycleNumber}
+        availableCycleNumbers={availableCycles.map((c) => c.cycleNumber)}
         historicalData={historicalData}
         onUpdateClient={handleUpdateClient}
         onResetTrainingMax={handleResetClientTrainingMax}

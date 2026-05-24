@@ -39,6 +39,7 @@ type WorkoutTableProps = {
   lift: Lift;
   weekName: string;
   workoutDateLabel?: string;
+  workoutDateIso?: string;
   cycleSettings: CycleSettings;
   currentWeek: string;
   onRepRecordUpdate: (newRecord: HistoricalRecord) => void;
@@ -68,6 +69,7 @@ type SetCellProps = {
   set: WorkoutSet;
   setIndex: number;
   lift: Lift;
+  workoutDateIso?: string;
   isTopSet: boolean;
   isExpanded: boolean;
   setInputs: { [key: string]: { weight: string; reps: string } };
@@ -87,6 +89,7 @@ const SetCell = ({
   set, 
   setIndex,
   lift, 
+  workoutDateIso,
   isTopSet, 
   isExpanded,
   setInputs,
@@ -222,7 +225,7 @@ const SetCell = ({
 };
 
 
-export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false, onOpenProfile }: WorkoutTableProps) {
+export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, workoutDateIso, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false, onOpenProfile }: WorkoutTableProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [clientNotes, setClientNotes] = useState<{ [key: string]: string }>({});
   const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({});
@@ -398,12 +401,12 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
       let logged = false;
       if (bestE1RM > 0) {
         try {
-          const result = await logRepRecordAction(clientId, lift, bestWeight, bestReps);
+          const result = await logRepRecordAction(clientId, lift, bestWeight, bestReps, workoutDateIso);
           if (result.success) {
             logged = true;
             onRepRecordUpdate({
               clientId,
-              date: new Date().toISOString(),
+              date: result.loggedAt || new Date().toISOString(),
               lift,
               weight: bestWeight,
               reps: bestReps,
@@ -974,6 +977,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, cycle
                             set={set}
                             setIndex={headerSet.originalIndex}
                             lift={lift}
+                            workoutDateIso={workoutDateIso}
                             isTopSet={isTopSet}
                             isExpanded={isExpanded}
                             sizeMode={isFocusedClient ? "focused" : "default"}

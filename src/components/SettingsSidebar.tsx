@@ -49,6 +49,7 @@ import {
 } from "./ui/dialog";
 import { WeekOptionsModal } from "@/components/WeekOptionsModal";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
+import { isClientInCycle } from "@/lib/cycle-membership";
 
 type DaySlot = "day1" | "day2";
 
@@ -208,7 +209,7 @@ export function SettingsSidebar({
 
     const currentCycleIndex = sortedCycleNumbers.indexOf(currentCycleNumber);
     const clientsInSelectedCycle = useMemo(
-      () => clients.filter((client) => (client.currentCycleNumber || 1) === currentCycleNumber),
+      () => clients.filter((client) => isClientInCycle(client, currentCycleNumber)),
       [clients, currentCycleNumber]
     );
     const prevCycleNumber = currentCycleIndex > 0 ? sortedCycleNumbers[currentCycleIndex - 1] : null;
