@@ -184,18 +184,10 @@ export function MobileDevShell({
     [cycleSettingsByCycle, cycleNames]
   );
 
-  const activeTeamCycleNumber = useMemo(() => {
-    if (clients.length === 0) return 1;
-    return clients.reduce((maxCycle, client) => Math.max(maxCycle, client.currentCycleNumber || 1), 1);
-  }, [clients]);
-
-  const isHistoricalCycleView = currentCycleNumber < activeTeamCycleNumber;
-  const clientsInSelectedCycle = useMemo(() => {
-    if (isHistoricalCycleView) {
-      return clients;
-    }
-    return clients.filter((client) => (client.currentCycleNumber || 1) === currentCycleNumber);
-  }, [clients, currentCycleNumber, isHistoricalCycleView]);
+  const clientsInSelectedCycle = useMemo(
+    () => clients.filter((client) => (client.currentCycleNumber || 1) === currentCycleNumber),
+    [clients, currentCycleNumber]
+  );
 
   const dayLifts: Lift[] = getLiftsForDaySlot(dayViewSlot, currentCycleSchedule);
 

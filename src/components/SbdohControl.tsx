@@ -294,28 +294,12 @@ export function SbdohControl({
     [currentCycleSchedule, currentWeek]
   );
 
-  const activeTeamCycleNumber = useMemo(() => {
-    if (clients.length === 0) return 1;
-    return clients.reduce((maxCycle, client) => Math.max(maxCycle, client.currentCycleNumber || 1), 1);
-  }, [clients]);
+  const clientsInSelectedCycle = useMemo(
+    () => clients.filter((client) => (client.currentCycleNumber || 1) === currentCycleNumber),
+    [clients, currentCycleNumber]
+  );
 
-  const isHistoricalCycleView = currentCycleNumber < activeTeamCycleNumber;
-  const clientsInSelectedCycle = useMemo(() => {
-    if (isHistoricalCycleView) {
-      return clients;
-    }
-    return clients.filter((client) => (client.currentCycleNumber || 1) === currentCycleNumber);
-  }, [clients, currentCycleNumber, isHistoricalCycleView]);
-
-  const ensureMutableCycle = (operation: string): boolean => {
-    if (!isHistoricalCycleView) return true;
-    toast({
-      variant: "destructive",
-      title: "Cycle Locked",
-      description: `${operation} is disabled on graduated cycles. Switch to Cycle ${activeTeamCycleNumber}.`,
-    });
-    return false;
-  };
+  const ensureMutableCycle = (_operation: string): boolean => true;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1927,7 +1911,7 @@ export function SbdohControl({
           onDuplicateWeek={handleDuplicateWeek}
           onDeleteWeek={handleDeleteWeek}
           onGraduateTeam={handleGraduateTeam}
-          canGraduate={!isHistoricalCycleView}
+          canGraduate={true}
           currentCycleSchedule={currentCycleSchedule}
           globalMovementOptions={globalMovementOptions}
           globalSettingsControl={(
