@@ -17,9 +17,9 @@ const makeClient = (overrides: Partial<Client> = {}): Client => ({
 });
 
 describe("cycle-membership helpers", () => {
-  it("falls back legacy clients to default cycle membership", () => {
-    const client = makeClient({ cycleMembership: undefined });
-    expect(getEffectiveCycleMembership(client)).toEqual([1, 2, 3, 4]);
+  it("falls back legacy clients to their current cycle membership", () => {
+    const client = makeClient({ cycleMembership: undefined, currentCycleNumber: 4 });
+    expect(getEffectiveCycleMembership(client)).toEqual([4]);
   });
 
   it("normalizes explicit membership by sorting and removing duplicates", () => {

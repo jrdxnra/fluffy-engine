@@ -162,10 +162,16 @@ export function MobileDevShell({
   useEffect(() => {
     if (hasAutoDateSelectionRef.current) return;
 
+    const preferredCycleNumber = clients.reduce(
+      (maxCycle, client) => Math.max(maxCycle, client.currentCycleNumber || 1),
+      1
+    );
+
     const selection = getRecommendedSessionSelection(
       cycleSettingsByCycle,
       cycleSchedulesByCycle,
-      new Date()
+      new Date(),
+      preferredCycleNumber
     );
 
     if (!selection) return;

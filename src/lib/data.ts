@@ -14,7 +14,7 @@ import {
 import { db } from './firebase';
 import { logDataConsistencyValidation, validateAllClientsDataConsistency } from './data-validation';
 import { buildGlobalMovementSettings } from './movement-profiles';
-import { withCycleAdded } from './cycle-membership';
+import { getEffectiveCycleMembership, withCycleAdded } from './cycle-membership';
 
 const cycleSettings: CycleSettings = {
   week1: {
@@ -251,7 +251,29 @@ export const getClients = async (): Promise<Client[]> => {
     const querySnapshot = await getDocs(collection(db, 'clients'));
     const clients: Client[] = [];
     querySnapshot.forEach((docSnapshot) => {
-      clients.push({ id: docSnapshot.id, ...docSnapshot.data() } as Client);
+      const rawClient = { id: docSnapshot.id, ...docSnapshot.data() } as Client;
+      const currentCycle = rawClient.currentCycleNumber || 1;
+      const trainingMaxesByCycle = {
+        ...(rawClient.trainingMaxesByCycle || {}),
+      };
+
+      if (!trainingMaxesByCycle[currentCycle]) {
+        trainingMaxesByCycle[currentCycle] = { ...rawClient.trainingMaxes };
+      }
+
+      const weekAssignmentsByCycle = {
+        ...(rawClient.weekAssignmentsByCycle || {}),
+      };
+      if (!weekAssignmentsByCycle[currentCycle]) {
+        weekAssignmentsByCycle[currentCycle] = { week1: '5', week2: '3', week3: '1' };
+      }
+
+      clients.push({
+        ...rawClient,
+        cycleMembership: getEffectiveCycleMembership(rawClient),
+        trainingMaxesByCycle,
+        weekAssignmentsByCycle,
+      });
     });
 
     const sortedClients = clients.sort((a, b) => {

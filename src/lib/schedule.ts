@@ -162,7 +162,8 @@ export type RecommendedSessionSelection = {
 export const getRecommendedSessionSelection = (
   cycleSettingsByCycle: Record<number, CycleSettings>,
   cycleSchedulesByCycle: Record<number, CycleScheduleSettings>,
-  referenceDate: Date = new Date()
+  referenceDate: Date = new Date(),
+  preferredCycleNumber?: number
 ): RecommendedSessionSelection | null => {
   const today = new Date(referenceDate);
   today.setHours(0, 0, 0, 0);
@@ -226,26 +227,51 @@ export const getRecommendedSessionSelection = (
 
   if (sessionCandidates.length === 0) return null;
 
-  const sortedCandidates = [...sessionCandidates].sort((a, b) => {
-    const dateDiff = a.date.getTime() - b.date.getTime();
-    if (dateDiff !== 0) return dateDiff;
+  const selectByDate = (
+    candidates: Array<{
+      date: Date;
+      cycleNumber: number;
+      weekKey: string;
+      daySlot: DaySlot;
+      weekNumber: number;
+    }>
+  ): RecommendedSessionSelection | null => {
+    if (candidates.length === 0) return null;
 
-    const cycleDiff = a.cycleNumber - b.cycleNumber;
-    if (cycleDiff !== 0) return cycleDiff;
+    const sortedCandidates = [...candidates].sort((a, b) => {
+      const dateDiff = a.date.getTime() - b.date.getTime();
+      if (dateDiff !== 0) return dateDiff;
 
-    const weekDiff = a.weekNumber - b.weekNumber;
-    if (weekDiff !== 0) return weekDiff;
+      const cycleDiff = b.cycleNumber - a.cycleNumber;
+      if (cycleDiff !== 0) return cycleDiff;
 
-    if (a.daySlot === b.daySlot) return 0;
-    return a.daySlot === "day1" ? -1 : 1;
-  });
+      const weekDiff = a.weekNumber - b.weekNumber;
+      if (weekDiff !== 0) return weekDiff;
 
-  const upcoming = sortedCandidates.find((candidate) => candidate.date.getTime() >= today.getTime());
-  const selected = upcoming || sortedCandidates[sortedCandidates.length - 1];
+      if (a.daySlot === b.daySlot) return 0;
+      return a.daySlot === "day1" ? -1 : 1;
+    });
 
-  return {
-    cycleNumber: selected.cycleNumber,
-    weekKey: selected.weekKey,
-    daySlot: selected.daySlot,
+    const upcoming = sortedCandidates.find((candidate) => candidate.date.getTime() >= today.getTime());
+    const selected = upcoming || sortedCandidates[sortedCandidates.length - 1];
+
+    return {
+      cycleNumber: selected.cycleNumber,
+      weekKey: selected.weekKey,
+      daySlot: selected.daySlot,
+    };
   };
+
+  if (preferredCycleNumber && Number.isFinite(preferredCycleNumber)) {
+    const preferredCandidates = sessionCandidates.filter(
+      (candidate) => candidate.cycleNumber === preferredCycleNumber
+    );
+    const preferredSelection = selectByDate(preferredCandidates);
+    if (preferredSelection) return preferredSelection;
+  }
+
+  const globalSelection = selectByDate(sessionCandidates);
+  if (!globalSelection) return null;
+
+  return globalSelection;
 };
