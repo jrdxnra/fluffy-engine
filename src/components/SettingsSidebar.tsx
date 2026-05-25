@@ -49,7 +49,6 @@ import {
 } from "./ui/dialog";
 import { WeekOptionsModal } from "@/components/WeekOptionsModal";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
-import { isClientInCycle } from "@/lib/cycle-membership";
 
 type DaySlot = "day1" | "day2";
 
@@ -208,10 +207,7 @@ export function SettingsSidebar({
       .sort((a, b) => a - b);
 
     const currentCycleIndex = sortedCycleNumbers.indexOf(currentCycleNumber);
-    const clientsInSelectedCycle = useMemo(
-      () => clients.filter((client) => isClientInCycle(client, currentCycleNumber)),
-      [clients, currentCycleNumber]
-    );
+    const graduationCandidates = clients;
     const prevCycleNumber = currentCycleIndex > 0 ? sortedCycleNumbers[currentCycleIndex - 1] : null;
     const nextCycleNumber =
       currentCycleIndex >= 0 && currentCycleIndex < sortedCycleNumbers.length - 1
@@ -240,7 +236,7 @@ export function SettingsSidebar({
       setNextDay2Weekday(currentCycleSchedule?.day2Weekday || "Thursday");
       setNextLiftDayAssignments(defaultLiftAssignments);
       setNextLiftDisplayNames(defaultLiftDisplayNames);
-      setSelectedGraduateClientIds(clientsInSelectedCycle.map((client) => client.id));
+      setSelectedGraduateClientIds(graduationCandidates.map((client) => client.id));
       setIsGraduateModalOpen(true);
     };
 
@@ -260,7 +256,7 @@ export function SettingsSidebar({
           return previous !== next;
         });
 
-        const selectedClients = clientsInSelectedCycle.filter((client) => selectedGraduateClientIds.includes(client.id));
+        const selectedClients = graduationCandidates.filter((client) => selectedGraduateClientIds.includes(client.id));
         if (selectedClients.length === 0) {
           toast({
             variant: "destructive",
@@ -607,17 +603,17 @@ export function SettingsSidebar({
                         size="sm"
                         onClick={() => {
                           setSelectedGraduateClientIds((prev) =>
-                            prev.length === clientsInSelectedCycle.length
+                            prev.length === graduationCandidates.length
                               ? []
-                              : clientsInSelectedCycle.map((client) => client.id)
+                              : graduationCandidates.map((client) => client.id)
                           );
                         }}
                       >
-                        {selectedGraduateClientIds.length === clientsInSelectedCycle.length ? "Clear All" : "Select All"}
+                        {selectedGraduateClientIds.length === graduationCandidates.length ? "Clear All" : "Select All"}
                       </Button>
                     </div>
                     <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border/70 p-2">
-                      {clientsInSelectedCycle.map((client) => {
+                      {graduationCandidates.map((client) => {
                         const checked = selectedGraduateClientIds.includes(client.id);
                         return (
                           <label key={`graduate-client-${client.id}`} className="flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-muted/40">
@@ -639,7 +635,7 @@ export function SettingsSidebar({
                         );
                       })}
                     </div>
-                    <p className="text-xs text-muted-foreground">Selected: {selectedGraduateClientIds.length} of {clientsInSelectedCycle.length}</p>
+                    <p className="text-xs text-muted-foreground">Selected: {selectedGraduateClientIds.length} of {graduationCandidates.length}</p>
                   </div>
 
                   <div className="space-y-2">
