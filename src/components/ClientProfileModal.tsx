@@ -39,6 +39,7 @@ import { normalizeMovementName, resolveMovementClassType } from "@/lib/movement-
 import { getEffectiveCycleMembership } from "@/lib/cycle-membership";
 import { ClientProgressChart } from "./ClientProgressChart";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
+import { getDefaultMovementProgressionIncrement } from "@/lib/movement-profiles";
 
 type ClientProfileModalProps = {
   open: boolean;
@@ -182,24 +183,37 @@ export function ClientProfileModal({
 
     const cycleProfiles = localClient.movementProfilesByCycle?.[currentCycleNumber] || {};
     const mapped = new Map<string, { name: string; profile: MovementProfile }>();
+    const cycleTrainingMaxes =
+      (localClient.trainingMaxesByCycle?.[currentCycleNumber] || localClient.trainingMaxes);
 
-    for (const lift of Lifts) {
-      const movementName = getLiftDisplayName(lift, currentCycleSchedule);
+    const addMovementEntry = (movementName: string, lift: Lift) => {
       const normalizedName = normalizeMovementName(movementName);
+      if (mapped.has(normalizedName)) return;
+
       const existingProfile = Object.entries(cycleProfiles).find(
         ([profileName]) => normalizeMovementName(profileName) === normalizedName
       )?.[1];
+      const isDisplayAlias = normalizedName !== normalizeMovementName(lift);
+      const hasBaseNumbers = localClient.oneRepMaxes[lift] > 0 && cycleTrainingMaxes[lift] > 0;
 
       mapped.set(normalizedName, {
         name: movementName,
         profile: existingProfile || {
           oneRepMax: localClient.oneRepMaxes[lift],
-          trainingMax: (localClient.trainingMaxesByCycle?.[currentCycleNumber] || localClient.trainingMaxes)[lift],
-            classType: resolveMovementClassType(movementName, globalMovementSettings, lift),
-          movementCycleNumber: 1,
-          calibrationPhaseActive: true,
+          trainingMax: cycleTrainingMaxes[lift],
+          classType: resolveMovementClassType(movementName, globalMovementSettings, lift),
+          progressionIncrement: getDefaultMovementProgressionIncrement(movementName, globalMovementSettings, lift),
+          progressionHoldActive: false,
+          movementCycleNumber: currentCycleNumber,
+          calibrationPhaseActive: isDisplayAlias ? true : !hasBaseNumbers,
         },
       });
+    };
+
+    for (const lift of Lifts) {
+      const movementName = getLiftDisplayName(lift, currentCycleSchedule);
+      addMovementEntry(lift, lift);
+      addMovementEntry(movementName, lift);
     }
 
     for (const [profileName, profile] of Object.entries(cycleProfiles)) {
@@ -217,19 +231,24 @@ export function ClientProfileModal({
 
   const handleMovementProfileChange = (
     movementName: string,
-    field: "oneRepMax" | "trainingMax" | "movementCycleNumber",
+    field: "oneRepMax" | "trainingMax" | "movementCycleNumber" | "progressionIncrement",
     value: string
   ) => {
     if (!localClient) return;
-    const parsed = parseInt(value, 10);
+    const parsed = field === "progressionIncrement" ? Number(value) : parseInt(value, 10);
     if (Number.isNaN(parsed) || parsed <= 0) return;
+    if (field === "progressionIncrement" && ![2.5, 5, 7.5, 10].includes(parsed)) return;
 
     const existingForCycle = localClient.movementProfilesByCycle?.[currentCycleNumber] || {};
+    const normalizedMovementName = normalizeMovementName(movementName);
+    const matchedLift = Lifts.find((lift) => normalizeMovementName(lift) === normalizedMovementName);
     const existing = existingForCycle[movementName] || {
       oneRepMax: 0,
       trainingMax: 0,
-      classType: "upper" as const,
-      movementCycleNumber: 1,
+      classType: resolveMovementClassType(movementName, globalMovementSettings, matchedLift),
+      progressionIncrement: getDefaultMovementProgressionIncrement(movementName, globalMovementSettings, matchedLift),
+      progressionHoldActive: false,
+      movementCycleNumber: currentCycleNumber,
       calibrationPhaseActive: true,
     };
 
@@ -263,6 +282,29 @@ export function ClientProfileModal({
           [movementName]: {
             ...existing,
             calibrationPhaseActive: enabled,
+            progressionHoldActive: enabled ? false : existing.progressionHoldActive,
+          },
+        },
+      },
+    });
+  };
+
+  const handleMovementHoldToggle = (movementName: string, enabled: boolean) => {
+    if (!localClient) return;
+    const existingForCycle = localClient.movementProfilesByCycle?.[currentCycleNumber] || {};
+    const existing = existingForCycle[movementName];
+    if (!existing) return;
+
+    setLocalClient({
+      ...localClient,
+      movementProfilesByCycle: {
+        ...(localClient.movementProfilesByCycle || {}),
+        [currentCycleNumber]: {
+          ...existingForCycle,
+          [movementName]: {
+            ...existing,
+            progressionHoldActive: enabled,
+            calibrationPhaseActive: enabled ? false : existing.calibrationPhaseActive,
           },
         },
       },
@@ -387,6 +429,18 @@ export function ClientProfileModal({
         [currentCycleNumber]: localClient.oneRepMaxes,
       };
 
+      const existingMovementProfilesForCycle =
+        localClient.movementProfilesByCycle?.[currentCycleNumber] || {};
+      const mergedMovementProfilesForCycle = {
+        ...existingMovementProfilesForCycle,
+      };
+      for (const entry of movementProfileEntries) {
+        mergedMovementProfilesForCycle[entry.name] = {
+          ...(existingMovementProfilesForCycle[entry.name] || {}),
+          ...entry.profile,
+        };
+      }
+
       const clientToSave: Client = {
         ...localClient,
         currentCycleNumber: localClient.cycleMembership?.includes(localClient.currentCycleNumber || 0)
@@ -402,7 +456,10 @@ export function ClientProfileModal({
         },
         weekAssignmentsByCycle: cleanedAssignmentsByCycle,
         sessionStateByCycle: localClient.sessionStateByCycle,
-        movementProfilesByCycle: localClient.movementProfilesByCycle,
+        movementProfilesByCycle: {
+          ...(localClient.movementProfilesByCycle || {}),
+          [currentCycleNumber]: mergedMovementProfilesForCycle,
+        },
       };
 
       setIsSaving(true);
@@ -581,25 +638,43 @@ export function ClientProfileModal({
                             />
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-xs">Movement Cycle</Label>
-                            <Input
-                              type="number"
-                              min={1}
-                              value={profile.movementCycleNumber}
-                              onChange={(e) => handleMovementProfileChange(name, "movementCycleNumber", e.target.value)}
-                            />
+                            <Label className="text-xs">Progression</Label>
+                            <Select
+                              value={String(profile.progressionIncrement || 5)}
+                              onValueChange={(value) => handleMovementProfileChange(name, "progressionIncrement", value)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="2.5">2.5 lbs</SelectItem>
+                                <SelectItem value="5">5 lbs</SelectItem>
+                                <SelectItem value="7.5">7.5 lbs</SelectItem>
+                                <SelectItem value="10">10 lbs</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                         <div className="mt-2 flex items-center justify-between">
-                          <span className="text-xs text-muted-foreground">Class: {profile.classType}</span>
-                          <Button
-                            type="button"
-                            variant={profile.calibrationPhaseActive ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => handleMovementCalibrationToggle(name, !profile.calibrationPhaseActive)}
-                          >
-                            {profile.calibrationPhaseActive ? "Calibrating" : "Stable"}
-                          </Button>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Button
+                              type="button"
+                              variant={profile.calibrationPhaseActive ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => handleMovementCalibrationToggle(name, !profile.calibrationPhaseActive)}
+                            >
+                              {profile.calibrationPhaseActive ? "Calibrating" : "Stable"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={profile.progressionHoldActive ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => handleMovementHoldToggle(name, !profile.progressionHoldActive)}
+                            >
+                              {profile.progressionHoldActive ? "Hold" : "Progressing"}
+                            </Button>
+                          </div>
+                          <span className="text-xs text-muted-foreground">Cycle #{profile.movementCycleNumber}</span>
                         </div>
                       </div>
                     ))}

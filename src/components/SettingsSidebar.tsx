@@ -48,6 +48,7 @@ import {
   DialogTrigger,
 } from "./ui/dialog";
 import { WeekOptionsModal } from "@/components/WeekOptionsModal";
+import { Switch } from "@/components/ui/switch";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
 
 type DaySlot = "day1" | "day2";
@@ -59,6 +60,7 @@ type GraduationOverrides = {
   liftDayAssignments: Record<Lift, DaySlot>;
   liftDisplayNames: Record<Lift, string>;
   calibrationLifts: Lift[];
+  skipDeloadWeek: boolean;
 };
 
 // Helper function to extract rep scheme from week settings
@@ -158,6 +160,7 @@ export function SettingsSidebar({
       Press: "Press",
     });
     const [selectedGraduateClientIds, setSelectedGraduateClientIds] = useState<string[]>([]);
+    const [nextSkipDeloadWeek, setNextSkipDeloadWeek] = useState(false);
     const weekdayOptions: GraduationOverrides["day1Weekday"][] = [
       "Monday",
       "Tuesday",
@@ -237,6 +240,7 @@ export function SettingsSidebar({
       setNextLiftDayAssignments(defaultLiftAssignments);
       setNextLiftDisplayNames(defaultLiftDisplayNames);
       setSelectedGraduateClientIds(graduationCandidates.map((client) => client.id));
+      setNextSkipDeloadWeek(false);
       setIsGraduateModalOpen(true);
     };
 
@@ -285,6 +289,7 @@ export function SettingsSidebar({
                 liftDayAssignments: nextLiftDayAssignments,
                   liftDisplayNames: nextLiftDisplayNames,
                   calibrationLifts: changedLifts,
+                  skipDeloadWeek: nextSkipDeloadWeek,
               });
             }
             setIsGraduateModalOpen(false);
@@ -692,6 +697,20 @@ export function SettingsSidebar({
                     </div>
                   </div>
                 </div>
+
+                  <div className="flex items-center justify-between rounded-md border border-border/70 p-3">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="next-skip-deload">Skip Deload Week</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Treat the new cycle as 3 weeks. Week 4 is omitted and graduation timing moves up by one week.
+                      </p>
+                    </div>
+                    <Switch
+                      id="next-skip-deload"
+                      checked={nextSkipDeloadWeek}
+                      onCheckedChange={setNextSkipDeloadWeek}
+                    />
+                  </div>
 
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setIsGraduateModalOpen(false)} disabled={isGraduating}>

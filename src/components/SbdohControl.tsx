@@ -31,7 +31,7 @@ import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 import { normalizeCycleSettingsByCycle } from "@/lib/cycle-settings-normalizer";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
-import { buildGlobalMovementSettings, getMovementProfileForCycle, resolveMovementClassType } from "@/lib/movement-profiles";
+import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForCycle, resolveMovementClassType } from "@/lib/movement-profiles";
 import { getEffectiveCycleMembership, isClientInCycle, withCycleAdded, withCycleRemoved } from "@/lib/cycle-membership";
 import { Columns3, Moon, Rows3, Sun } from "lucide-react";
 import {
@@ -895,7 +895,17 @@ export function SbdohControl({
 
     const calibrationClient = clients.find((client) => client.id === clientId);
     const calibrationState = calibrationClient?.movementCalibrationsByCycle?.[currentCycleNumber]?.[lift];
-    if (!calibrationClient || !calibrationState?.needsCalibration) {
+    const movementName = getLiftDisplayName(lift, currentCycleSchedule);
+    const movementProfile = calibrationClient
+      ? getMovementProfileForCycle(calibrationClient, currentCycleNumber, movementName)
+      : null;
+    const cycleOneRepMax = calibrationClient
+      ? (calibrationClient.oneRepMaxesByCycle?.[currentCycleNumber]?.[lift] ?? calibrationClient.oneRepMaxes[lift])
+      : 0;
+    const shouldAttemptCalibration = Boolean(calibrationState?.needsCalibration)
+      || currentCycleNumber === 1
+      || (movementProfile ? movementProfile.oneRepMax <= 0 : cycleOneRepMax <= 0);
+    if (!calibrationClient || !shouldAttemptCalibration) {
       return;
     }
 
@@ -904,7 +914,7 @@ export function SbdohControl({
       .sort((a, b) => Number(a[0]) - Number(b[0]))
       .pop()?.[1];
 
-    const priorEstimated1RM = calibrationState.estimated1RM || 0;
+    const priorEstimated1RM = calibrationState?.estimated1RM || 0;
     const topSetEstimated1RM = topSetEntry
       ? Math.round(topSetEntry.weight * (1 + topSetEntry.reps / 30))
       : 0;
@@ -945,7 +955,6 @@ export function SbdohControl({
       },
     };
 
-    const movementName = getLiftDisplayName(lift, currentCycleSchedule);
     const nextMovementProfilesByCycle = {
       ...(calibrationClient.movementProfilesByCycle || {}),
       [currentCycleNumber]: {
@@ -954,9 +963,15 @@ export function SbdohControl({
           oneRepMax: roundedOneRepMax,
           trainingMax: roundedTrainingMax,
           classType: resolveMovementClassType(movementName, globalMovementSettings, lift),
+          progressionIncrement:
+            calibrationClient.movementProfilesByCycle?.[currentCycleNumber]?.[movementName]?.progressionIncrement ||
+            getDefaultMovementProgressionIncrement(movementName, globalMovementSettings, lift),
+          progressionHoldActive:
+            calibrationClient.movementProfilesByCycle?.[currentCycleNumber]?.[movementName]?.progressionHoldActive ||
+            false,
           movementCycleNumber:
-            calibrationClient.movementProfilesByCycle?.[currentCycleNumber]?.[movementName]?.movementCycleNumber || 1,
-          calibrationPhaseActive: true,
+            calibrationClient.movementProfilesByCycle?.[currentCycleNumber]?.[movementName]?.movementCycleNumber || currentCycleNumber,
+          calibrationPhaseActive: false,
           lastUpdatedAt: new Date().toISOString(),
           sourceWeekKey: weekKey,
         },
@@ -1231,6 +1246,7 @@ export function SbdohControl({
       liftDayAssignments: Record<Lift, "day1" | "day2">;
       liftDisplayNames: Record<Lift, string>;
       calibrationLifts: Lift[];
+      skipDeloadWeek?: boolean;
     }
   ) => {
     console.log("=== START GRADUATE TEAM ===");
@@ -1276,6 +1292,23 @@ export function SbdohControl({
         ...(client.movementCalibrationsByCycle?.[newCycleNumber] || {}),
       };
 
+      const currentCycleMovementProfiles = client.movementProfilesByCycle?.[previousCycle] || {};
+      const nextCycleMovementProfiles = {
+        ...(client.movementProfilesByCycle?.[newCycleNumber] || {}),
+      };
+
+      for (const [movementName, profile] of Object.entries(currentCycleMovementProfiles)) {
+        const shouldHold = Boolean(profile.progressionHoldActive || profile.calibrationPhaseActive);
+        const increment = shouldHold ? 0 : (profile.progressionIncrement || getDefaultMovementProgressionIncrement(movementName, globalMovementSettings));
+        nextCycleMovementProfiles[movementName] = {
+          ...profile,
+          oneRepMax: shouldHold ? profile.oneRepMax : profile.oneRepMax + increment,
+          trainingMax: shouldHold ? profile.trainingMax : Math.round(((profile.oneRepMax + increment) * 0.9) / 5) * 5,
+          movementCycleNumber: (profile.movementCycleNumber || 1) + 1,
+          lastUpdatedAt: new Date().toISOString(),
+        };
+      }
+
       for (const targetLift of calibrationLiftSet) {
         nextCycleCalibrationMap[targetLift] = {
           needsCalibration: true,
@@ -1303,6 +1336,10 @@ export function SbdohControl({
         movementCalibrationsByCycle: {
           ...(client.movementCalibrationsByCycle || {}),
           [newCycleNumber]: nextCycleCalibrationMap,
+        },
+        movementProfilesByCycle: {
+          ...(client.movementProfilesByCycle || {}),
+          [newCycleNumber]: nextCycleMovementProfiles,
         },
       };
     });
@@ -1408,7 +1445,7 @@ export function SbdohControl({
           ...(existingNextCycleSchedule?.liftDisplayNames || {}),
           ...(overrides.liftDisplayNames || {}),
         },
-        skipDeloadWeek: existingNextCycleSchedule?.skipDeloadWeek ?? false,
+        skipDeloadWeek: overrides.skipDeloadWeek ?? existingNextCycleSchedule?.skipDeloadWeek ?? false,
       },
     };
     

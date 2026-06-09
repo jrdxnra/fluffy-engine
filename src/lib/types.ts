@@ -61,6 +61,8 @@ export type MovementProfile = {
   oneRepMax: number;
   trainingMax: number;
   classType: MovementClassType;
+  progressionIncrement: 2.5 | 5 | 7.5 | 10;
+  progressionHoldActive?: boolean;
   movementCycleNumber: number;
   calibrationPhaseActive: boolean;
   lastUpdatedAt?: string;

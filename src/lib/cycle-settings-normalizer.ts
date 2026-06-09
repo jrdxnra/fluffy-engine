@@ -102,9 +102,36 @@ export const normalizeCycleSettingsByCycle = (
         }
       }
 
+      const isDeloadByNumber = weekNum === 4;
       const isDeloadWeek =
         updatedWeekSettings.name?.toLowerCase().includes("deload") ||
+        isDeloadByNumber ||
         isDeloadTemplate(updatedWeekSettings);
+
+      if (isDeloadByNumber) {
+        // Week 4 is always the deload week — enforce standard deload percentages and reps
+        // to repair any corruption (e.g., from an accidental settings edit or bad migration)
+        const deloadPercentages = { warmup1: 0.5, warmup2: 0.6, workset1: 0.4, workset2: 0.5, workset3: 0.6 };
+        const deloadReps = { workset1: 5, workset2: 5, workset3: "5" };
+        const p = updatedWeekSettings.percentages;
+        if (
+          p?.workset1 !== deloadPercentages.workset1 ||
+          p?.workset2 !== deloadPercentages.workset2 ||
+          p?.workset3 !== deloadPercentages.workset3
+        ) {
+          updatedWeekSettings.percentages = { ...p, ...deloadPercentages };
+          changed = true;
+        }
+        const r = updatedWeekSettings.reps;
+        if (
+          r?.workset1 !== deloadReps.workset1 ||
+          r?.workset2 !== deloadReps.workset2 ||
+          r?.workset3 !== deloadReps.workset3
+        ) {
+          updatedWeekSettings.reps = { ...r, ...deloadReps };
+          changed = true;
+        }
+      }
 
       if (!isDeloadWeek && updatedWeekSettings.percentages?.workset3 !== undefined) {
         const schemeFromReps = getSchemeFromReps(updatedWeekSettings.reps?.workset3);

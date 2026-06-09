@@ -1,5 +1,9 @@
 import type { Client, GlobalMovementSettings, Lift, MovementClassType, MovementProfile } from "@/lib/types";
 
+export type MovementProgressionIncrement = 2.5 | 5 | 7.5 | 10;
+
+const supportedProgressionIncrements: MovementProgressionIncrement[] = [2.5, 5, 7.5, 10];
+
 export const normalizeMovementName = (name: string): string => {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
 };
@@ -30,6 +34,23 @@ export const resolveMovementClassType = (
 
   if (fallbackLift) return getMovementClassTypeForLift(fallbackLift);
   return inferMovementClassTypeFromName(movementName);
+};
+
+export const getDefaultMovementProgressionIncrement = (
+  movementName: string,
+  globalMovementSettings?: GlobalMovementSettings,
+  fallbackLift?: Lift
+): MovementProgressionIncrement => {
+  const classType = resolveMovementClassType(movementName, globalMovementSettings, fallbackLift);
+  return classType === "upper" ? 5 : 10;
+};
+
+export const coerceMovementProgressionIncrement = (
+  value: number,
+  fallback: MovementProgressionIncrement = 5
+): MovementProgressionIncrement => {
+  const matched = supportedProgressionIncrements.find((increment) => increment === value);
+  return matched || fallback;
 };
 
 export const buildGlobalMovementSettings = (

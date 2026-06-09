@@ -39,7 +39,7 @@ import { calculateTrainingMaxes } from "@/lib/training-max";
 import { formatBasicWorkoutCopyText, formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
-import { buildGlobalMovementSettings, getMovementProfileForCycle, resolveMovementClassType } from "@/lib/movement-profiles";
+import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForCycle, resolveMovementClassType } from "@/lib/movement-profiles";
 import { getEffectiveCycleMembership, isClientInCycle } from "@/lib/cycle-membership";
 import {
   upsertClientLoggedSetEntriesAction,
@@ -496,8 +496,18 @@ export function MobileDevShell({
 
     const calibrationClient = clients.find((c) => c.id === clientId);
     const calibrationState = calibrationClient?.movementCalibrationsByCycle?.[currentCycleNumber]?.[targetLift];
+    const movementName = getLiftDisplayName(targetLift, currentCycleSchedule);
+    const movementProfile = calibrationClient
+      ? getMovementProfileForCycle(calibrationClient, currentCycleNumber, movementName)
+      : null;
+    const cycleOneRepMax = calibrationClient
+      ? (calibrationClient.oneRepMaxesByCycle?.[currentCycleNumber]?.[targetLift] ?? calibrationClient.oneRepMaxes[targetLift])
+      : 0;
+    const shouldAttemptCalibration = Boolean(calibrationState?.needsCalibration)
+      || currentCycleNumber === 1
+      || (movementProfile ? movementProfile.oneRepMax <= 0 : cycleOneRepMax <= 0);
 
-    if (!calibrationClient || !calibrationState?.needsCalibration) {
+    if (!calibrationClient || !shouldAttemptCalibration) {
       return;
     }
 
@@ -506,7 +516,7 @@ export function MobileDevShell({
       .sort((a, b) => Number(a[0]) - Number(b[0]))
       .pop()?.[1];
 
-    const priorEstimated1RM = calibrationState.estimated1RM || 0;
+    const priorEstimated1RM = calibrationState?.estimated1RM || 0;
     const topSetEstimated1RM = topSetEntry
       ? Math.round(topSetEntry.weight * (1 + topSetEntry.reps / 30))
       : 0;
@@ -547,7 +557,6 @@ export function MobileDevShell({
       },
     };
 
-    const movementName = getLiftDisplayName(targetLift, currentCycleSchedule);
     const nextMovementProfilesByCycle = {
       ...(calibrationClient.movementProfilesByCycle || {}),
       [currentCycleNumber]: {
@@ -556,9 +565,15 @@ export function MobileDevShell({
           oneRepMax: roundedOneRepMax,
           trainingMax: roundedTrainingMax,
           classType: resolveMovementClassType(movementName, globalMovementSettings, targetLift),
+          progressionIncrement:
+            calibrationClient.movementProfilesByCycle?.[currentCycleNumber]?.[movementName]?.progressionIncrement ||
+            getDefaultMovementProgressionIncrement(movementName, globalMovementSettings, targetLift),
+          progressionHoldActive:
+            calibrationClient.movementProfilesByCycle?.[currentCycleNumber]?.[movementName]?.progressionHoldActive ||
+            false,
           movementCycleNumber:
-            calibrationClient.movementProfilesByCycle?.[currentCycleNumber]?.[movementName]?.movementCycleNumber || 1,
-          calibrationPhaseActive: true,
+            calibrationClient.movementProfilesByCycle?.[currentCycleNumber]?.[movementName]?.movementCycleNumber || currentCycleNumber,
+          calibrationPhaseActive: false,
           lastUpdatedAt: new Date().toISOString(),
           sourceWeekKey: weekKey,
         },

@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { logDataConsistencyValidation, validateAllClientsDataConsistency } from './data-validation';
-import { buildGlobalMovementSettings } from './movement-profiles';
+import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement } from './movement-profiles';
 import { getEffectiveCycleMembership, withCycleAdded } from './cycle-membership';
 
 const cycleSettings: CycleSettings = {
@@ -548,6 +548,23 @@ export const graduateTeam = async (
         ...(client.movementCalibrationsByCycle?.[nextCycle] || {}),
       };
 
+      const currentCycleMovementProfiles = client.movementProfilesByCycle?.[currentCycle] || {};
+      const movementProfilesForNextCycle = {
+        ...(client.movementProfilesByCycle?.[nextCycle] || {}),
+      };
+
+      for (const [movementName, profile] of Object.entries(currentCycleMovementProfiles)) {
+        const shouldHold = Boolean(profile.progressionHoldActive || profile.calibrationPhaseActive);
+        const increment = shouldHold ? 0 : (profile.progressionIncrement || getDefaultMovementProgressionIncrement(movementName, undefined));
+        movementProfilesForNextCycle[movementName] = {
+          ...profile,
+          oneRepMax: shouldHold ? profile.oneRepMax : profile.oneRepMax + increment,
+          trainingMax: shouldHold ? profile.trainingMax : Math.round(((profile.oneRepMax + increment) * 0.9) / 5) * 5,
+          movementCycleNumber: (profile.movementCycleNumber || 1) + 1,
+          lastUpdatedAt: new Date().toISOString(),
+        };
+      }
+
       for (const lift of calibrationLiftSet) {
         movementCalibrationsForNextCycle[lift] = {
           needsCalibration: true,
@@ -572,6 +589,10 @@ export const graduateTeam = async (
         movementCalibrationsByCycle: {
           ...(client.movementCalibrationsByCycle || {}),
           [nextCycle]: movementCalibrationsForNextCycle,
+        },
+        movementProfilesByCycle: {
+          ...(client.movementProfilesByCycle || {}),
+          [nextCycle]: movementProfilesForNextCycle,
         },
       };
 

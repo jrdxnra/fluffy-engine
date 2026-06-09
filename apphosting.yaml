@@ -12,3 +12,8 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  - variable: ENABLE_MAINTENANCE_ROUTES
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

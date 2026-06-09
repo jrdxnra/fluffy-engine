@@ -76,8 +76,15 @@ export async function addClientAction(clientData: {
     // Dynamic import to avoid module issues
     const { addClient, getClients } = await import("@/lib/data");
     const existingClients = await getClients();
+    const currentCycleNumber = clientData.currentCycleNumber || 1;
 
     const computedTrainingMaxes = calculateTrainingMaxes(clientData.oneRepMaxes);
+    const initialCalibrationState = {
+      Squat: { needsCalibration: true },
+      Bench: { needsCalibration: true },
+      Deadlift: { needsCalibration: true },
+      Press: { needsCalibration: true },
+    };
 
     const normalizedClientData = {
       name: clientData.name,
@@ -92,9 +99,13 @@ export async function addClientAction(clientData: {
         ...(clientData.trainingMaxesByCycle || {}),
         1: computedTrainingMaxes,
       },
-      currentCycleNumber: clientData.currentCycleNumber || 1,
+      currentCycleNumber,
       cycleMembership: [1],
       weekAssignmentsByCycle: clientData.weekAssignmentsByCycle || { 1: { week1: "5", week2: "3", week3: "1" } },
+      movementCalibrationsByCycle: {
+        ...(clientData as any).movementCalibrationsByCycle || {},
+        [currentCycleNumber]: initialCalibrationState,
+      },
       rosterOrder: existingClients.length,
     };
 
@@ -225,6 +236,8 @@ export async function updateClientProfileAction(
       oneRepMax: number;
       trainingMax: number;
       classType: 'upper' | 'lower';
+      progressionIncrement: 2.5 | 5 | 7.5 | 10;
+      progressionHoldActive?: boolean;
       movementCycleNumber: number;
       calibrationPhaseActive: boolean;
       lastUpdatedAt?: string;
