@@ -34,7 +34,7 @@ describe("cycle-membership helpers", () => {
     });
 
     expect(inferCycleMembershipFromHistoricalData(client)).toEqual([2, 4]);
-    expect(getEffectiveCycleMembership(client)).toEqual([2, 4]);
+    expect(getEffectiveCycleMembership(client)).toEqual([]);
   });
 
   it("does not invent earlier cycles when only the current cycle exists", () => {
@@ -46,7 +46,7 @@ describe("cycle-membership helpers", () => {
       },
     });
 
-    expect(getEffectiveCycleMembership(client)).toEqual([4]);
+    expect(getEffectiveCycleMembership(client)).toEqual([]);
   });
 
   it("normalizes explicit membership by sorting and removing duplicates", () => {

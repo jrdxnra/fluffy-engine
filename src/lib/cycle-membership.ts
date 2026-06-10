@@ -42,11 +42,7 @@ export const getEffectiveCycleMembership = (client: Client): number[] => {
     new Set(explicit.map(Number).filter((value) => Number.isFinite(value) && value > 0))
   ).sort((a, b) => a - b);
 
-  if (normalizedExplicit.length > 0) {
-    return normalizedExplicit;
-  }
-
-  return inferCycleMembershipFromHistoricalData(client);
+  return normalizedExplicit;
 };
 
 export const isClientInCycle = (client: Client, cycleNumber: number): boolean => {
