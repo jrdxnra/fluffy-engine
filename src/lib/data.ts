@@ -252,19 +252,19 @@ export const getClients = async (): Promise<Client[]> => {
     const clients: Client[] = [];
     querySnapshot.forEach((docSnapshot) => {
       const rawClient = { id: docSnapshot.id, ...docSnapshot.data() } as Client;
-      const currentCycle = rawClient.currentCycleNumber || 1;
+      const currentCycle = rawClient.currentCycleNumber;
       const trainingMaxesByCycle = {
         ...(rawClient.trainingMaxesByCycle || {}),
       };
 
-      if (!trainingMaxesByCycle[currentCycle]) {
+      if (currentCycle && !trainingMaxesByCycle[currentCycle]) {
         trainingMaxesByCycle[currentCycle] = { ...rawClient.trainingMaxes };
       }
 
       const weekAssignmentsByCycle = {
         ...(rawClient.weekAssignmentsByCycle || {}),
       };
-      if (!weekAssignmentsByCycle[currentCycle]) {
+      if (currentCycle && !weekAssignmentsByCycle[currentCycle]) {
         weekAssignmentsByCycle[currentCycle] = { week1: '5', week2: '3', week3: '1' };
       }
 

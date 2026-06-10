@@ -17,9 +17,9 @@ const makeClient = (overrides: Partial<Client> = {}): Client => ({
 });
 
 describe("cycle-membership helpers", () => {
-  it("falls back legacy clients to their current cycle membership", () => {
+  it("leaves brand-new clients unassigned when there is no cycle evidence", () => {
     const client = makeClient({ cycleMembership: undefined, currentCycleNumber: 4 });
-    expect(getEffectiveCycleMembership(client)).toEqual([4]);
+    expect(getEffectiveCycleMembership(client)).toEqual([]);
   });
 
   it("infers historical membership from by-cycle maps for legacy clients", () => {
@@ -62,7 +62,7 @@ describe("cycle-membership helpers", () => {
     expect(removed).toEqual([4]);
 
     const removeLast = withCycleRemoved(makeClient({ cycleMembership: [5] }), 5);
-    expect(removeLast).toEqual([1]);
+    expect(removeLast).toEqual([]);
   });
 
   it("filters clients by selected cycle using effective membership", () => {

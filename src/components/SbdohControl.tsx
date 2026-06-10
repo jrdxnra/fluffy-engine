@@ -89,16 +89,16 @@ export function SbdohControl({
   // Initialize clients with proper per-cycle training maxes
   const [clients, setClients] = useState<Client[]>(() => {
     return initialClients.map(client => {
-      const currentCycle = client.currentCycleNumber || 1;
+      const currentCycle = client.currentCycleNumber;
       const configuredCycles = Object.keys(initialCycleSettingsByCycle)
         .map((cycleKey) => Number(cycleKey))
         .filter((cycle) => !Number.isNaN(cycle));
-      const maxCycle = Math.max(currentCycle, ...configuredCycles, 1);
+      const maxCycle = Math.max(currentCycle || 0, ...configuredCycles, 1);
 
       const trainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
 
-      if (!trainingMaxesByCycle[1]) {
-        trainingMaxesByCycle[1] = client.trainingMaxes;
+      if (currentCycle && !trainingMaxesByCycle[currentCycle]) {
+        trainingMaxesByCycle[currentCycle] = client.trainingMaxes;
       }
 
       const allLiftsEqual = (
@@ -1166,14 +1166,13 @@ export function SbdohControl({
       
       console.log("Server deletion successful for cycle:", cycleNumber);
       
-      // Remove this cycle from all clients' weekAssignmentsByCycle and reassign them to Cycle 1
       setClients(prev => prev.map(client => {
-        // If client is on the deleted cycle, move them to Cycle 1
-        const newCycleNumber = client.currentCycleNumber === cycleNumber ? 1 : client.currentCycleNumber;
         const nextCycleMembership = withCycleRemoved(client, cycleNumber);
-        const normalizedCurrentCycleNumber = nextCycleMembership.includes(newCycleNumber || 0)
-          ? (newCycleNumber || 1)
-          : Math.max(...nextCycleMembership);
+        const normalizedCurrentCycleNumber = nextCycleMembership.length > 0
+          ? (nextCycleMembership.includes(client.currentCycleNumber || 0)
+            ? client.currentCycleNumber
+            : Math.max(...nextCycleMembership))
+          : undefined;
         
         const newAssignments = { ...(client.weekAssignmentsByCycle || {}) };
         delete newAssignments[cycleNumber];
@@ -1181,10 +1180,9 @@ export function SbdohControl({
         const newTrainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
         delete newTrainingMaxesByCycle[cycleNumber];
 
-        const fallbackTrainingMaxes =
-          newTrainingMaxesByCycle[newCycleNumber || 1] ||
-          newTrainingMaxesByCycle[1] ||
-          client.trainingMaxes;
+        const fallbackTrainingMaxes = normalizedCurrentCycleNumber
+          ? (newTrainingMaxesByCycle[normalizedCurrentCycleNumber] || client.trainingMaxes)
+          : client.trainingMaxes;
         
         return {
           ...client,

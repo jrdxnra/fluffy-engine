@@ -412,6 +412,13 @@ export function ClientProfileModal({
 
   const handleSave = async () => {
     if (localClient) {
+      const effectiveMembership = getEffectiveCycleMembership(localClient);
+      const savedCycleNumber = effectiveMembership.length > 0
+        ? (localClient.cycleMembership?.includes(currentCycleNumber || 0)
+          ? currentCycleNumber
+          : Math.max(...effectiveMembership))
+        : undefined;
+
       const cleanedAssignmentsByCycle: Record<number, Record<string, string>> = {};
 
       for (const [cycleKey, assignments] of Object.entries(localClient.weekAssignmentsByCycle || {})) {
@@ -424,42 +431,50 @@ export function ClientProfileModal({
         }
       }
 
-      const cycleOneRepMaxes = {
-        ...(localClient.oneRepMaxesByCycle || {}),
-        [currentCycleNumber]: localClient.oneRepMaxes,
-      };
+      const cycleOneRepMaxes = savedCycleNumber
+        ? {
+            ...(localClient.oneRepMaxesByCycle || {}),
+            [savedCycleNumber]: localClient.oneRepMaxes,
+          }
+        : localClient.oneRepMaxesByCycle;
 
       const existingMovementProfilesForCycle =
-        localClient.movementProfilesByCycle?.[currentCycleNumber] || {};
-      const mergedMovementProfilesForCycle = {
-        ...existingMovementProfilesForCycle,
-      };
-      for (const entry of movementProfileEntries) {
-        mergedMovementProfilesForCycle[entry.name] = {
-          ...(existingMovementProfilesForCycle[entry.name] || {}),
-          ...entry.profile,
-        };
+        savedCycleNumber ? localClient.movementProfilesByCycle?.[savedCycleNumber] || {} : undefined;
+      const mergedMovementProfilesForCycle = savedCycleNumber
+        ? {
+            ...existingMovementProfilesForCycle,
+          }
+        : undefined;
+      if (savedCycleNumber && mergedMovementProfilesForCycle) {
+        for (const entry of movementProfileEntries) {
+          mergedMovementProfilesForCycle[entry.name] = {
+            ...(existingMovementProfilesForCycle?.[entry.name] || {}),
+            ...entry.profile,
+          };
+        }
       }
 
       const clientToSave: Client = {
         ...localClient,
-        currentCycleNumber: localClient.cycleMembership?.includes(localClient.currentCycleNumber || 0)
-          ? localClient.currentCycleNumber
-          : Math.max(...getEffectiveCycleMembership(localClient)),
-        cycleMembership: getEffectiveCycleMembership(localClient),
+        currentCycleNumber: savedCycleNumber,
+        cycleMembership: effectiveMembership,
         oneRepMaxesByCycle: cycleOneRepMaxes,
         oneRepMaxes: localClient.oneRepMaxes,
         trainingMaxes: calculateTrainingMaxes(localClient.oneRepMaxes),
-        trainingMaxesByCycle: {
-          ...(localClient.trainingMaxesByCycle || {}),
-          [currentCycleNumber]: calculateTrainingMaxes(localClient.oneRepMaxes),
-        },
+        trainingMaxesByCycle: savedCycleNumber
+          ? {
+              ...(localClient.trainingMaxesByCycle || {}),
+              [savedCycleNumber]: calculateTrainingMaxes(localClient.oneRepMaxes),
+            }
+          : localClient.trainingMaxesByCycle,
         weekAssignmentsByCycle: cleanedAssignmentsByCycle,
         sessionStateByCycle: localClient.sessionStateByCycle,
-        movementProfilesByCycle: {
-          ...(localClient.movementProfilesByCycle || {}),
-          [currentCycleNumber]: mergedMovementProfilesForCycle,
-        },
+        movementProfilesByCycle: savedCycleNumber && mergedMovementProfilesForCycle
+          ? {
+              ...(localClient.movementProfilesByCycle || {}),
+              [savedCycleNumber]: mergedMovementProfilesForCycle,
+            }
+          : localClient.movementProfilesByCycle,
       };
 
       setIsSaving(true);

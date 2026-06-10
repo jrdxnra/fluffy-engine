@@ -76,7 +76,7 @@ export async function addClientAction(clientData: {
     // Dynamic import to avoid module issues
     const { addClient, getClients } = await import("@/lib/data");
     const existingClients = await getClients();
-    const currentCycleNumber = clientData.currentCycleNumber || 1;
+    const currentCycleNumber = clientData.currentCycleNumber;
 
     const computedTrainingMaxes = calculateTrainingMaxes(clientData.oneRepMaxes);
     const initialCalibrationState = {
@@ -86,27 +86,37 @@ export async function addClientAction(clientData: {
       Press: { needsCalibration: true },
     };
 
+    const hasCurrentCycle = currentCycleNumber !== undefined && Number.isFinite(currentCycleNumber);
+
     const normalizedClientData = {
       name: clientData.name,
       oneRepMaxes: clientData.oneRepMaxes,
       movementOneRepMaxes: clientData.movementOneRepMaxes || {},
-      oneRepMaxesByCycle: {
-        ...(clientData.oneRepMaxesByCycle || {}),
-        1: clientData.oneRepMaxes,
-      },
       trainingMaxes: computedTrainingMaxes,
-      trainingMaxesByCycle: {
-        ...(clientData.trainingMaxesByCycle || {}),
-        1: computedTrainingMaxes,
-      },
-      currentCycleNumber,
-      cycleMembership: [1],
-      weekAssignmentsByCycle: clientData.weekAssignmentsByCycle || { 1: { week1: "5", week2: "3", week3: "1" } },
-      movementCalibrationsByCycle: {
-        ...(clientData as any).movementCalibrationsByCycle || {},
-        [currentCycleNumber]: initialCalibrationState,
-      },
       rosterOrder: existingClients.length,
+      ...(hasCurrentCycle ? { currentCycleNumber } : {}),
+      ...(hasCurrentCycle
+        ? {
+            oneRepMaxesByCycle: {
+              ...(clientData.oneRepMaxesByCycle || {}),
+              [currentCycleNumber as number]: clientData.oneRepMaxes,
+            },
+            trainingMaxesByCycle: {
+              ...(clientData.trainingMaxesByCycle || {}),
+              [currentCycleNumber as number]: computedTrainingMaxes,
+            },
+            cycleMembership: [currentCycleNumber as number],
+            weekAssignmentsByCycle: clientData.weekAssignmentsByCycle || {
+              [currentCycleNumber as number]: { week1: "5", week2: "3", week3: "1" },
+            },
+            movementCalibrationsByCycle: {
+              ...(clientData as any).movementCalibrationsByCycle || {},
+              [currentCycleNumber as number]: initialCalibrationState,
+            },
+          }
+        : {
+            cycleMembership: [],
+          }),
     };
 
     console.log("Server Action: Adding client", normalizedClientData);
@@ -355,13 +365,19 @@ export async function deleteCycleAction(
         const fallbackTrainingMaxes =
           newTrainingMaxesByCycle[1] ||
           client.trainingMaxes;
+
+        const nextCycleMembership = withCycleRemoved(client as any, cycleNumber);
+        const nextCurrentCycleNumber = nextCycleMembership.length > 0
+          ? (nextCycleMembership.includes(client.currentCycleNumber || 0)
+            ? client.currentCycleNumber
+            : Math.max(...nextCycleMembership))
+          : undefined;
         
-        console.log(`Moving ${client.name} from cycle ${cycleNumber} to cycle 1`);
+        console.log(`Moving ${client.name} from cycle ${cycleNumber} to ${nextCurrentCycleNumber || "no cycle"}`);
         
-        // Reassign to Cycle 1
         await updateClient(client.id, {
-          currentCycleNumber: 1,
-          cycleMembership: withCycleRemoved(client as any, cycleNumber),
+          currentCycleNumber: nextCurrentCycleNumber,
+          cycleMembership: nextCycleMembership,
           trainingMaxes: fallbackTrainingMaxes,
           weekAssignmentsByCycle: newAssignments,
           trainingMaxesByCycle: newTrainingMaxesByCycle,

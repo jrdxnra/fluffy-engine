@@ -79,9 +79,9 @@ export function MobileDevShell({
   // ── Core state ──────────────────────────────────────────────────────────────
   const [clients, setClients] = useState<Client[]>(() =>
     initialClients.map((client) => {
-      const currentCycle = client.currentCycleNumber || 1;
+      const currentCycle = client.currentCycleNumber;
       const trainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
-      if (!trainingMaxesByCycle[1]) trainingMaxesByCycle[1] = client.trainingMaxes;
+      if (currentCycle && !trainingMaxesByCycle[currentCycle]) trainingMaxesByCycle[currentCycle] = client.trainingMaxes;
       return { ...client, cycleMembership: getEffectiveCycleMembership(client), trainingMaxesByCycle };
     })
   );

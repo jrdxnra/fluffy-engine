@@ -19,7 +19,6 @@ export const getEffectiveCycleMembership = (client: Client): number[] => {
   }
 
   const inferred = new Set<number>();
-  const currentCycle = client.currentCycleNumber || 1;
 
   for (const cycle of collectCycleKeys(client.trainingMaxesByCycle as Record<number, unknown> | undefined)) {
     inferred.add(cycle);
@@ -43,8 +42,6 @@ export const getEffectiveCycleMembership = (client: Client): number[] => {
     inferred.add(cycle);
   }
 
-  inferred.add(currentCycle);
-
   return Array.from(inferred).sort((a, b) => a - b);
 };
 
@@ -58,5 +55,5 @@ export const withCycleAdded = (client: Client, cycleNumber: number): number[] =>
 
 export const withCycleRemoved = (client: Client, cycleNumber: number): number[] => {
   const remaining = getEffectiveCycleMembership(client).filter((value) => value !== cycleNumber);
-  return remaining.length > 0 ? remaining : [1];
+  return remaining;
 };

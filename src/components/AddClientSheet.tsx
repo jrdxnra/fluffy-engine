@@ -120,14 +120,6 @@ export function AddClientSheet({
           Deadlift: mround(data.oneRepMaxes.Deadlift * 0.9),
           Press: mround(data.oneRepMaxes.Press * 0.9),
         },
-        trainingMaxesByCycle: {
-          1: {
-            Squat: mround(data.oneRepMaxes.Squat * 0.9),
-            Bench: mround(data.oneRepMaxes.Bench * 0.9),
-            Deadlift: mround(data.oneRepMaxes.Deadlift * 0.9),
-            Press: mround(data.oneRepMaxes.Press * 0.9),
-          }
-        }
       };
 
       const result = await addClientAction(addClientPayload);
@@ -141,11 +133,6 @@ export function AddClientSheet({
           const addedClient: Client = (result as any).client || {
             id: `client-${Date.now()}`,
             ...newClient,
-            currentCycleNumber: 1,
-            trainingMaxesByCycle: {
-              1: newClient.trainingMaxesByCycle![1]
-            },
-            weekAssignmentsByCycle: { 1: { week1: "5", week2: "3", week3: "1" } },
           };
           onClientAdded(addedClient);
         }
