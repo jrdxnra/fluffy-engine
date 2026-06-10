@@ -8,16 +8,7 @@ const collectCycleKeys = (record: Record<number, unknown> | undefined): number[]
     .filter((value) => Number.isFinite(value) && value > 0);
 };
 
-export const getEffectiveCycleMembership = (client: Client): number[] => {
-  const explicit = client.cycleMembership || [];
-  const normalizedExplicit = Array.from(
-    new Set(explicit.map(Number).filter((value) => Number.isFinite(value) && value > 0))
-  ).sort((a, b) => a - b);
-
-  if (normalizedExplicit.length > 0) {
-    return normalizedExplicit;
-  }
-
+export const inferCycleMembershipFromHistoricalData = (client: Client): number[] => {
   const inferred = new Set<number>();
 
   for (const cycle of collectCycleKeys(client.trainingMaxesByCycle as Record<number, unknown> | undefined)) {
@@ -43,6 +34,19 @@ export const getEffectiveCycleMembership = (client: Client): number[] => {
   }
 
   return Array.from(inferred).sort((a, b) => a - b);
+};
+
+export const getEffectiveCycleMembership = (client: Client): number[] => {
+  const explicit = client.cycleMembership || [];
+  const normalizedExplicit = Array.from(
+    new Set(explicit.map(Number).filter((value) => Number.isFinite(value) && value > 0))
+  ).sort((a, b) => a - b);
+
+  if (normalizedExplicit.length > 0) {
+    return normalizedExplicit;
+  }
+
+  return inferCycleMembershipFromHistoricalData(client);
 };
 
 export const isClientInCycle = (client: Client, cycleNumber: number): boolean => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Client } from "@/lib/types";
 import {
+  inferCycleMembershipFromHistoricalData,
   getEffectiveCycleMembership,
   isClientInCycle,
   withCycleAdded,
@@ -22,7 +23,7 @@ describe("cycle-membership helpers", () => {
     expect(getEffectiveCycleMembership(client)).toEqual([]);
   });
 
-  it("infers historical membership from by-cycle maps for legacy clients", () => {
+  it("infers historical membership from by-cycle maps for backfill use", () => {
     const client = makeClient({
       cycleMembership: undefined,
       currentCycleNumber: 4,
@@ -32,6 +33,7 @@ describe("cycle-membership helpers", () => {
       },
     });
 
+    expect(inferCycleMembershipFromHistoricalData(client)).toEqual([2, 4]);
     expect(getEffectiveCycleMembership(client)).toEqual([2, 4]);
   });
 
