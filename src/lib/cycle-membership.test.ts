@@ -19,7 +19,7 @@ const makeClient = (overrides: Partial<Client> = {}): Client => ({
 describe("cycle-membership helpers", () => {
   it("falls back legacy clients to their current cycle membership", () => {
     const client = makeClient({ cycleMembership: undefined, currentCycleNumber: 4 });
-    expect(getEffectiveCycleMembership(client)).toEqual([1, 2, 3, 4]);
+    expect(getEffectiveCycleMembership(client)).toEqual([4]);
   });
 
   it("infers historical membership from by-cycle maps for legacy clients", () => {
@@ -33,6 +33,18 @@ describe("cycle-membership helpers", () => {
     });
 
     expect(getEffectiveCycleMembership(client)).toEqual([2, 4]);
+  });
+
+  it("does not invent earlier cycles when only the current cycle exists", () => {
+    const client = makeClient({
+      cycleMembership: undefined,
+      currentCycleNumber: 4,
+      trainingMaxesByCycle: {
+        4: { Squat: 230, Bench: 165, Deadlift: 280, Press: 115 },
+      },
+    });
+
+    expect(getEffectiveCycleMembership(client)).toEqual([4]);
   });
 
   it("normalizes explicit membership by sorting and removing duplicates", () => {
@@ -59,7 +71,7 @@ describe("cycle-membership helpers", () => {
     expect(isClientInCycle(client, 3)).toBe(false);
   });
 
-  it("repairs legacy singleton explicit membership when historical cycle maps exist", () => {
+  it("preserves explicit singleton membership even when historical cycle maps exist", () => {
     const client = makeClient({
       cycleMembership: [4],
       currentCycleNumber: 4,
@@ -71,6 +83,6 @@ describe("cycle-membership helpers", () => {
       },
     });
 
-    expect(getEffectiveCycleMembership(client)).toEqual([1, 2, 3, 4]);
+    expect(getEffectiveCycleMembership(client)).toEqual([4]);
   });
 });
