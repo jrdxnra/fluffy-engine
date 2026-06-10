@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Client } from "@/lib/types";
 import {
+  inferCycleMembershipForBackfill,
   inferCycleMembershipFromHistoricalData,
   getEffectiveCycleMembership,
   isClientInCycle,
@@ -47,6 +48,15 @@ describe("cycle-membership helpers", () => {
     });
 
     expect(getEffectiveCycleMembership(client)).toEqual([]);
+  });
+
+  it("backfills old current-cycle clients into all prior cycles", () => {
+    const client = makeClient({
+      cycleMembership: undefined,
+      currentCycleNumber: 4,
+    });
+
+    expect(inferCycleMembershipForBackfill(client)).toEqual([1, 2, 3, 4]);
   });
 
   it("normalizes explicit membership by sorting and removing duplicates", () => {

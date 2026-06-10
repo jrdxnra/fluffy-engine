@@ -15,6 +15,7 @@ import { db } from './firebase';
 import { logDataConsistencyValidation, validateAllClientsDataConsistency } from './data-validation';
 import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement } from './movement-profiles';
 import { getEffectiveCycleMembership, withCycleAdded } from './cycle-membership';
+import { inferCycleMembershipForBackfill } from './cycle-membership';
 
 const cycleSettings: CycleSettings = {
   week1: {
@@ -250,6 +251,7 @@ export const getClients = async (): Promise<Client[]> => {
   try {
     const querySnapshot = await getDocs(collection(db, 'clients'));
     const clients: Client[] = [];
+    const backfillUpdates: Promise<unknown>[] = [];
     querySnapshot.forEach((docSnapshot) => {
       const rawClient = { id: docSnapshot.id, ...docSnapshot.data() } as Client;
       const currentCycle = rawClient.currentCycleNumber;
@@ -268,13 +270,30 @@ export const getClients = async (): Promise<Client[]> => {
         weekAssignmentsByCycle[currentCycle] = { week1: '5', week2: '3', week3: '1' };
       }
 
+      const explicitMembership = getEffectiveCycleMembership(rawClient);
+      const backfilledMembership = explicitMembership.length > 0
+        ? explicitMembership
+        : inferCycleMembershipForBackfill(rawClient);
+
+      if (explicitMembership.length === 0 && backfilledMembership.length > 0) {
+        const nextCurrentCycle = rawClient.currentCycleNumber ?? backfilledMembership[backfilledMembership.length - 1];
+        backfillUpdates.push(updateClient(rawClient.id, {
+          cycleMembership: backfilledMembership,
+          currentCycleNumber: nextCurrentCycle,
+        }));
+      }
+
       clients.push({
         ...rawClient,
-        cycleMembership: getEffectiveCycleMembership(rawClient),
+        cycleMembership: backfilledMembership,
         trainingMaxesByCycle,
         weekAssignmentsByCycle,
       });
     });
+
+    if (backfillUpdates.length > 0) {
+      await Promise.all(backfillUpdates);
+    }
 
     const sortedClients = clients.sort((a, b) => {
       const aOrder = a.rosterOrder;

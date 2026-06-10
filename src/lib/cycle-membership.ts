@@ -36,6 +36,20 @@ export const inferCycleMembershipFromHistoricalData = (client: Client): number[]
   return Array.from(inferred).sort((a, b) => a - b);
 };
 
+export const inferCycleMembershipForBackfill = (client: Client): number[] => {
+  const historicalMembership = inferCycleMembershipFromHistoricalData(client);
+  if (historicalMembership.length > 0) {
+    return historicalMembership;
+  }
+
+  const currentCycle = client.currentCycleNumber || 0;
+  if (currentCycle <= 1) {
+    return [];
+  }
+
+  return Array.from({ length: currentCycle }, (_, index) => index + 1);
+};
+
 export const getEffectiveCycleMembership = (client: Client): number[] => {
   const explicit = client.cycleMembership || [];
   const normalizedExplicit = Array.from(

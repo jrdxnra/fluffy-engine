@@ -1,5 +1,5 @@
 import { getClients, updateClient } from "@/lib/data";
-import { inferCycleMembershipFromHistoricalData } from "@/lib/cycle-membership";
+import { inferCycleMembershipForBackfill } from "@/lib/cycle-membership";
 import { isMaintenanceRouteEnabled, maintenanceRouteDisabledResponse } from "@/lib/maintenance-routes";
 
 export async function POST() {
@@ -17,7 +17,7 @@ export async function POST() {
         continue;
       }
 
-      const inferredMembership = inferCycleMembershipFromHistoricalData(client);
+      const inferredMembership = inferCycleMembershipForBackfill(client);
       if (inferredMembership.length === 0) {
         continue;
       }
