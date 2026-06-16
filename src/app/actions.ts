@@ -183,13 +183,21 @@ export async function graduateTeamAction(
 ) {
   "use server";
   try {
-    const { graduateTeam, getClients } = await import("@/lib/data");
+    if (!clients || clients.length === 0) {
+      return {
+        success: false,
+        message: "No clients selected for graduation.",
+      };
+    }
+
+    const { graduateTeam } = await import("@/lib/data");
     console.log("Server Action: Graduating team");
+    const nextCycleNumber = Math.max(
+      ...clients.map((client) => Number(client.currentCycleNumber) || 1)
+    ) + 1;
     await graduateTeam(clients, options);
-    const updatedClients = await getClients();
     revalidatePath("/");
-    
-    const nextCycleNumber = (updatedClients[0]?.currentCycleNumber) || 2;
+
     return { 
       success: true, 
       message: "Team graduated successfully!",

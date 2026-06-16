@@ -210,7 +210,9 @@ export function SettingsSidebar({
       .sort((a, b) => a - b);
 
     const currentCycleIndex = sortedCycleNumbers.indexOf(currentCycleNumber);
-    const graduationCandidates = clients;
+    const graduationCandidates = clients.filter(
+      (client) => (client.currentCycleNumber || 1) === currentCycleNumber
+    );
     const prevCycleNumber = currentCycleIndex > 0 ? sortedCycleNumbers[currentCycleIndex - 1] : null;
     const nextCycleNumber =
       currentCycleIndex >= 0 && currentCycleIndex < sortedCycleNumbers.length - 1
