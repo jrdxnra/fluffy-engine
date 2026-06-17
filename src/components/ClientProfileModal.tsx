@@ -452,6 +452,31 @@ export function ClientProfileModal({
             ...entry.profile,
           };
         }
+
+        const canonicalTrainingMaxes = calculateTrainingMaxes(localClient.oneRepMaxes);
+        for (const lift of Lifts) {
+          const displayName = getLiftDisplayName(lift, currentCycleSchedule);
+          const profileNames = [lift, displayName]
+            .filter((name, index, arr) => arr.findIndex((value) => normalizeMovementName(value) === normalizeMovementName(name)) === index);
+
+          for (const profileName of profileNames) {
+            const existingProfile = mergedMovementProfilesForCycle[profileName];
+            mergedMovementProfilesForCycle[profileName] = {
+              ...(existingProfile || {}),
+              oneRepMax: localClient.oneRepMaxes[lift],
+              trainingMax: canonicalTrainingMaxes[lift],
+              classType: existingProfile?.classType || resolveMovementClassType(profileName, globalMovementSettings, lift),
+              progressionIncrement:
+                existingProfile?.progressionIncrement ||
+                getDefaultMovementProgressionIncrement(profileName, globalMovementSettings, lift),
+              progressionHoldActive: existingProfile?.progressionHoldActive || false,
+              movementCycleNumber: savedCycleNumber,
+              calibrationPhaseActive: false,
+              sourceWeekKey: existingProfile?.sourceWeekKey,
+              lastUpdatedAt: new Date().toISOString(),
+            };
+          }
+        }
       }
 
       const clientToSave: Client = {
