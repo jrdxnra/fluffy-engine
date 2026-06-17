@@ -903,7 +903,6 @@ export function SbdohControl({
       ? (calibrationClient.oneRepMaxesByCycle?.[currentCycleNumber]?.[lift] ?? calibrationClient.oneRepMaxes[lift])
       : 0;
     const shouldAttemptCalibration = Boolean(calibrationState?.needsCalibration)
-      || currentCycleNumber === 1
       || (movementProfile ? movementProfile.oneRepMax <= 0 : cycleOneRepMax <= 0);
     if (!calibrationClient || !shouldAttemptCalibration) {
       return;
@@ -947,7 +946,7 @@ export function SbdohControl({
       [currentCycleNumber]: {
         ...(calibrationClient.movementCalibrationsByCycle?.[currentCycleNumber] || {}),
         [lift]: {
-          needsCalibration: true,
+          needsCalibration: false,
           calibratedAt: new Date().toISOString(),
           estimated1RM: bestEstimated1RM,
           sourceWeekKey: weekKey,
@@ -1140,6 +1139,92 @@ export function SbdohControl({
     });
   };
 
+  const handleUpdateCycleClientMembership = async (cycleNumber: number, selectedClientIds: string[]) => {
+    if (!ensureMutableCycle("Updating cycle client membership")) return;
+
+    const selectedSet = new Set(selectedClientIds);
+    const changedClients: Client[] = [];
+
+    const nextClients = clients.map((client) => {
+      const currentlyInCycle = isClientInCycle(client, cycleNumber);
+      const shouldBeInCycle = selectedSet.has(client.id);
+
+      if (currentlyInCycle === shouldBeInCycle) {
+        return client;
+      }
+
+      const nextCycleMembership = shouldBeInCycle
+        ? withCycleAdded(client, cycleNumber)
+        : withCycleRemoved(client, cycleNumber);
+
+      let nextCurrentCycleNumber = client.currentCycleNumber;
+      if (shouldBeInCycle && !nextCurrentCycleNumber) {
+        nextCurrentCycleNumber = cycleNumber;
+      }
+      if (!shouldBeInCycle && nextCurrentCycleNumber === cycleNumber) {
+        nextCurrentCycleNumber = nextCycleMembership.length > 0
+          ? Math.max(...nextCycleMembership)
+          : undefined;
+      }
+
+      const nextWeekAssignmentsByCycle = { ...(client.weekAssignmentsByCycle || {}) };
+      if (shouldBeInCycle && !nextWeekAssignmentsByCycle[cycleNumber]) {
+        nextWeekAssignmentsByCycle[cycleNumber] = { week1: "5", week2: "3", week3: "1" };
+      }
+
+      const nextTrainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
+      if (shouldBeInCycle && !nextTrainingMaxesByCycle[cycleNumber]) {
+        const sourceCycle = client.currentCycleNumber || 1;
+        nextTrainingMaxesByCycle[cycleNumber] = {
+          ...(client.trainingMaxesByCycle?.[sourceCycle] || client.trainingMaxes),
+        };
+      }
+
+      const nextOneRepMaxesByCycle = { ...(client.oneRepMaxesByCycle || {}) };
+      if (shouldBeInCycle && !nextOneRepMaxesByCycle[cycleNumber]) {
+        const sourceCycle = client.currentCycleNumber || 1;
+        nextOneRepMaxesByCycle[cycleNumber] = {
+          ...(client.oneRepMaxesByCycle?.[sourceCycle] || client.oneRepMaxes),
+        };
+      }
+
+      const updatedClient: Client = {
+        ...client,
+        currentCycleNumber: nextCurrentCycleNumber,
+        cycleMembership: nextCycleMembership,
+        weekAssignmentsByCycle: nextWeekAssignmentsByCycle,
+        trainingMaxesByCycle: nextTrainingMaxesByCycle,
+        oneRepMaxesByCycle: nextOneRepMaxesByCycle,
+      };
+
+      changedClients.push(updatedClient);
+      return updatedClient;
+    });
+
+    setClients(nextClients);
+
+    if (changedClients.length === 0) {
+      return;
+    }
+
+    const results = await Promise.all(
+      changedClients.map((client) =>
+        updateClientProfileAction(client.id, {
+          currentCycleNumber: client.currentCycleNumber,
+          cycleMembership: client.cycleMembership,
+          weekAssignmentsByCycle: client.weekAssignmentsByCycle,
+          trainingMaxesByCycle: client.trainingMaxesByCycle,
+          oneRepMaxesByCycle: client.oneRepMaxesByCycle as any,
+        } as any)
+      )
+    );
+
+    if (results.some((result) => !result.success)) {
+      router.refresh();
+      throw new Error("Some client cycle updates did not save. Reloaded latest data.");
+    }
+  };
+
   const handleDeleteCycle = async (cycleNumber: number) => {
     if (!ensureMutableCycle("Deleting cycles")) return;
 
@@ -1300,8 +1385,8 @@ export function SbdohControl({
         const increment = shouldHold ? 0 : (profile.progressionIncrement || getDefaultMovementProgressionIncrement(movementName, globalMovementSettings));
         nextCycleMovementProfiles[movementName] = {
           ...profile,
-          oneRepMax: shouldHold ? profile.oneRepMax : profile.oneRepMax + increment,
-          trainingMax: shouldHold ? profile.trainingMax : Math.round(((profile.oneRepMax + increment) * 0.9) / 5) * 5,
+          oneRepMax: profile.oneRepMax,
+          trainingMax: shouldHold ? profile.trainingMax : profile.trainingMax + increment,
           movementCycleNumber: (profile.movementCycleNumber || 1) + 1,
           lastUpdatedAt: new Date().toISOString(),
         };
@@ -1989,6 +2074,8 @@ export function SbdohControl({
               onRenameCycle={handleRenameCycle}
               onDeleteCycle={handleDeleteCycle}
               onCycleChange={setCurrentCycleNumber}
+              clients={clients}
+              onUpdateCycleClientMembership={handleUpdateCycleClientMembership}
               globalMovementOptions={globalMovementOptions}
               onUpdateGlobalMovementOptions={handleUpdateGlobalMovementOptions}
               globalMovementSettings={globalMovementSettings}

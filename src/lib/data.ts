@@ -577,8 +577,8 @@ export const graduateTeam = async (
         const increment = shouldHold ? 0 : (profile.progressionIncrement || getDefaultMovementProgressionIncrement(movementName, undefined));
         movementProfilesForNextCycle[movementName] = {
           ...profile,
-          oneRepMax: shouldHold ? profile.oneRepMax : profile.oneRepMax + increment,
-          trainingMax: shouldHold ? profile.trainingMax : Math.round(((profile.oneRepMax + increment) * 0.9) / 5) * 5,
+          oneRepMax: profile.oneRepMax,
+          trainingMax: shouldHold ? profile.trainingMax : profile.trainingMax + increment,
           movementCycleNumber: (profile.movementCycleNumber || 1) + 1,
           lastUpdatedAt: new Date().toISOString(),
         };

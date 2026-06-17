@@ -26,7 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Settings, Trash2, Pencil, Check, X, ArrowUp, ArrowDown, Plus, Eye, EyeOff } from "lucide-react";
-import type { CycleScheduleSettings, CycleSettings, GlobalMovementSettings, Lift } from "@/lib/types";
+import type { Client, CycleScheduleSettings, CycleSettings, GlobalMovementSettings, Lift } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { getEffectiveCycleSchedule } from "@/lib/schedule";
 import { buildGlobalMovementSettings } from "@/lib/movement-profiles";
@@ -49,6 +49,8 @@ type ConfigSettingsDialogProps = {
   onRenameCycle?: (cycleNumber: number, newName: string) => void;
   onDeleteCycle?: (cycleNumber: number) => Promise<void>;
   onCycleChange?: (cycleNumber: number) => void;
+  clients?: Client[];
+  onUpdateCycleClientMembership?: (cycleNumber: number, selectedClientIds: string[]) => Promise<void>;
   globalMovementOptions?: string[];
   onUpdateGlobalMovementOptions?: (movementOptions: string[]) => Promise<void>;
   globalMovementSettings?: GlobalMovementSettings;
@@ -67,6 +69,8 @@ export function ConfigSettingsDialog({
   onRenameCycle,
   onDeleteCycle,
   onCycleChange,
+  clients = [],
+  onUpdateCycleClientMembership,
   globalMovementOptions = ["Deadlift", "Bench", "Squat", "Press"],
   onUpdateGlobalMovementOptions,
   globalMovementSettings = {},
@@ -82,6 +86,8 @@ export function ConfigSettingsDialog({
   const [settingsTab, setSettingsTab] = useState<"cycles" | "weeks" | "movements" | "about">("cycles");
   const [selectedWeekKey, setSelectedWeekKey] = useState<string>(currentWeekKey || "week1");
   const [newMovementName, setNewMovementName] = useState("");
+  const [selectedCycleClientIds, setSelectedCycleClientIds] = useState<string[]>([]);
+  const [isSavingCycleClients, setIsSavingCycleClients] = useState(false);
   const [localGlobalMovementSettings, setLocalGlobalMovementSettings] = useState<GlobalMovementSettings>(() =>
     buildGlobalMovementSettings(globalMovementOptions, globalMovementSettings)
   );
@@ -116,10 +122,13 @@ export function ConfigSettingsDialog({
     setLocalGlobalMovementSettings(buildGlobalMovementSettings(globalMovementOptions, globalMovementSettings));
   }, [globalMovementOptions, globalMovementSettings]);
 
-  // Sync dialog cycle number when currentCycleNumber changes externally
+  // Keep the dialog cycle anchored to app state only when closed.
+  // While open, users can inspect/edit any cycle without being reset.
   useEffect(() => {
-    setDialogCycleNumber(currentCycleNumber);
-  }, [currentCycleNumber]);
+    if (!isOpen) {
+      setDialogCycleNumber(currentCycleNumber);
+    }
+  }, [currentCycleNumber, isOpen]);
 
   useEffect(() => {
     if (currentWeekKey) {
@@ -141,6 +150,13 @@ export function ConfigSettingsDialog({
       }
     }
   }, [cycles]);
+
+  useEffect(() => {
+    const selected = clients
+      .filter((client) => (client.cycleMembership || []).includes(dialogCycleNumber))
+      .map((client) => client.id);
+    setSelectedCycleClientIds(selected);
+  }, [clients, dialogCycleNumber]);
 
   const handleStartEditCycle = (cycle: CycleInfo) => {
     setEditingCycleId(cycle.cycleNumber);
@@ -319,6 +335,36 @@ export function ConfigSettingsDialog({
     if (!onUpdateGlobalMovementOptions) return;
     if (protectedMovementNames.has(movementName) || usedMovementNames.has(movementName)) return;
     await onUpdateGlobalMovementOptions(globalMovementOptions.filter((option) => option !== movementName));
+  };
+
+  const handleToggleCycleClient = (clientId: string, checked: boolean) => {
+    setSelectedCycleClientIds((prev) => {
+      if (checked) {
+        return prev.includes(clientId) ? prev : [...prev, clientId];
+      }
+      return prev.filter((id) => id !== clientId);
+    });
+  };
+
+  const handleSaveCycleClients = async () => {
+    if (!onUpdateCycleClientMembership) return;
+
+    setIsSavingCycleClients(true);
+    try {
+      await onUpdateCycleClientMembership(dialogCycleNumber, selectedCycleClientIds);
+      toast({
+        title: "Cycle Client List Updated",
+        description: `Saved ${selectedCycleClientIds.length} clients in cycle ${dialogCycleNumber}.`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Save Failed",
+        description: String(error),
+      });
+    } finally {
+      setIsSavingCycleClients(false);
+    }
   };
 
   const handlePercentageChange = (
@@ -810,6 +856,73 @@ export function ConfigSettingsDialog({
                       </div>
                     ))}
                   </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Cycle Client List</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Choose which clients belong to Cycle {dialogCycleNumber}. This is a manual override for cycle membership.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {clients.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No clients available.</p>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSelectedCycleClientIds(clients.map((client) => client.id))}
+                      >
+                        Check All
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSelectedCycleClientIds([])}
+                      >
+                        Clear All
+                      </Button>
+                    </div>
+
+                    <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-2">
+                      {clients.map((client) => {
+                        const checked = selectedCycleClientIds.includes(client.id);
+                        return (
+                          <label key={`cycle-client-${client.id}`} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted/40">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => handleToggleCycleClient(client.id, e.target.checked)}
+                            />
+                            <span>{client.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        Selected: {selectedCycleClientIds.length} of {clients.length}
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          void handleSaveCycleClients();
+                        }}
+                        disabled={isSavingCycleClients || !onUpdateCycleClientMembership}
+                      >
+                        {isSavingCycleClients ? "Saving..." : "Save Cycle Client List"}
+                      </Button>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>
