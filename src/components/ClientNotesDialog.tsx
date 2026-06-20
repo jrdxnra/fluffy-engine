@@ -52,7 +52,7 @@ export function ClientNotesDialog({
       } else {
         toast({ variant: "destructive", title: "Error", description: "Failed to save notes." });
       }
-    } catch (error) {
+    } catch {
       toast({ variant: "destructive", title: "Error", description: "Failed to save notes." });
     }
     setIsSaving(false);

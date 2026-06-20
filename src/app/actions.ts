@@ -1,7 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { CycleScheduleSettings, CycleSettings, Lift, LoggedSetInputsByCycle, LoggedSetMap, SessionMode } from "@/lib/types";
+import type {
+  Client,
+  CycleScheduleSettings,
+  CycleSettings,
+  GlobalMovementSettings,
+  Lift,
+  LoggedSetInputsByCycle,
+  LoggedSetMap,
+  TrainingMaxes,
+} from "@/lib/types";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 import { withCycleRemoved } from "@/lib/cycle-membership";
 
@@ -61,6 +70,19 @@ const calculate1RM = (weight: number, reps: number): number => {
   return Math.round(weight * (1 + reps / 30));
 };
 
+type LegacySharedSettingsUpdate = {
+  cycleSettingsByCycle: Record<number, CycleSettings>;
+  cycleNames: Record<number, string>;
+  cycleSchedulesByCycle: Record<number, CycleScheduleSettings>;
+  globalMovementOptions: string[];
+  globalMovementSettings: GlobalMovementSettings;
+  settingsUpdatedAt?: string;
+};
+
+const asClientUpdate = (value: Partial<Client> | LegacySharedSettingsUpdate): Partial<Client> => {
+  return value as unknown as Partial<Client>;
+};
+
 export async function addClientAction(clientData: {
   name: string;
   oneRepMaxes: { Squat: number; Bench: number; Deadlift: number; Press: number };
@@ -70,6 +92,7 @@ export async function addClientAction(clientData: {
   trainingMaxesByCycle?: { [cycleNumber: number]: { Squat: number; Bench: number; Deadlift: number; Press: number } };
   currentCycleNumber?: number;
   weekAssignmentsByCycle?: { [cycleNumber: number]: { [weekKey: string]: string } };
+  movementCalibrationsByCycle?: Client["movementCalibrationsByCycle"];
 }) {
   "use server";
   try {
@@ -88,7 +111,7 @@ export async function addClientAction(clientData: {
 
     const hasCurrentCycle = currentCycleNumber !== undefined && Number.isFinite(currentCycleNumber);
 
-    const normalizedClientData = {
+    const normalizedClientData: Omit<Client, "id"> = {
       name: clientData.name,
       oneRepMaxes: clientData.oneRepMaxes,
       movementOneRepMaxes: clientData.movementOneRepMaxes || {},
@@ -110,7 +133,7 @@ export async function addClientAction(clientData: {
               [currentCycleNumber as number]: { week1: "5", week2: "3", week3: "1" },
             },
             movementCalibrationsByCycle: {
-              ...(clientData as any).movementCalibrationsByCycle || {},
+              ...(clientData.movementCalibrationsByCycle || {}),
               [currentCycleNumber as number]: initialCalibrationState,
             },
           }
@@ -120,7 +143,7 @@ export async function addClientAction(clientData: {
     };
 
     console.log("Server Action: Adding client", normalizedClientData);
-    const createdClient = await addClient(normalizedClientData as any);
+  const createdClient = await addClient(normalizedClientData);
     revalidatePath("/");
     return { success: true, message: "Client added successfully.", client: createdClient };
   } catch (error) {
@@ -175,7 +198,7 @@ export async function logRepRecordAction(
 
 
 export async function graduateTeamAction(
-  clients: any[],
+  clients: Client[],
   options?: {
     noIncrementLifts?: Array<'Squat' | 'Bench' | 'Deadlift' | 'Press'>;
     calibrationLifts?: Array<'Squat' | 'Bench' | 'Deadlift' | 'Press'>;
@@ -228,45 +251,12 @@ export async function updateClientNotesAction(clientId: string, notes: string) {
 
 export async function updateClientProfileAction(
   clientId: string,
-  updates: {
-    oneRepMaxes?: Record<string, number>;
-    oneRepMaxesByCycle?: Record<number, Record<string, number>>;
-    trainingMaxes?: Record<string, number>;
-    trainingMaxesByCycle?: Record<number, Record<string, number>>;
-    initialWeights?: Record<string, number>;
-    weekAssignmentsByCycle?: Record<number, Record<string, string>>;
-    sessionStateByCycle?: Record<number, {
-      mode: SessionMode;
-      flowWeekKey?: string;
-      applyUntilChanged?: boolean;
-      note?: string;
-      modeByWeek?: Record<string, SessionMode>;
-      flowWeekKeyByWeek?: Record<string, string>;
-    }>;
-    cycleMembership?: number[];
-    movementCalibrationsByCycle?: Record<number, Record<string, {
-      needsCalibration: boolean;
-      calibratedAt?: string;
-      estimated1RM?: number;
-      sourceWeekKey?: string;
-    }>>;
-    movementProfilesByCycle?: Record<number, Record<string, {
-      oneRepMax: number;
-      trainingMax: number;
-      classType: 'upper' | 'lower';
-      progressionIncrement: 2.5 | 5 | 7.5 | 10;
-      progressionHoldActive?: boolean;
-      movementCycleNumber: number;
-      calibrationPhaseActive: boolean;
-      lastUpdatedAt?: string;
-      sourceWeekKey?: string;
-    }>>;
-  }
+  updates: Partial<Client>
 ) {
   "use server";
   try {
     const { updateClient } = await import("@/lib/data");
-    await updateClient(clientId, updates as any);
+    await updateClient(clientId, updates);
     revalidatePath("/");
     return { success: true, message: "Client profile updated." };
   } catch (error) {
@@ -293,7 +283,9 @@ export async function resetClientTrainingMaxAction(
     const lifts = ["Squat", "Bench", "Deadlift", "Press"] as const;
     const mround = (value: number) => Math.round(value / 5) * 5;
 
-    const currentCycleMaxes = { ...(client.trainingMaxesByCycle?.[cycleNumber] || client.trainingMaxes) } as any;
+    const currentCycleMaxes: TrainingMaxes = {
+      ...(client.trainingMaxesByCycle?.[cycleNumber] || client.trainingMaxes),
+    };
 
     for (const lift of lifts) {
       const recentLiftRecords = historicalData
@@ -324,7 +316,7 @@ export async function resetClientTrainingMaxAction(
 
     await updateClient(clientId, {
       trainingMaxesByCycle: updatedTrainingMaxesByCycle,
-    } as any);
+    });
 
     revalidatePath("/");
 
@@ -343,13 +335,13 @@ export async function resetClientTrainingMaxAction(
 }
 
 export async function deleteCycleAction(
-  clients: any[],
+  clients: Client[],
   cycleNumber: number,
   cycleSettingsByCycle: Record<number, CycleSettings>,
   cycleNames: Record<number, string>,
   cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>,
   globalMovementOptions?: string[],
-  globalMovementSettings?: Record<string, { classType: 'upper' | 'lower' }>
+  globalMovementSettings?: GlobalMovementSettings
 ) {
   "use server";
   try {
@@ -374,7 +366,7 @@ export async function deleteCycleAction(
           newTrainingMaxesByCycle[1] ||
           client.trainingMaxes;
 
-        const nextCycleMembership = withCycleRemoved(client as any, cycleNumber);
+        const nextCycleMembership = withCycleRemoved(client, cycleNumber);
         const nextCurrentCycleNumber = nextCycleMembership.length > 0
           ? (nextCycleMembership.includes(client.currentCycleNumber || 0)
             ? client.currentCycleNumber
@@ -401,7 +393,7 @@ export async function deleteCycleAction(
         console.log(`Removing cycle ${cycleNumber} references from ${client.name}`);
         
         await updateClient(client.id, {
-          cycleMembership: withCycleRemoved(client as any, cycleNumber),
+          cycleMembership: withCycleRemoved(client, cycleNumber),
           weekAssignmentsByCycle: newAssignments,
           trainingMaxesByCycle: newTrainingMaxesByCycle,
         });
@@ -445,14 +437,19 @@ export async function deleteCycleAction(
     try {
       const freshClients = await getClients();
       for (const client of freshClients) {
-        await updateClient(client.id, {
-          cycleSettingsByCycle: updatedCycleSettingsByCycle as any,
-          cycleNames: updatedCycleNames as any,
-          cycleSchedulesByCycle: updatedCycleSchedulesByCycle as any,
-          globalMovementOptions: (saveResult.globalMovementOptions || preservedGlobalMovementOptions) as any,
-          globalMovementSettings: (saveResult.globalMovementSettings || globalMovementSettings || {}) as any,
-          settingsUpdatedAt: saveResult.settingsUpdatedAt as any,
-        } as any);
+        await updateClient(
+          client.id,
+          asClientUpdate({
+            cycleSettingsByCycle: updatedCycleSettingsByCycle,
+            cycleNames: updatedCycleNames,
+            cycleSchedulesByCycle: updatedCycleSchedulesByCycle,
+            globalMovementOptions:
+              saveResult.globalMovementOptions || preservedGlobalMovementOptions,
+            globalMovementSettings:
+              saveResult.globalMovementSettings || globalMovementSettings || {},
+            settingsUpdatedAt: saveResult.settingsUpdatedAt,
+          })
+        );
       }
     } catch (mirrorError) {
       console.error("Warning: failed to mirror deleted cycle settings to clients:", mirrorError);
@@ -480,7 +477,7 @@ export async function saveCycleSettingsAction(
   cycleNames: Record<number, string>,
   cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>,
   globalMovementOptions?: string[],
-  globalMovementSettings?: Record<string, { classType: 'upper' | 'lower' }>
+  globalMovementSettings?: GlobalMovementSettings
 ) {
   "use server";
   try {
@@ -492,21 +489,27 @@ export async function saveCycleSettingsAction(
       cycleSchedulesByCycle,
       globalMovementOptions,
       globalMovementSettings,
-    }) as any;
+    });
 
     // Keep fallback/shared client-stored settings in sync.
     // Do not fail the request if this mirror step fails.
     try {
       const clients = await getClients();
       for (const client of clients) {
-        await updateClient(client.id, {
-          cycleSettingsByCycle: cycleSettingsByCycle as any,
-          cycleNames: cycleNames as any,
-          cycleSchedulesByCycle: (saveResult.cycleSchedulesByCycle || cycleSchedulesByCycle || {}) as any,
-          globalMovementOptions: (saveResult.globalMovementOptions || globalMovementOptions || []) as any,
-          globalMovementSettings: (saveResult.globalMovementSettings || globalMovementSettings || {}) as any,
-          settingsUpdatedAt: saveResult.settingsUpdatedAt as any,
-        } as any);
+        await updateClient(
+          client.id,
+          asClientUpdate({
+            cycleSettingsByCycle,
+            cycleNames,
+            cycleSchedulesByCycle:
+              saveResult.cycleSchedulesByCycle || cycleSchedulesByCycle || {},
+            globalMovementOptions:
+              saveResult.globalMovementOptions || globalMovementOptions || [],
+            globalMovementSettings:
+              saveResult.globalMovementSettings || globalMovementSettings || {},
+            settingsUpdatedAt: saveResult.settingsUpdatedAt,
+          })
+        );
       }
     } catch (mirrorError) {
       console.error("Warning: failed to mirror cycle settings to clients:", mirrorError);
@@ -523,14 +526,17 @@ export async function saveCycleSettingsAction(
       const fallbackUpdatedAt = new Date().toISOString();
       const clients = await getClients();
       for (const client of clients) {
-        await updateClient(client.id, {
-          cycleSettingsByCycle: cycleSettingsByCycle as any,
-          cycleNames: cycleNames as any,
-          cycleSchedulesByCycle: (cycleSchedulesByCycle || {}) as any,
-          globalMovementOptions: (globalMovementOptions || []) as any,
-          globalMovementSettings: (globalMovementSettings || {}) as any,
-          settingsUpdatedAt: fallbackUpdatedAt as any,
-        } as any);
+        await updateClient(
+          client.id,
+          asClientUpdate({
+            cycleSettingsByCycle,
+            cycleNames,
+            cycleSchedulesByCycle: cycleSchedulesByCycle || {},
+            globalMovementOptions: globalMovementOptions || [],
+            globalMovementSettings: globalMovementSettings || {},
+            settingsUpdatedAt: fallbackUpdatedAt,
+          })
+        );
       }
       revalidatePath("/");
       return { success: true, message: "Cycle settings saved (fallback)." };
@@ -577,8 +583,8 @@ export async function updateClientLoggedSetInputsAction(
   try {
     const { updateClient } = await import("@/lib/data");
     await updateClient(clientId, {
-      loggedSetInputsByCycle: loggedSetInputsByCycle as any,
-    } as any);
+      loggedSetInputsByCycle,
+    });
     revalidatePath("/");
     return { success: true, message: "Logged set inputs updated." };
   } catch (error) {
@@ -595,8 +601,8 @@ export async function updateClientLoggedSetInputsBulkAction(
     const { updateClient } = await import("@/lib/data");
     for (const update of updates) {
       await updateClient(update.id, {
-        loggedSetInputsByCycle: update.loggedSetInputsByCycle as any,
-      } as any);
+        loggedSetInputsByCycle: update.loggedSetInputsByCycle,
+      });
     }
     revalidatePath("/");
     return { success: true, message: "Logged set inputs bulk-updated." };
@@ -647,8 +653,8 @@ export async function upsertClientLoggedSetEntriesAction(args: {
     };
 
     await updateClient(args.clientId, {
-      loggedSetInputsByCycle: merged as any,
-    } as any);
+      loggedSetInputsByCycle: merged,
+    });
 
     revalidatePath("/");
     return { success: true, message: "Logged set entries updated.", merged };
@@ -665,7 +671,7 @@ export async function updateClientRosterOrderAction(
   try {
     const { updateClient } = await import("@/lib/data");
     for (const update of updates) {
-      await updateClient(update.id, { rosterOrder: update.rosterOrder } as any);
+      await updateClient(update.id, { rosterOrder: update.rosterOrder });
     }
     revalidatePath("/");
     return { success: true, message: "Roster order updated." };
@@ -685,7 +691,7 @@ export async function deleteClientAction(clientId: string) {
     const remainingClients = await getClients();
     for (const [index, client] of remainingClients.entries()) {
       if (client.rosterOrder !== index) {
-        await updateClient(client.id, { rosterOrder: index } as any);
+        await updateClient(client.id, { rosterOrder: index });
       }
     }
 

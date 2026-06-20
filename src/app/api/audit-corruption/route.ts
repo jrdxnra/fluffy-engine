@@ -2,6 +2,47 @@ import { getDocs, collection } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 const lifts = ['Squat', 'Bench', 'Deadlift', 'Press'] as const;
+type LiftName = (typeof lifts)[number];
+
+type ClientAuditDoc = {
+  id: string;
+  name?: string;
+  currentCycleNumber?: number;
+  oneRepMaxes?: Partial<Record<LiftName, number>>;
+  trainingMaxesByCycle?: Record<number, Partial<Record<LiftName, number>>>;
+};
+
+type HistoricalAuditDoc = {
+  id: string;
+  clientId: string;
+  lift: LiftName;
+  date?: string;
+  weight?: number;
+  reps?: number;
+  estimated1RM?: number;
+};
+
+type CorruptedClientEntry = {
+  name?: string;
+  oneRepMaxes?: Partial<Record<LiftName, number>>;
+  trainingMaxesByCycle?: Record<number, Partial<Record<LiftName, number>>>;
+  cycleDetails: Record<number, Partial<Record<LiftName, { actualTm: number; expectedTm: number; oneRM: number; mismatch: boolean; delta: number }>>>;
+  issues: string[];
+};
+
+type CorruptedHistoricalEntry = {
+  name?: string;
+  records: Array<{
+    id: string;
+    date?: string;
+    lift: LiftName;
+    weight?: number;
+    reps?: number;
+    estimated1RM?: number;
+    oneRM: number;
+    excessPercentage: number;
+  }>;
+};
 
 const mround = (value: number) => Math.round(value / 5) * 5;
 
@@ -10,19 +51,19 @@ export async function GET() {
     const clientsSnapshot = await getDocs(collection(db, 'clients'));
     const historicalSnapshot = await getDocs(collection(db, 'historicalRecords'));
 
-    const clients: any[] = [];
-    const historical: any[] = [];
+    const clients: ClientAuditDoc[] = [];
+    const historical: HistoricalAuditDoc[] = [];
 
     clientsSnapshot.forEach((doc) => {
-      clients.push({ id: doc.id, ...doc.data() });
+      clients.push({ id: doc.id, ...(doc.data() as Omit<ClientAuditDoc, 'id'>) });
     });
 
     historicalSnapshot.forEach((doc) => {
-      historical.push({ id: doc.id, ...doc.data() });
+      historical.push({ id: doc.id, ...(doc.data() as Omit<HistoricalAuditDoc, 'id'>) });
     });
 
-    const corrupted: Record<string, any> = {};
-    const corruptedHistorical: Record<string, any> = {};
+    const corrupted: Record<string, CorruptedClientEntry> = {};
+    const corruptedHistorical: Record<string, CorruptedHistoricalEntry> = {};
 
     for (const client of clients) {
       const issues: string[] = [];
@@ -32,7 +73,7 @@ export async function GET() {
         .filter((cycle) => !Number.isNaN(cycle) && cycle >= 1)
         .sort((a, b) => a - b);
       const maxCycle = Math.max(client.currentCycleNumber || 1, ...cycleNumbers, 1);
-      const cycleDetails: Record<number, any> = {};
+      const cycleDetails: CorruptedClientEntry['cycleDetails'] = {};
 
       for (const lift of lifts) {
         const oneRM = client.oneRepMaxes?.[lift] || 0;
@@ -123,7 +164,7 @@ export async function GET() {
           corruptedClients: Object.keys(corrupted).length,
           totalHistoricalRecords: historical.length,
           corruptedHistoricalRecords: Object.values(corruptedHistorical).reduce(
-            (sum: number, c: any) => sum + c.records.length,
+            (sum: number, c) => sum + c.records.length,
             0
           ),
         },

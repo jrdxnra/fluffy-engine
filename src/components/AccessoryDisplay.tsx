@@ -22,7 +22,9 @@ export function AccessoryDisplay({
   currentWeek,
   weekByLift,
 }: AccessoryDisplayProps) {
-  const targetLifts = lifts && lifts.length > 0 ? lifts : lift ? [lift] : [];
+  const targetLifts = useMemo(() => {
+    return lifts && lifts.length > 0 ? lifts : lift ? [lift] : [];
+  }, [lift, lifts]);
   const accessoryCardTitle = targetLifts.length > 1
     ? "Day Accessories"
     : targetLifts[0]

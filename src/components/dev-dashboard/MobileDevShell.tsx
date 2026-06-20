@@ -60,6 +60,8 @@ type MobileDevShellProps = {
   initialHistoricalData: HistoricalRecord[];
 };
 
+const EMPTY_CYCLE_SETTINGS = {} as CycleSettings;
+
 export function MobileDevShell({
   initialClients,
   initialCycleSettingsByCycle,
@@ -147,7 +149,7 @@ export function MobileDevShell({
   const [selectedClientForProfile, setSelectedClientForProfile] = useState<Client | null>(null);
 
   // ── Derived ──────────────────────────────────────────────────────────────────
-  const cycleSettings = cycleSettingsByCycle[currentCycleNumber] || cycleSettingsByCycle[1] || ({} as CycleSettings);
+  const cycleSettings = cycleSettingsByCycle[currentCycleNumber] || cycleSettingsByCycle[1] || EMPTY_CYCLE_SETTINGS;
 
   const currentCycleSchedule = useMemo(
     () => getEffectiveCycleSchedule(cycleSchedulesByCycle[currentCycleNumber]),
@@ -180,7 +182,7 @@ export function MobileDevShell({
     setCurrentWeek(selection.weekKey);
     setDayViewSlot(selection.daySlot);
     hasAutoDateSelectionRef.current = true;
-  }, [cycleSettingsByCycle, cycleSchedulesByCycle]);
+  }, [cycleSettingsByCycle, cycleSchedulesByCycle, clients]);
 
   const availableCycles = useMemo(
     () =>
@@ -607,12 +609,12 @@ export function MobileDevShell({
     );
 
     const calibrationUpdateResult = await updateClientProfileAction(clientId, {
-      oneRepMaxes: nextOneRepMaxes as any,
-      oneRepMaxesByCycle: nextOneRepMaxesByCycle as any,
-      trainingMaxes: nextTrainingMaxes as any,
-      trainingMaxesByCycle: nextTrainingMaxesByCycle as any,
-      movementCalibrationsByCycle: nextCalibrationState as any,
-      movementProfilesByCycle: nextMovementProfilesByCycle as any,
+      oneRepMaxes: nextOneRepMaxes,
+      oneRepMaxesByCycle: nextOneRepMaxesByCycle,
+      trainingMaxes: nextTrainingMaxes,
+      trainingMaxesByCycle: nextTrainingMaxesByCycle,
+      movementCalibrationsByCycle: nextCalibrationState,
+      movementProfilesByCycle: nextMovementProfilesByCycle,
     });
 
     if (!calibrationUpdateResult.success) {
@@ -658,7 +660,8 @@ export function MobileDevShell({
       cycleMembership: normalizedClient.cycleMembership,
       weekAssignmentsByCycle: normalizedClient.weekAssignmentsByCycle,
       sessionStateByCycle: normalizedClient.sessionStateByCycle as Parameters<typeof updateClientProfileAction>[1]["sessionStateByCycle"],
-      movementProfilesByCycle: normalizedClient.movementProfilesByCycle as any,
+      movementSelectionByCycle: normalizedClient.movementSelectionByCycle,
+      movementProfilesByCycle: normalizedClient.movementProfilesByCycle,
     });
 
     if (!result.success) {
@@ -828,8 +831,8 @@ export function MobileDevShell({
         onReorderClient={() => {}}
         onLogAllReps={() => {}}
         isBulkLoggingActive={false}
-        onDuplicateWeek={async (_weekKey: string): Promise<void> => {}}
-        onDeleteWeek={async (_weekKey: string): Promise<boolean> => false}
+        onDuplicateWeek={async (): Promise<void> => {}}
+        onDeleteWeek={async (): Promise<boolean> => false}
         onGraduateTeam={() => {}}
         currentCycleSchedule={currentCycleSchedule}
       />
@@ -927,12 +930,15 @@ export function MobileDevShell({
               setCycleNames(updated);
               await saveCycleSettingsAction(cycleSettingsByCycle, updated, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings).catch(console.error);
             }}
-            onDeleteCycle={async (_cycleNumber: number): Promise<void> => {}}
+            onDeleteCycle={async (): Promise<void> => {}}
             onCycleChange={setCurrentCycleNumber}
             globalMovementOptions={globalMovementOptions}
-            onUpdateGlobalMovementOptions={async (movementOptions) => {
+            onUpdateGlobalMovementOptions={async (movementOptions, initialSettings) => {
               const nextOptions = Array.from(new Set(["Deadlift", "Bench", "Squat", "Press", ...movementOptions].filter(Boolean)));
-              const nextSettings = buildGlobalMovementSettings(nextOptions, globalMovementSettings);
+              const nextSettings = {
+                ...buildGlobalMovementSettings(nextOptions, globalMovementSettings),
+                ...(initialSettings || {}),
+              };
               setGlobalMovementOptions(nextOptions);
               setGlobalMovementSettings(nextSettings);
               await saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, nextOptions, nextSettings).catch(console.error);
@@ -977,6 +983,8 @@ export function MobileDevShell({
         client={selectedClientForProfile}
         cycleSettings={cycleSettings}
         currentCycleSchedule={currentCycleSchedule}
+        cycleSchedulesByCycle={cycleSchedulesByCycle}
+        globalMovementOptions={globalMovementOptions}
         globalMovementSettings={globalMovementSettings}
         currentGlobalWeek={currentWeek}
         currentCycleNumber={currentCycleNumber}

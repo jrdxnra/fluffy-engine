@@ -25,9 +25,6 @@ describe('graduateTeam logic', () => {
     const client = createMockClient();
 
     // Simulate the graduation logic
-    const currentCycle = client.currentCycleNumber || 1;
-    const nextCycle = currentCycle + 1;
-
     const newTrainingMaxes = {
       Squat: client.trainingMaxes.Squat + 10,
       Deadlift: client.trainingMaxes.Deadlift + 10,

@@ -1,14 +1,13 @@
 import { getClients, updateClient } from '@/lib/data';
 import { isMaintenanceRouteEnabled, maintenanceRouteDisabledResponse } from '@/lib/maintenance-routes';
 import { calculateTrainingMaxes } from '@/lib/training-max';
-
-const mround = (n: number) => Math.round(n / 5) * 5;
+import type { TrainingMaxes } from '@/lib/types';
 
 interface ClientFix {
   name: string;
   clientId: string;
   cycle: number;
-  oneRepMaxes: Record<string, number>;
+  oneRepMaxes: TrainingMaxes;
 }
 
 const fixes: ClientFix[] = [

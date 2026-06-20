@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 
 const ADMIN_MODE_KEY = 'powerlift:adminMode';
 const ADMIN_MODE_SECRET = 'powerlift-admin-2026'; // Can be changed or env var
@@ -8,29 +8,23 @@ const ADMIN_MODE_SECRET = 'powerlift-admin-2026'; // Can be changed or env var
  * Uses localStorage safely with SSR support and error handling
  */
 export function useAdminMode() {
-  const [isAdminMode, setIsAdminMode] = useState(false);
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Initialize admin mode from localStorage on client-side mount
-  useEffect(() => {
+  const [initialState] = useState(() => {
     try {
-      // Only access localStorage on client-side
       if (typeof window === 'undefined') {
-        return;
+        return { isAdminMode: false, error: null as string | null };
       }
 
       const stored = localStorage.getItem(ADMIN_MODE_KEY);
-      const adminMode = stored === 'true';
-      setIsAdminMode(adminMode);
-      setIsLoaded(true);
+      return { isAdminMode: stored === 'true', error: null as string | null };
     } catch (err) {
-      // Handle cases where localStorage is not available (private browsing, etc.)
       console.warn('Admin mode: localStorage not available', err);
-      setError('Storage unavailable');
-      setIsLoaded(true);
+      return { isAdminMode: false, error: 'Storage unavailable' as string | null };
     }
-  }, []);
+  });
+
+  const [isAdminMode, setIsAdminMode] = useState(initialState.isAdminMode);
+  const [isLoaded] = useState(true);
+  const [error, setError] = useState<string | null>(initialState.error);
 
   const toggleAdminMode = useCallback(
     (secret?: string) => {

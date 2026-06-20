@@ -81,6 +81,14 @@ type AppSettingsDocument = {
   settingsUpdatedAt?: string;
 };
 
+type LegacySettingsCarrier = {
+  cycleSettingsByCycle?: Record<number, CycleSettings>;
+  cycleNames?: Record<number, string>;
+  cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>;
+  globalMovementOptions?: string[];
+  globalMovementSettings?: GlobalMovementSettings;
+};
+
 const defaultGlobalMovementOptions = ['Deadlift', 'Bench', 'Squat', 'Press'];
 
 const resolveGlobalMovementOptions = (
@@ -356,9 +364,11 @@ export const getAppSettings = async (): Promise<AppSettings> => {
     }
 
     const clients = await getClients();
-    const clientWithSettings = clients.find((client: any) =>
-      client.cycleSettingsByCycle && Object.keys(client.cycleSettingsByCycle).length > 0
-    ) as any;
+    const clientWithSettings = clients
+      .map((client) => client as Client & LegacySettingsCarrier)
+      .find((client) =>
+        client.cycleSettingsByCycle && Object.keys(client.cycleSettingsByCycle).length > 0
+      );
 
     if (clientWithSettings) {
       const cycleSettingsByCycle = normalizeAccessoryVisibility(normalizeWarmupPercentages(normalizeNumberKeyRecord<CycleSettings>(

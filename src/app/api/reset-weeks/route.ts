@@ -1,6 +1,6 @@
 import { getAppSettings, getClients, getCycleSettings, saveAppSettings, updateClient } from '@/lib/data';
 import { isMaintenanceRouteEnabled, maintenanceRouteDisabledResponse } from '@/lib/maintenance-routes';
-import type { CycleSettings } from '@/lib/types';
+import type { Client, CycleSettings } from '@/lib/types';
 
 const cloneDefaultCycleSettings = (): CycleSettings => {
   return JSON.parse(JSON.stringify(getCycleSettings()));
@@ -29,15 +29,19 @@ export async function POST() {
     const saveResult = await saveAppSettings({
       cycleSettingsByCycle: resetCycleSettingsByCycle,
       cycleNames,
-    }) as any;
+    });
+
+    const settingsUpdatedAt = (saveResult as { settingsUpdatedAt?: string }).settingsUpdatedAt;
 
     // Keep fallback/shared client-stored settings in sync as well.
     for (const client of clients) {
-      await updateClient(client.id, {
-        cycleSettingsByCycle: resetCycleSettingsByCycle as any,
-        cycleNames: cycleNames as any,
-        settingsUpdatedAt: saveResult.settingsUpdatedAt as any,
-      } as any);
+      const legacySettingsUpdate = {
+        cycleSettingsByCycle: resetCycleSettingsByCycle,
+        cycleNames,
+        settingsUpdatedAt,
+      } as unknown as Partial<Client>;
+
+      await updateClient(client.id, legacySettingsUpdate);
     }
 
     return Response.json({

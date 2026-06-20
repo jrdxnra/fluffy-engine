@@ -1,4 +1,5 @@
 import { getAppSettings, getClients } from '@/lib/data';
+import type { Client } from '@/lib/types';
 
 type SessionMode = 'normal' | 'slide' | 'jack_shit' | 'pause_week' | 'recovery';
 
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
       return aNum - bNum;
     });
 
-    const rows = clients.map((client: any) => {
+    const rows = clients.map((client: Client) => {
       const state = client.sessionStateByCycle?.[cycleNumber];
       const mode: SessionMode = state?.modeByWeek?.[currentWeek] || state?.mode || 'normal';
       let effectiveWeekKey = currentWeek;

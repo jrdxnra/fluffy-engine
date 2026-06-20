@@ -130,7 +130,7 @@ export function AddClientSheet({
           description: `${data.name} has been added to the roster.`,
         });
         if (onClientAdded) {
-          const addedClient: Client = (result as any).client || {
+          const addedClient: Client = ('client' in result && result.client) || {
             id: `client-${Date.now()}`,
             ...newClient,
           };
@@ -172,7 +172,7 @@ export function AddClientSheet({
           <SheetHeader>
             <SheetTitle>Add New Client</SheetTitle>
             <SheetDescription>
-              Enter the client's name and their current estimated 1-Rep Maxes (1RMs). The 90% Training Max (TM) will be calculated automatically.
+              Enter the client&apos;s name and their current estimated 1-Rep Maxes (1RMs). The 90% Training Max (TM) will be calculated automatically.
             </SheetDescription>
           </SheetHeader>
           <div className="grid gap-5 py-6">

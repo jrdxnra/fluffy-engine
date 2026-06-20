@@ -13,6 +13,7 @@ import { getLiftDisplayName } from "@/lib/schedule";
 import type {
   Lift,
   LoggedSetEntry,
+  MovementClassType,
   MovementProfile,
   TrainingMaxes,
 } from "@/lib/types";
@@ -47,7 +48,7 @@ const normalizeMovementProfile = (args: {
   profile: MovementProfile;
   movementName: string;
   cycleNumber: number;
-  defaultClassType: "upper" | "lower";
+  defaultClassType: MovementClassType;
   defaultIncrement: 2.5 | 5 | 7.5 | 10;
   sourceWeekKey?: string;
   needsCalibration?: boolean;
@@ -98,7 +99,7 @@ const upsertOrNormalizeMovementProfile = (args: {
   cycleNumber: number;
   oneRepMax: number;
   trainingMax: number;
-  defaultClassType: "upper" | "lower";
+  defaultClassType: MovementClassType;
   defaultIncrement: 2.5 | 5 | 7.5 | 10;
   sourceWeekKey?: string;
   needsCalibration?: boolean;

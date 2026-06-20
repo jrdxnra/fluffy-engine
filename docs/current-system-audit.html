@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Current System Audit - 5/3/1 Flow</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #0b1220;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #60a5fa;
+      --accent-2: #34d399;
+      --warn: #f59e0b;
+      --line: #24324a;
+      --code: #0b1020;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(96, 165, 250, 0.18), transparent 30%),
+        radial-gradient(circle at top right, rgba(52, 211, 153, 0.12), transparent 28%),
+        linear-gradient(180deg, #0b1020 0%, #0f172a 100%);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .shell {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .hero {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(17, 24, 39, 0.9), rgba(11, 18, 32, 0.95));
+      border-radius: 20px;
+      padding: 28px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: clamp(2rem, 4vw, 3rem);
+      line-height: 1.1;
+    }
+
+    .hero p { margin: 0; color: var(--muted); max-width: 76ch; }
+
+    .toc {
+      margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .toc a {
+      display: inline-block;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.02);
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: rgba(17, 24, 39, 0.92);
+      border-radius: 18px;
+      padding: 20px;
+    }
+
+    .card h2, .card h3 {
+      margin: 0 0 12px;
+      line-height: 1.2;
+    }
+
+    .card h2 { font-size: 1.4rem; }
+    .card h3 { font-size: 1.05rem; color: #f3f4f6; }
+
+    .muted { color: var(--muted); }
+
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
+    .pill {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(96, 165, 250, 0.12);
+      border: 1px solid rgba(96, 165, 250, 0.25);
+      color: #dbeafe;
+      font-size: 0.88rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      margin-top: 8px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      font-size: 0.95rem;
+    }
+
+    th { background: rgba(255,255,255,0.03); color: #f9fafb; }
+    tr:last-child td { border-bottom: 0; }
+
+    pre {
+      margin: 10px 0 0;
+      padding: 14px;
+      border-radius: 14px;
+      overflow: auto;
+      background: var(--code);
+      border: 1px solid #1f2937;
+      color: #e2e8f0;
+      font-size: 0.92rem;
+    }
+
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+
+    .wireframe {
+      display: grid;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .wf-row {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 12px;
+    }
+
+    .wf-box {
+      border: 1px dashed rgba(148, 163, 184, 0.45);
+      border-radius: 14px;
+      padding: 12px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .wf-title {
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #f9fafb;
+    }
+
+    .note {
+      border-left: 4px solid var(--warn);
+      padding: 12px 14px;
+      background: rgba(245, 158, 11, 0.08);
+      border-radius: 12px;
+      margin-top: 12px;
+    }
+
+    .ok {
+      border-left: 4px solid var(--accent-2);
+      background: rgba(52, 211, 153, 0.08);
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .grid, .wf-row, .two-col { grid-template-columns: 1fr; }
+      .shell { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <h1>Current System Audit</h1>
+      <p>This document reflects the current implementation in the repo: how 5/3/1 is calculated, how cycles advance, how per-cycle client groups work, and where the profile reset paths touch stored data.</p>
+      <div class="toc" aria-label="Table of contents">
+        <a href="#overview">Overview</a>
+        <a href="#data-model">Data Model</a>
+        <a href="#weekly-flow">Weekly Flow</a>
+        <a href="#formulas">Formulas</a>
+        <a href="#cycles">Cycles & Groups</a>
+        <a href="#movement-profiles">Movement Profiles</a>
+        <a href="#reset-paths">Reset Paths</a>
+        <a href="#wireframe">Wireframe</a>
+        <a href="#audit-checklist">Audit Checklist</a>
+      </div>
+    </section>
+
+    <div class="grid" id="overview">
+      <section class="card">
+        <h2>Overview</h2>
+        <p class="muted">The app is cycle-scoped. The active cycle determines which client group, week settings, training maxes, movement profiles, and logged sets are used.</p>
+        <div class="pill-row">
+          <span class="pill">Cycle 1, 2, 3... are separate snapshots</span>
+          <span class="pill">TM = 90% of 1RM</span>
+          <span class="pill">Work sets are based on TM, not 1RM directly</span>
+          <span class="pill">Week 4 is the deload week</span>
+        </div>
+        <div class="note ok">
+          The current code stores oneRepMaxesByCycle and trainingMaxesByCycle per client. That means a save in one cycle should not rewrite historical cycles unless a handler explicitly copies forward.
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Key Files</h2>
+        <table>
+          <thead>
+            <tr><th>Area</th><th>File</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Workout math</td><td><a href="../src/lib/utils.ts">src/lib/utils.ts</a></td></tr>
+            <tr><td>TM helper</td><td><a href="../src/lib/training-max.ts">src/lib/training-max.ts</a></td></tr>
+            <tr><td>Week templates</td><td><a href="../src/lib/workout-week-settings.ts">src/lib/workout-week-settings.ts</a></td></tr>
+            <tr><td>Cycle graduation</td><td><a href="../src/lib/data.ts">src/lib/data.ts</a></td></tr>
+            <tr><td>Cycle membership</td><td><a href="../src/lib/cycle-membership.ts">src/lib/cycle-membership.ts</a></td></tr>
+            <tr><td>Settings UI</td><td><a href="../src/components/ConfigSettingsDialog.tsx">src/components/ConfigSettingsDialog.tsx</a></td></tr>
+            <tr><td>Main shell</td><td><a href="../src/components/SbdohControl.tsx">src/components/SbdohControl.tsx</a></td></tr>
+            <tr><td>Profile modal</td><td><a href="../src/components/ClientProfileModal.tsx">src/components/ClientProfileModal.tsx</a></td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+
+    <section class="card" id="data-model" style="margin-top:18px;">
+      <h2>Data Model</h2>
+      <div class="two-col">
+        <div>
+          <h3>Client fields used by the app</h3>
+          <pre><code>oneRepMaxes              current active 1RM by lift
+oneRepMaxesByCycle       1RM snapshots by cycle
+trainingMaxes            active training max by lift
+trainingMaxesByCycle     TM snapshots by cycle
+weekAssignmentsByCycle   rep scheme overrides per cycle/week
+cycleMembership          explicit list of cycles the client belongs to
+movementProfilesByCycle  per-cycle custom movement progressions
+movementCalibrationsByCycle calibration status per cycle/lift
+loggedSetInputsByCycle   saved workout inputs per cycle/week/lift</code></pre>
+        </div>
+        <div>
+          <h3>What that means</h3>
+          <p class="muted">Each client can participate in multiple cycles at once, but the app treats the active cycle as the current working snapshot. Historical cycle records remain available for old recommendations and charts.</p>
+          <p class="muted">When the UI needs a number, it usually asks for the current cycle entry first. If that entry is missing, it falls back to the global field or infers from a prior cycle.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="weekly-flow" style="margin-top:18px;">
+      <h2>Weekly Flow</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Week</th>
+            <th>Rep Scheme</th>
+            <th>Percentages</th>
+            <th>Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Week 1</td>
+            <td>5 / 5 / 5+</td>
+            <td>50 / 60 / 65 / 75 / 85</td>
+            <td>Base accumulation week</td>
+          </tr>
+          <tr>
+            <td>Week 2</td>
+            <td>3 / 3 / 3+</td>
+            <td>50 / 60 / 70 / 80 / 90</td>
+            <td>Heavier intensity week</td>
+          </tr>
+          <tr>
+            <td>Week 3</td>
+            <td>5 / 3 / 1+</td>
+            <td>50 / 60 / 75 / 85 / 95</td>
+            <td>Top effort week</td>
+          </tr>
+          <tr>
+            <td>Week 4</td>
+            <td>5 / 5 / 5</td>
+            <td>50 / 60 / 40 / 50 / 60</td>
+            <td>Deload week</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="muted">If a cycle marks skipDeloadWeek, the schedule can treat Week 4 differently in the UI, but the normalized baseline still preserves a Week 4 template in the data model.</p>
+    </section>
+
+    <section class="card" id="formulas" style="margin-top:18px;">
+      <h2>Formulas</h2>
+      <div class="two-col">
+        <div>
+          <h3>Base TM</h3>
+          <pre><code>TM = round_to_nearest_5(1RM * 0.90)</code></pre>
+          <p class="muted">Implemented by calculateTrainingMax and reused by the profile save flow.</p>
+        </div>
+        <div>
+          <h3>Workout set weight</h3>
+          <pre><code>setWeight = round_to_nearest_5(TM * percentage)</code></pre>
+          <p class="muted">Warm-ups and work sets are all rounded after the percentage is applied.</p>
+        </div>
+      </div>
+      <div class="two-col" style="margin-top:12px;">
+        <div>
+          <h3>Top set examples</h3>
+          <pre><code>Week 1 top set = round_to_5(TM * 0.85)
+Week 2 top set = round_to_5(TM * 0.90)
+Week 3 top set = round_to_5(TM * 0.95)</code></pre>
+        </div>
+        <div>
+          <h3>Calibration estimate</h3>
+          <pre><code>estimated1RM = round(weight * (1 + reps / 30))
+rounded1RM   = round_to_5(estimated1RM)
+roundedTM    = round_to_5(rounded1RM * 0.90)</code></pre>
+          <p class="muted">After calibration succeeds, needsCalibration is set to false so the same lift does not keep recalculating every logged set.</p>
+        </div>
+      </div>
+      <div class="note">
+        Important: the live workout calculation clamps a stored TM that is above the actual 1RM back down to 90% of the actual 1RM. That is a defensive guard against stale data, not the primary progression rule.
+      </div>
+    </section>
+
+    <section class="card" id="cycles" style="margin-top:18px;">
+      <h2>Cycles and Groups</h2>
+      <div class="two-col">
+        <div>
+          <h3>What moves when a cycle graduates</h3>
+          <pre><code>oneRepMaxesByCycle[nextCycle] = previousCycle.oneRepMaxes
+trainingMaxesByCycle[nextCycle] = previousCycle.trainingMaxes + fixed increment
+weekAssignmentsByCycle[nextCycle] = { week1: '5', week2: '3', week3: '1' }
+cycleMembership = previousMembership + nextCycle</code></pre>
+        </div>
+        <div>
+          <h3>Fixed increments used today</h3>
+          <pre><code>Squat    +10
+Deadlift +10
+Bench    +5
+Press    +5</code></pre>
+          <p class="muted">Custom movements use progressionIncrement from their movement profile instead of the lift defaults.</p>
+        </div>
+      </div>
+      <p class="muted">The current graduation filter only picks clients whose currentCycleNumber matches the active cycle. That prevents mixed-cycle graduation bugs.</p>
+    </section>
+
+    <section class="card" id="movement-profiles" style="margin-top:18px;">
+      <h2>Movement Profiles</h2>
+      <div class="two-col">
+        <div>
+          <h3>Profile fields</h3>
+          <pre><code>oneRepMax
+trainingMax
+classType
+progressionIncrement
+progressionHoldActive
+calibrationPhaseActive
+movementCycleNumber</code></pre>
+        </div>
+        <div>
+          <h3>Profile progression rule</h3>
+          <pre><code>if hold/calibration is active:
+  trainingMax stays the same
+else:
+  trainingMax = trainingMax + progressionIncrement
+oneRepMax stays fixed</code></pre>
+        </div>
+      </div>
+      <p class="muted">The profile modal shows both the manual Actual 1RM editor and the movement recommendation profile cards. The top section writes the cycle snapshot; the lower section displays the movement-level progression values for the selected cycle.</p>
+    </section>
+
+    <section class="card" id="reset-paths" style="margin-top:18px;">
+      <h2>Reset Paths</h2>
+      <div class="two-col">
+        <div>
+          <h3>Manual 1RM save in profile modal</h3>
+          <pre><code>save current cycle oneRepMaxesByCycle[currentCycle]
+recalculate trainingMaxes = round_to_5(oneRepMaxes * 0.90)
+preserve other cycle snapshots
+rebuild future cycle TMs from the edited snapshot</code></pre>
+        </div>
+        <div>
+          <h3>Stall / reset protocol</h3>
+          <pre><code>inspect recent historical records
+pick best estimated 1RM
+reset current cycle TM from that result
+apply forward to later cycles</code></pre>
+        </div>
+      </div>
+      <div class="note ok">
+        Existing historical lifts are not rewritten by a reset. The reset changes the cycle snapshot used for future recommendations; past log records remain intact.
+      </div>
+    </section>
+
+    <section class="card" id="wireframe" style="margin-top:18px;">
+      <h2>Wireframe</h2>
+      <div class="wireframe">
+        <div class="wf-row">
+          <div class="wf-box">
+            <div class="wf-title">Left Sidebar</div>
+            <div>Cycle selector</div>
+            <div>Week selector</div>
+            <div>Lift selector</div>
+            <div>Client list</div>
+            <div>Add client</div>
+            <div>Graduate team</div>
+            <div>Settings</div>
+          </div>
+          <div class="wf-box">
+            <div class="wf-title">Main Session Area</div>
+            <div>Session header</div>
+            <div>Day or lift view</div>
+            <div>Workout table</div>
+            <div>Accessory block</div>
+            <div>Progress / chart dialogs</div>
+          </div>
+        </div>
+
+        <div class="wf-row">
+          <div class="wf-box">
+            <div class="wf-title">Settings Dialog</div>
+            <div>Cycles tab</div>
+            <div>Cycle Client List</div>
+            <div>Cycle schedule</div>
+            <div>Week tab</div>
+            <div>Movements tab</div>
+          </div>
+          <div class="wf-box">
+            <div class="wf-title">Client Profile Modal</div>
+            <div>1RM + Weights</div>
+            <div>Week Assignments</div>
+            <div>Manual 1RM editor</div>
+            <div>Movement Recommendation Profiles</div>
+            <div>Reset TM protocol</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="audit-checklist" style="margin:18px 0 36px;">
+      <h2>Audit Checklist</h2>
+      <table>
+        <thead>
+          <tr><th>Check</th><th>What to verify</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Workout load</td><td>Top set weight = round(TM * week percentage) and TM = round(1RM * 0.9)</td></tr>
+          <tr><td>Cycle graduation</td><td>1RM snapshot is copied forward unchanged; TM increments by lift type</td></tr>
+          <tr><td>Membership edit</td><td>Adding/removing a client changes cycleMembership and may create cycle-scoped snapshots</td></tr>
+          <tr><td>Manual 1RM reset</td><td>Earlier cycle history stays intact; future cycles rebuild from the edited snapshot</td></tr>
+          <tr><td>Calibration</td><td>After a successful AMRAP-based update, needsCalibration becomes false</td></tr>
+          <tr><td>Custom movements</td><td>oneRepMax stays fixed; trainingMax advances by progressionIncrement unless held</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</body>
+</html>

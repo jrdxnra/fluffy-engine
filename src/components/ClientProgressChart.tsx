@@ -6,15 +6,14 @@ import {
   ChartContainer,
   ChartLegend,
   ChartLegendContent,
-  ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import type { HistoricalRecord, Lift } from "@/lib/types";
+import type { HistoricalRecord } from "@/lib/types";
 import { mround } from "@/lib/utils";
 
 type ClientProgressChartProps = {
   data: HistoricalRecord[];
-  lift: Lift;
+  movementLabel: string;
   currentOneRepMax?: number;
   currentTrainingMax?: number;
 };
@@ -33,7 +32,7 @@ const chartConfig = {
 
 export function ClientProgressChart({
   data,
-  lift,
+  movementLabel,
   currentOneRepMax,
   currentTrainingMax,
 }: ClientProgressChartProps) {
@@ -122,7 +121,7 @@ export function ClientProgressChart({
                 if (index !== 0) return null;
                 return (
                   <div className="flex flex-col gap-1 text-sm">
-                    <div className="font-bold text-foreground">{lift} - {format(new Date(props.payload.date), "PPP")}</div>
+                    <div className="font-bold text-foreground">{movementLabel} - {format(new Date(props.payload.date), "PPP")}</div>
                     <div className="text-xs text-muted-foreground">
                       Actual 1RM: {props.payload.actual1RM} lbs
                     </div>

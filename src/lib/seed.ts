@@ -107,7 +107,7 @@ const initialClients = [
   };
 });
 
-const initialHistoricalRecords: any[] = [];
+const initialHistoricalRecords: Array<Record<string, unknown>> = [];
 
 export async function seedDatabase() {
   try {

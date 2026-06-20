@@ -25,13 +25,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Trash2, Pencil, Check, X, ArrowUp, ArrowDown, Plus, Eye, EyeOff } from "lucide-react";
-import type { Client, CycleScheduleSettings, CycleSettings, GlobalMovementSettings, Lift } from "@/lib/types";
+import { Trash2, Pencil, Check, X, ArrowUp, ArrowDown, Plus, Eye, EyeOff } from "lucide-react";
+import type { Client, CycleScheduleSettings, CycleSettings, GlobalMovementSettings, Lift, MovementProgressionIncrement } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { getEffectiveCycleSchedule } from "@/lib/schedule";
-import { buildGlobalMovementSettings } from "@/lib/movement-profiles";
+import { buildGlobalMovementSettings, coerceMovementProgressionIncrement } from "@/lib/movement-profiles";
 
 const percentageDisplayOrder = ["warmup1", "warmup2", "workset1", "workset2", "workset3"] as const;
+
+const normalizeMovementKey = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
 
 type CycleInfo = {
   cycleNumber: number;
@@ -52,7 +54,7 @@ type ConfigSettingsDialogProps = {
   clients?: Client[];
   onUpdateCycleClientMembership?: (cycleNumber: number, selectedClientIds: string[]) => Promise<void>;
   globalMovementOptions?: string[];
-  onUpdateGlobalMovementOptions?: (movementOptions: string[]) => Promise<void>;
+  onUpdateGlobalMovementOptions?: (movementOptions: string[], initialSettings?: GlobalMovementSettings) => Promise<void>;
   globalMovementSettings?: GlobalMovementSettings;
   onUpdateGlobalMovementSettings?: (movementSettings: GlobalMovementSettings) => Promise<void>;
   triggerLabel?: string;
@@ -86,12 +88,12 @@ export function ConfigSettingsDialog({
   const [settingsTab, setSettingsTab] = useState<"cycles" | "weeks" | "movements" | "about">("cycles");
   const [selectedWeekKey, setSelectedWeekKey] = useState<string>(currentWeekKey || "week1");
   const [newMovementName, setNewMovementName] = useState("");
+  const [newMovementClass, setNewMovementClass] = useState<MovementProgressionIncrement>(5);
   const [selectedCycleClientIds, setSelectedCycleClientIds] = useState<string[]>([]);
-  const [isSavingCycleClients, setIsSavingCycleClients] = useState(false);
+  const [isSavingAll, setIsSavingAll] = useState(false);
   const [localGlobalMovementSettings, setLocalGlobalMovementSettings] = useState<GlobalMovementSettings>(() =>
     buildGlobalMovementSettings(globalMovementOptions, globalMovementSettings)
   );
-  const [isSavingMovementSettings, setIsSavingMovementSettings] = useState(false);
   const [localSettings, setLocalSettings] = useState<CycleSettings>(
     cycleSettingsByCycle[currentCycleNumber] || cycleSettingsByCycle[1] || {}
   );
@@ -108,10 +110,52 @@ export function ConfigSettingsDialog({
     "Saturday",
     "Sunday",
   ];
-  const protectedMovementNames = new Set(["Deadlift", "Bench", "Squat", "Press"]);
+  const protectedMovementNames = useMemo(
+    () => new Set(["Deadlift", "Bench", "Squat", "Press"]),
+    []
+  );
   const usedMovementNames = new Set(
     Object.values(cycleSchedulesByCycle).flatMap((schedule) => Object.values(schedule.liftDisplayNames || {}))
   );
+  const normalizedMovementSettings = useMemo(
+    () => buildGlobalMovementSettings(globalMovementOptions, globalMovementSettings),
+    [globalMovementOptions, globalMovementSettings]
+  );
+  const dedupedMovementState = useMemo(() => {
+    const chosenByDisplay = new Map<string, string>();
+
+    for (const option of globalMovementOptions) {
+      const displayName = (localGlobalMovementSettings[option]?.displayName || option).trim() || option;
+      const normalizedDisplay = normalizeMovementKey(displayName);
+      const existingKey = chosenByDisplay.get(normalizedDisplay);
+      if (!existingKey) {
+        chosenByDisplay.set(normalizedDisplay, option);
+        continue;
+      }
+
+      const existingIsProtected = protectedMovementNames.has(existingKey);
+      const currentIsProtected = protectedMovementNames.has(option);
+      if (!existingIsProtected && currentIsProtected) {
+        chosenByDisplay.set(normalizedDisplay, option);
+      }
+    }
+
+    const keptKeys = new Set(chosenByDisplay.values());
+    const options = globalMovementOptions.filter((option) => keptKeys.has(option));
+    const removed = globalMovementOptions.filter((option) => !keptKeys.has(option));
+    const settings: GlobalMovementSettings = {};
+
+    for (const option of options) {
+      const existingEntry = localGlobalMovementSettings[option];
+      const displayName = (existingEntry?.displayName || option).trim() || option;
+      settings[option] = {
+        classType: coerceMovementProgressionIncrement((existingEntry?.classType as number) || 5, 5),
+        displayName,
+      };
+    }
+
+    return { options, settings, removed };
+  }, [globalMovementOptions, localGlobalMovementSettings, protectedMovementNames]);
 
   // Sync localSettings when selected cycle settings change
   useEffect(() => {
@@ -119,8 +163,8 @@ export function ConfigSettingsDialog({
   }, [cycleSettingsByCycle, dialogCycleNumber]);
 
   useEffect(() => {
-    setLocalGlobalMovementSettings(buildGlobalMovementSettings(globalMovementOptions, globalMovementSettings));
-  }, [globalMovementOptions, globalMovementSettings]);
+    setLocalGlobalMovementSettings(normalizedMovementSettings);
+  }, [normalizedMovementSettings]);
 
   // Keep the dialog cycle anchored to app state only when closed.
   // While open, users can inspect/edit any cycle without being reset.
@@ -149,7 +193,7 @@ export function ConfigSettingsDialog({
         }
       }
     }
-  }, [cycles]);
+  }, [cycles, dialogCycleNumber, onCycleChange]);
 
   useEffect(() => {
     const selected = clients
@@ -182,7 +226,7 @@ export function ConfigSettingsDialog({
     console.log("🗑️  Confirming delete for cycle:", cycleToDelete);
     
     setIsDeleting(true);
-    let deletedCycleNumber = cycleToDelete;
+    const deletedCycleNumber = cycleToDelete;
     
     try {
       // Await the async delete operation
@@ -299,36 +343,42 @@ export function ConfigSettingsDialog({
 
   const handleAddMovementOption = async () => {
     const trimmed = newMovementName.trim();
+    const normalizedNew = normalizeMovementKey(trimmed);
+    const displayNameTaken = globalMovementOptions.some((option) => {
+      const currentDisplayName = (localGlobalMovementSettings[option]?.displayName || option).trim() || option;
+      return normalizeMovementKey(currentDisplayName) === normalizedNew;
+    });
     if (!trimmed || globalMovementOptions.includes(trimmed) || !onUpdateGlobalMovementOptions) return;
-    await onUpdateGlobalMovementOptions([...globalMovementOptions, trimmed]);
-    setNewMovementName("");
-  };
-
-  const handleMovementClassTypeChange = (movementName: string, classType: "upper" | "lower") => {
-    setLocalGlobalMovementSettings((prev) => ({
-      ...prev,
-      [movementName]: { classType },
-    }));
-  };
-
-  const handleSaveGlobalMovementSettings = async () => {
-    if (!onUpdateGlobalMovementSettings) return;
-    setIsSavingMovementSettings(true);
-    try {
-      await onUpdateGlobalMovementSettings(buildGlobalMovementSettings(globalMovementOptions, localGlobalMovementSettings));
-      toast({
-        title: "Global Settings Updated",
-        description: "Movement settings were saved.",
-      });
-    } catch (error) {
+    if (displayNameTaken) {
       toast({
         variant: "destructive",
-        title: "Save Failed",
-        description: String(error),
+        title: "Duplicate Movement Name",
+        description: `${trimmed} already exists as a movement name.`,
       });
-    } finally {
-      setIsSavingMovementSettings(false);
+      return;
     }
+    await onUpdateGlobalMovementOptions(
+      [...globalMovementOptions, trimmed],
+      {
+        [trimmed]: {
+          classType: newMovementClass,
+          displayName: trimmed,
+        },
+      }
+    );
+    setNewMovementName("");
+    setNewMovementClass(5);
+  };
+
+  const handleMovementClassTypeChange = (movementName: string, classType: MovementProgressionIncrement) => {
+    setLocalGlobalMovementSettings((prev) => ({
+      ...prev,
+      [movementName]: {
+        ...(prev[movementName] || {}),
+        classType,
+        displayName: (prev[movementName]?.displayName || movementName).trim(),
+      },
+    }));
   };
 
   const handleRemoveMovementOption = async (movementName: string) => {
@@ -344,27 +394,6 @@ export function ConfigSettingsDialog({
       }
       return prev.filter((id) => id !== clientId);
     });
-  };
-
-  const handleSaveCycleClients = async () => {
-    if (!onUpdateCycleClientMembership) return;
-
-    setIsSavingCycleClients(true);
-    try {
-      await onUpdateCycleClientMembership(dialogCycleNumber, selectedCycleClientIds);
-      toast({
-        title: "Cycle Client List Updated",
-        description: `Saved ${selectedCycleClientIds.length} clients in cycle ${dialogCycleNumber}.`,
-      });
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Save Failed",
-        description: String(error),
-      });
-    } finally {
-      setIsSavingCycleClients(false);
-    }
   };
 
   const handlePercentageChange = (
@@ -552,9 +581,67 @@ export function ConfigSettingsDialog({
   };
 
   const handleSave = () => {
-    onUpdateCycleSettings(dialogCycleNumber, localSettings);
-    setIsOpen(false);
+    void (async () => {
+      const currentSettings = cycleSettingsByCycle[dialogCycleNumber] || cycleSettingsByCycle[1] || {};
+      const currentClientIds = clients
+        .filter((client) => (client.cycleMembership || []).includes(dialogCycleNumber))
+        .map((client) => client.id)
+        .sort();
+      const nextClientIds = [...selectedCycleClientIds].sort();
+      const movementOptionsChanged = JSON.stringify(dedupedMovementState.options) !== JSON.stringify(globalMovementOptions);
+      const cycleSettingsChanged = JSON.stringify(localSettings) !== JSON.stringify(currentSettings);
+      const cycleClientsChanged = JSON.stringify(nextClientIds) !== JSON.stringify(currentClientIds);
+      const movementSettingsChanged = JSON.stringify(dedupedMovementState.settings) !== JSON.stringify(normalizedMovementSettings);
+
+      if (!cycleSettingsChanged && !cycleClientsChanged && !movementSettingsChanged && !movementOptionsChanged) {
+        setIsOpen(false);
+        return;
+      }
+
+      setIsSavingAll(true);
+      try {
+        if (cycleSettingsChanged) {
+          await Promise.resolve(onUpdateCycleSettings(dialogCycleNumber, localSettings));
+        }
+        if (cycleClientsChanged && onUpdateCycleClientMembership) {
+          await onUpdateCycleClientMembership(dialogCycleNumber, selectedCycleClientIds);
+        }
+        if (movementOptionsChanged && onUpdateGlobalMovementOptions) {
+          await onUpdateGlobalMovementOptions(dedupedMovementState.options, dedupedMovementState.settings);
+        } else if (movementSettingsChanged && onUpdateGlobalMovementSettings) {
+          await onUpdateGlobalMovementSettings(dedupedMovementState.settings);
+        }
+
+        if (dedupedMovementState.removed.length > 0) {
+          toast({
+            title: "Duplicate Movements Merged",
+            description: `Removed duplicates: ${dedupedMovementState.removed.join(", ")}.`,
+          });
+        }
+        setIsOpen(false);
+        toast({
+          title: "Settings Saved",
+          description: "Changed settings were saved successfully.",
+        });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "Save Failed",
+          description: String(error),
+        });
+      } finally {
+        setIsSavingAll(false);
+      }
+    })();
   };
+
+  const hasDirtyChanges =
+    JSON.stringify(localSettings) !== JSON.stringify(cycleSettingsByCycle[dialogCycleNumber] || cycleSettingsByCycle[1] || {}) ||
+    JSON.stringify([...selectedCycleClientIds].sort()) !== JSON.stringify(
+      clients.filter((client) => (client.cycleMembership || []).includes(dialogCycleNumber)).map((client) => client.id).sort()
+    ) ||
+    JSON.stringify(dedupedMovementState.settings) !== JSON.stringify(normalizedMovementSettings) ||
+    JSON.stringify(dedupedMovementState.options) !== JSON.stringify(globalMovementOptions);
 
   const isDeloadWeek = (weekKey: string, weekName: string) => {
     return weekName.toLowerCase().includes("deload");
@@ -681,7 +768,7 @@ export function ConfigSettingsDialog({
                     <Card>
                       <CardHeader>
                         <CardTitle className="text-base">Accessories</CardTitle>
-                        <p className="text-xs text-muted-foreground">Use format: "2X10 Exercise Name"</p>
+                        <p className="text-xs text-muted-foreground">Use format: &quot;2X10 Exercise Name&quot;</p>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         {Lifts.map((lift) => (
@@ -911,16 +998,6 @@ export function ConfigSettingsDialog({
                       <p className="text-xs text-muted-foreground">
                         Selected: {selectedCycleClientIds.length} of {clients.length}
                       </p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => {
-                          void handleSaveCycleClients();
-                        }}
-                        disabled={isSavingCycleClients || !onUpdateCycleClientMembership}
-                      >
-                        {isSavingCycleClients ? "Saving..." : "Save Cycle Client List"}
-                      </Button>
                     </div>
                   </>
                 )}
@@ -1093,18 +1170,13 @@ export function ConfigSettingsDialog({
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Global Movement Library</CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  Add movement names here once, then reuse them in cycle schedule and graduation setup.
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2 rounded-md border p-3">
                   <p className="text-xs text-muted-foreground">
-                    Global movement settings apply app-wide. Client-specific 1RM and calibration data stays in each client profile.
+                    Add a movement once, choose its progression class up front, and reuse it everywhere. Client-specific 1RM and calibration data still live in each client profile.
                   </p>
-                </div>
-                <div className="flex items-end gap-2">
-                  <div className="flex-1 space-y-2">
+                </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_160px_auto] lg:items-end">
+                  <div className="space-y-2">
                     <Label htmlFor="global-movement-name">New Movement</Label>
                     <Input
                       id="global-movement-name"
@@ -1119,78 +1191,90 @@ export function ConfigSettingsDialog({
                       }}
                     />
                   </div>
-                  <Button type="button" variant="outline" onClick={() => void handleAddMovementOption()}>
+                  <div className="space-y-2">
+                    <Label htmlFor="global-movement-class">Class</Label>
+                    <Select
+                      value={newMovementClass.toString()}
+                      onValueChange={(value) => setNewMovementClass(Number(value) as MovementProgressionIncrement)}
+                    >
+                      <SelectTrigger id="global-movement-class">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="2.5">2.5 lbs</SelectItem>
+                        <SelectItem value="5">5 lbs</SelectItem>
+                        <SelectItem value="7.5">7.5 lbs</SelectItem>
+                        <SelectItem value="10">10 lbs</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button type="button" variant="outline" className="w-full lg:w-auto" onClick={() => void handleAddMovementOption()}>
                     Add
                   </Button>
                 </div>
                 <div className="space-y-2">
-                  {globalMovementOptions.map((movementName) => {
+                  {dedupedMovementState.options.map((movementName) => {
                     const isProtected = protectedMovementNames.has(movementName);
                     const isUsed = usedMovementNames.has(movementName);
-                    const movementSetting = localGlobalMovementSettings[movementName] || { classType: "upper" as const };
+                    const movementSetting = localGlobalMovementSettings[movementName] || { classType: 5 as const };
+                    const movementClass = coerceMovementProgressionIncrement(movementSetting.classType as number, 5);
+                    const movementDisplayName = (movementSetting.displayName || movementName).trim();
                     return (
-                      <div key={movementName} className="rounded-md border p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-medium">{movementName}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {isProtected ? "Core tracked movement" : isUsed ? "Currently used in a cycle" : "Custom movement"}
-                            </div>
-                          </div>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="text-destructive hover:text-destructive"
-                            disabled={isProtected || isUsed}
-                            onClick={() => void handleRemoveMovementOption(movementName)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                      <div key={movementName} className="relative rounded-md border p-3 pr-11">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="absolute right-2 top-2 text-destructive hover:text-destructive"
+                          disabled={isProtected || isUsed}
+                          onClick={() => void handleRemoveMovementOption(movementName)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
 
-                        {movementSetting ? (
-                          <div className="mt-3 space-y-3 rounded-md border bg-muted/20 p-3">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-                              <div className="space-y-1">
-                                <Label className="text-xs">Movement Class</Label>
-                                <Select
-                                  value={movementSetting.classType}
-                                  onValueChange={(value) => handleMovementClassTypeChange(movementName, value as "upper" | "lower")}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="upper">Upper</SelectItem>
-                                    <SelectItem value="lower">Lower</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Progression Rule</Label>
-                                <div className="h-10 rounded-md border px-3 flex items-center text-sm text-muted-foreground">
-                                  {movementSetting.classType === "upper" ? "+5 progression family" : "+10 progression family"}
-                                </div>
-                              </div>
-                            </div>
+                        <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_160px] lg:items-end">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Movement Name</Label>
+                            <Input
+                              value={movementDisplayName}
+                              onChange={(event) => {
+                                const nextDisplayName = event.target.value;
+                                setLocalGlobalMovementSettings((prev) => ({
+                                  ...prev,
+                                  [movementName]: {
+                                    ...(prev[movementName] || { classType: movementClass }),
+                                    displayName: nextDisplayName,
+                                  },
+                                }));
+                              }}
+                            />
                           </div>
-                        ) : null}
+
+                          {movementSetting ? (
+                            <div className="space-y-1">
+                              <Label className="text-xs">Progression Class</Label>
+                              <Select
+                                value={movementClass.toString()}
+                                onValueChange={(value) => handleMovementClassTypeChange(movementName, Number(value) as MovementProgressionIncrement)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="2.5">2.5 lbs</SelectItem>
+                                  <SelectItem value="5">5 lbs</SelectItem>
+                                  <SelectItem value="7.5">7.5 lbs</SelectItem>
+                                  <SelectItem value="10">10 lbs</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
 
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void handleSaveGlobalMovementSettings()}
-                    disabled={!onUpdateGlobalMovementSettings || isSavingMovementSettings}
-                  >
-                    {isSavingMovementSettings ? "Saving..." : "Save Global Movement Settings"}
-                  </Button>
-                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1242,24 +1326,28 @@ export function ConfigSettingsDialog({
               <CardContent className="space-y-3 text-sm text-muted-foreground">
                 <ul className="list-disc pl-5 space-y-1">
                   <li>
-                    <span className="font-medium text-foreground">Per-week session modes:</span> Each week can now run
-                    its own mode (<span className="font-mono">Normal</span>, <span className="font-mono">Slide</span>, <span className="font-mono">Jack Shit</span>, <span className="font-mono">Pause Week</span>, <span className="font-mono">Recovery</span>) with legacy fallback support.
+                    <span className="font-medium text-foreground">Unified settings save:</span> Settings now use one
+                    dirty-aware <span className="font-mono">Save Changes</span> action that only writes what changed.
                   </li>
                   <li>
-                    <span className="font-medium text-foreground">Slide catch-up flow:</span> Slide now uses a
-                    <span className="font-mono"> Use From</span> source week for catch-up logic, and only shows valid prior-week options.
+                    <span className="font-medium text-foreground">Global movement library upgrade:</span> Add a movement
+                    with progression class up front, edit display names, and prevent duplicate movement naming collisions.
                   </li>
                   <li>
-                    <span className="font-medium text-foreground">Logged actuals in copy output:</span> Day/Lift copy now includes actual logged weight/reps so coach exports match performed work.
+                    <span className="font-medium text-foreground">Client tracked movement selection:</span> Each tracked
+                    lift can now be switched per client and per cycle (for example Deadlift to Hex Bar Deadlift).
                   </li>
                   <li>
-                    <span className="font-medium text-foreground">Stable prescribed display:</span> Entering actuals no longer mutates prescribed/top-set programming in the table.
+                    <span className="font-medium text-foreground">Calibration safeguards:</span> Switching to a custom
+                    movement now forces calibration-required by default unless that exact movement already has validated data.
                   </li>
                   <li>
-                    <span className="font-medium text-foreground">Reliable rep logging persistence:</span> Save now writes historical records and week snapshots with improved error surfacing and reload consistency.
+                    <span className="font-medium text-foreground">Auto TM from 1RM:</span> In client profiles, updating
+                    movement 1RM now auto-calculates TM at 90% (rounded to nearest 5).
                   </li>
                   <li>
-                    <span className="font-medium text-foreground">Cycle-safe data isolation:</span> Week assignments, mode maps, and logged sets remain scoped by cycle number, including after team graduation.
+                    <span className="font-medium text-foreground">Copy + workout alignment:</span> Day/lift copy text,
+                    calibration updates, and workout profile lookups now follow each client&apos;s selected movement mapping.
                   </li>
                 </ul>
               </CardContent>
@@ -1297,7 +1385,9 @@ export function ConfigSettingsDialog({
           <Button variant="outline" onClick={handleClose}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Save Settings</Button>
+          <Button onClick={handleSave} disabled={!hasDirtyChanges || isSavingAll}>
+            {isSavingAll ? "Saving..." : hasDirtyChanges ? "Save Changes" : "No Changes"}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

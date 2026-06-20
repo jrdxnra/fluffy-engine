@@ -1,6 +1,10 @@
 import { getAppSettings, getClients, saveAppSettings, updateClient } from '@/lib/data';
 import { isMaintenanceRouteEnabled, maintenanceRouteDisabledResponse } from '@/lib/maintenance-routes';
-import type { CycleSettings } from '@/lib/types';
+import type { Client, CycleSettings } from '@/lib/types';
+
+type ClientWithCycleSettings = Client & {
+  cycleSettingsByCycle?: Record<number, CycleSettings>;
+};
 
 const normalizeWarmups = (cycleSettings: CycleSettings): CycleSettings => {
   const normalized: CycleSettings = JSON.parse(JSON.stringify(cycleSettings));
@@ -46,15 +50,18 @@ export async function POST() {
     let clientsUpdated = 0;
 
     for (const client of clients) {
-      const clientCycleSettings = (client as any).cycleSettingsByCycle as Record<number, CycleSettings> | undefined;
+      const typedClient = client as ClientWithCycleSettings;
+      const clientCycleSettings = typedClient.cycleSettingsByCycle;
       if (!clientCycleSettings || Object.keys(clientCycleSettings).length === 0) continue;
 
       const normalizedClientCycleSettings = normalizeCycleSettingsByCycle(clientCycleSettings);
       if (JSON.stringify(clientCycleSettings) === JSON.stringify(normalizedClientCycleSettings)) continue;
 
-      await updateClient(client.id, {
-        cycleSettingsByCycle: normalizedClientCycleSettings as any,
-      } as any);
+      const legacyUpdates = {
+        cycleSettingsByCycle: normalizedClientCycleSettings,
+      } as unknown as Partial<Client>;
+
+      await updateClient(client.id, legacyUpdates);
       clientsUpdated += 1;
     }
 

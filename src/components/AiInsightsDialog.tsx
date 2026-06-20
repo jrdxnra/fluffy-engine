@@ -15,7 +15,6 @@ import type { Client, CycleSettings, HistoricalRecord, Lift } from "@/lib/types"
 import { getAiInsightsAction } from "@/app/ai-actions";
 import { Sparkles, LineChart as LineChartIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ProgressChartDialog } from "./ProgressChartDialog";
 
 type AiInsightsDialogProps = {
   client: Client | null;

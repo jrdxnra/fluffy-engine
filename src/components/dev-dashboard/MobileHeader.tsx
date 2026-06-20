@@ -39,6 +39,9 @@ export function MobileHeader({
   scrollLift,
   onTitleClick,
 }: MobileHeaderProps) {
+  void onViewModeChange;
+  void lift;
+  void onLiftChange;
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-sm">
       {/* Row 1: title (absolutely centered) | theme toggle */}

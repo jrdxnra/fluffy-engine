@@ -98,8 +98,8 @@ export async function POST() {
       let calibrationChanged = false;
 
       for (const lift of lifts) {
-        const previous = existingCalibrationForCycle[lift] || {};
-        if (previous.needsCalibration !== false) {
+        const previous = existingCalibrationForCycle[lift];
+        if (previous?.needsCalibration !== false) {
           calibrationChanged = true;
         }
         nextCalibrationForCycle[lift] = {

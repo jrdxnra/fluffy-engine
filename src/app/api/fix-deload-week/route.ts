@@ -1,5 +1,6 @@
 import { getAppSettings, saveAppSettings } from "@/lib/data";
 import { isMaintenanceRouteEnabled, maintenanceRouteDisabledResponse } from "@/lib/maintenance-routes";
+import type { CycleSettings } from "@/lib/types";
 
 const DELOAD_PERCENTAGES = {
   warmup1: 0.5,
@@ -23,29 +24,30 @@ export async function POST() {
   try {
     const { cycleSettingsByCycle, cycleNames } = await getAppSettings();
 
-    const fixedByCycle: Record<number, Record<string, unknown>> = {};
+    const fixedByCycle: Record<number, CycleSettings> = {};
     const fixedWeeks: string[] = [];
 
     for (const [cycleKey, cycleSettings] of Object.entries(cycleSettingsByCycle)) {
       const cycleNumber = Number(cycleKey);
-      const updatedCycle: Record<string, unknown> = {};
+      const updatedCycle: CycleSettings = {};
 
       for (const [weekKey, weekSettings] of Object.entries(cycleSettings || {})) {
+        const typedWeekSettings = weekSettings as CycleSettings[string];
         const weekNum = parseInt(weekKey.match(/\d+/)?.[0] || "0", 10);
         const isDeload =
-          (weekSettings as { name?: string }).name?.toLowerCase().includes("deload") ||
+          typedWeekSettings.name?.toLowerCase().includes("deload") ||
           weekNum === 4;
 
         if (isDeload) {
           // Restore correct deload percentages and reps, preserve everything else
           updatedCycle[weekKey] = {
-            ...weekSettings,
+            ...typedWeekSettings,
             percentages: { ...DELOAD_PERCENTAGES },
             reps: { ...DELOAD_REPS },
           };
           fixedWeeks.push(`Cycle ${cycleNumber} ${weekKey}`);
         } else {
-          updatedCycle[weekKey] = weekSettings;
+          updatedCycle[weekKey] = typedWeekSettings;
         }
       }
 
@@ -53,7 +55,7 @@ export async function POST() {
     }
 
     await saveAppSettings({
-      cycleSettingsByCycle: fixedByCycle as any,
+      cycleSettingsByCycle: fixedByCycle,
       cycleNames,
     });
 

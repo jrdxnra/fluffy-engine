@@ -7,21 +7,19 @@ import { Moon, Sun } from "lucide-react";
 const themeStorageKey = "sbdoh:theme";
 
 export function ThemeToggleButton() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "light";
 
     const storedTheme = window.localStorage.getItem(themeStorageKey);
     const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const initialTheme: "light" | "dark" =
-      storedTheme === "light" || storedTheme === "dark"
-        ? storedTheme
-        : (systemPrefersDark ? "dark" : "light");
+    if (storedTheme === "light" || storedTheme === "dark") return storedTheme;
+    return systemPrefersDark ? "dark" : "light";
+  });
 
-    document.documentElement.classList.toggle("dark", initialTheme === "dark");
-    setTheme(initialTheme);
-  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }, [theme]);
 
   const toggleTheme = () => {
     const nextTheme: "light" | "dark" = theme === "dark" ? "light" : "dark";

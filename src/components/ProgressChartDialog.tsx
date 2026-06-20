@@ -44,7 +44,7 @@ export function ProgressChartDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="h-[450px] w-full pt-4">
-            <ClientProgressChart data={chartData} lift={lift} />
+            <ClientProgressChart data={chartData} movementLabel={lift} />
         </div>
       </DialogContent>
     </Dialog>

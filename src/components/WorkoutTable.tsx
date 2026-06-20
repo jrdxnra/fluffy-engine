@@ -103,6 +103,11 @@ const SetCell = ({
   showPlates = true,
   showActualSummary = false,
 }: SetCellProps) => {
+  void clientId;
+  void lift;
+  void workoutDateIso;
+  void isTopSet;
+  void onSaveAll;
   const setKey = `${setIndex}`;
   const input = setInputs[setKey] || { weight: "", reps: "" };
   const hasRecommendedWeight = Number.isFinite(set.weight) && set.weight > 0;
@@ -227,7 +232,10 @@ const SetCell = ({
 
 export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, workoutDateIso, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false, onOpenProfile }: WorkoutTableProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [clientNotes, setClientNotes] = useState<{ [key: string]: string }>({});
+  const [, setClientNotes] = useState<{ [key: string]: string }>({});
+  void workoutDateIso;
+  void isBulkLoggingActive;
+  void onBulkLogToggle;
   const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({});
   const [rowInputs, setRowInputs] = useState<{ [key: string]: { [key: string]: { weight: string; reps: string } } }>({});
   const [savingRows, setSavingRows] = useState<{ [key: string]: boolean }>({});
@@ -446,7 +454,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
           setEntries: persistedSetEntries,
         });
       }
-    } catch (error) {
+    } catch {
       toast({ variant: "destructive", title: "Error", description: "Failed to save sets." });
     } finally {
       setSavingRows(prev => ({ ...prev, [clientId]: false }));
@@ -574,6 +582,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
     };
 
     void saveUpdatedRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bulkLogAction, workouts, currentWeek, currentCycleNumber, lift]);
 
   useEffect(() => {
@@ -590,6 +599,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
 
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedClientId]);
 
   const buildWorkoutText = (workout: CalculatedWorkout): string => {
@@ -696,6 +706,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
         <TableBody>
           {workouts.map((workout, rowIndex) => {
             const { client, sets, prTarget, sessionMode, effectiveWeekKey } = workout;
+            void prTarget;
             const isExpanded = expandedRows[client.id] || false;
             const isSaving = savingRows[client.id] || false;
             const visibleSetIndexes = getVisibleSetIndexes(sets);

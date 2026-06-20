@@ -2,7 +2,24 @@ import { getDocs, collection, doc, updateDoc, deleteDoc } from 'firebase/firesto
 import { db } from '@/lib/firebase';
 
 const lifts = ['Squat', 'Bench', 'Deadlift', 'Press'] as const;
+type LiftName = (typeof lifts)[number];
 const mround = (value: number) => Math.round(value / 5) * 5;
+
+interface ClientRepairDoc {
+  id: string;
+  name: string;
+  currentCycleNumber?: number;
+  oneRepMaxes?: Partial<Record<LiftName, number>>;
+  trainingMaxesByCycle?: Record<number, Partial<Record<LiftName, number>>>;
+  trainingMaxes?: Partial<Record<LiftName, number>>;
+}
+
+interface HistoricalRepairDoc {
+  id: string;
+  clientId: string;
+  lift: LiftName;
+  estimated1RM?: number;
+}
 
 interface RepairPlan {
   clientId: string;
@@ -24,15 +41,15 @@ export async function POST(req: Request) {
     const clientsSnapshot = await getDocs(collection(db, 'clients'));
     const historicalSnapshot = await getDocs(collection(db, 'historicalRecords'));
 
-    const clients: any[] = [];
-    const historical: any[] = [];
+    const clients: ClientRepairDoc[] = [];
+    const historical: HistoricalRepairDoc[] = [];
 
     clientsSnapshot.forEach((doc) => {
-      clients.push({ id: doc.id, ...doc.data() });
+      clients.push({ id: doc.id, ...(doc.data() as Omit<ClientRepairDoc, 'id'>) });
     });
 
     historicalSnapshot.forEach((doc) => {
-      historical.push({ id: doc.id, ...doc.data() });
+      historical.push({ id: doc.id, ...(doc.data() as Omit<HistoricalRepairDoc, 'id'>) });
     });
 
     if (action === 'plan') {
@@ -55,7 +72,7 @@ export async function POST(req: Request) {
   }
 }
 
-function planRepairs(clients: any[], historical: any[]) {
+function planRepairs(clients: ClientRepairDoc[], historical: HistoricalRepairDoc[]) {
   const repairs: RepairPlan[] = [];
 
   for (const client of clients) {
@@ -104,7 +121,7 @@ function planRepairs(clients: any[], historical: any[]) {
     if (oneRM === 0) continue;
 
     // Flag records with estimated 1RM > 250% of actual 1RM (data entry errors)
-    if (record.estimated1RM > oneRM * 2.5) {
+    if (typeof record.estimated1RM === 'number' && record.estimated1RM > oneRM * 2.5) {
       repairs.push({
         clientId: record.clientId,
         clientName: client.name,
@@ -117,9 +134,9 @@ function planRepairs(clients: any[], historical: any[]) {
   return Response.json({ repairs, totalRepairs: repairs.length }, { status: 200 });
 }
 
-async function executeRepairs(clients: any[], historical: any[]) {
+async function executeRepairs(clients: ClientRepairDoc[], historical: HistoricalRepairDoc[]) {
   const executed: RepairPlan[] = [];
-  let errors: string[] = [];
+  const errors: string[] = [];
 
   for (const client of clients) {
     const existingByCycle = client.trainingMaxesByCycle || {};
@@ -129,7 +146,7 @@ async function executeRepairs(clients: any[], historical: any[]) {
       .sort((a, b) => a - b);
 
     const maxCycle = Math.max(client.currentCycleNumber || 1, ...cycleNumbers, 1);
-    const updatedMaxes: any = { ...existingByCycle };
+    const updatedMaxes: Record<number, Partial<Record<LiftName, number>>> = { ...existingByCycle };
     const updatesForClient: string[] = [];
 
     for (const lift of lifts) {
@@ -168,8 +185,10 @@ async function executeRepairs(clients: any[], historical: any[]) {
           action: 'reset-training-maxes',
           details: updatesForClient.join('; '),
         });
-      } catch (e) {
-        errors.push(`Failed to update ${client.name}: ${e}`);
+      } catch (error) {
+        errors.push(
+          `Failed to update ${client.name}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
   }
@@ -182,7 +201,7 @@ async function executeRepairs(clients: any[], historical: any[]) {
     const oneRM = client.oneRepMaxes?.[record.lift] || 0;
     if (oneRM === 0) continue;
 
-    if (record.estimated1RM > oneRM * 2.5) {
+    if (typeof record.estimated1RM === 'number' && record.estimated1RM > oneRM * 2.5) {
       try {
         const recordRef = doc(db, 'historicalRecords', record.id);
         await deleteDoc(recordRef);
@@ -192,8 +211,10 @@ async function executeRepairs(clients: any[], historical: any[]) {
           action: 'delete-record',
           details: `${record.lift}: Deleted impossible record (estimated1RM: ${record.estimated1RM})`,
         });
-      } catch (e) {
-        errors.push(`Failed to delete record ${record.id}: ${e}`);
+      } catch (error) {
+        errors.push(
+          `Failed to delete record ${record.id}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
   }

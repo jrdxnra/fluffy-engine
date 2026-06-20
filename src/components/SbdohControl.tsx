@@ -6,6 +6,7 @@ import type {
   Client,
   CycleScheduleSettings,
   CycleSettings,
+  CycleWeekSettings,
   HistoricalRecord,
   Lift,
   CalculatedWorkout,
@@ -76,7 +77,7 @@ export function SbdohControl({
 }: SbdohControlProps) {
   const router = useRouter();
   const { toast } = useToast();
-  const { isAdminMode, toggleAdminMode, isLoaded: isAdminModeLoaded } = useAdminModeContext();
+  const { toggleAdminMode } = useAdminModeContext();
   
   // Set up keyboard shortcut for admin mode toggle (Ctrl+Alt+A on Chromebook/Linux, Cmd+Shift+A on Mac)
   useAdminModeKeyboardToggle(toggleAdminMode);
@@ -153,7 +154,7 @@ export function SbdohControl({
   });
   
   const [lift, setLift] = useState<Lift>("Deadlift");
-  const [viewMode, setViewMode] = useState<"lift" | "day">("day");
+  const [viewMode] = useState<"lift" | "day">("day");
   const [dayViewSlot, setDayViewSlot] = useState<"day1" | "day2">(() => {
     return getLiftDaySlot("Deadlift", initialCycleSchedulesByCycle[1]);
   });
@@ -273,6 +274,26 @@ export function SbdohControl({
     [cycleSchedulesByCycle, currentCycleNumber]
   );
 
+  const getClientMovementName = (client: Client, targetLift: Lift): string => {
+    return (
+      client.movementSelectionByCycle?.[currentCycleNumber]?.[targetLift] ||
+      getLiftDisplayName(targetLift, currentCycleSchedule)
+    ).trim();
+  };
+
+  const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const replaceLiftLabelInCopyText = (text: string, targetLift: Lift, movementName: string): string => {
+    if (!movementName || movementName === targetLift) return text;
+
+    const exactRegex = new RegExp(`\\b${escapeRegExp(targetLift)}\\b`, "g");
+    const upperRegex = new RegExp(`\\b${escapeRegExp(targetLift.toUpperCase())}\\b`, "g");
+
+    return text
+      .replace(exactRegex, movementName)
+      .replace(upperRegex, movementName.toUpperCase());
+  };
+
   useEffect(() => {
     if (hasAutoDateSelectionRef.current) return;
 
@@ -295,6 +316,7 @@ export function SbdohControl({
     setDayViewSlot(selection.daySlot);
     setAutoSelectedDay(selection.daySlot);
     hasAutoDateSelectionRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycleSettingsByCycle, cycleSchedulesByCycle]);
 
   const currentWeekSchedule = useMemo(
@@ -307,7 +329,10 @@ export function SbdohControl({
     [clients, currentCycleNumber]
   );
 
-  const ensureMutableCycle = (_operation: string): boolean => true;
+  const ensureMutableCycle = (operation?: string): boolean => {
+    void operation;
+    return true;
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -476,7 +501,7 @@ export function SbdohControl({
         resolveWorkoutWeekSettings(cycleSettings, effectiveWeekKey, assignedRepScheme) ||
         selectedWeekSettingsForClient;
 
-      const movementName = getLiftDisplayName(targetLift, currentCycleSchedule);
+      const movementName = getClientMovementName(client, targetLift);
       const movementProfile = getMovementProfileForCycle(client, currentCycleNumber, movementName);
 
       const workout = calculateWorkout(
@@ -534,6 +559,7 @@ export function SbdohControl({
 
   const calculatedWorkouts: CalculatedWorkout[] = useMemo(() => {
     return getCalculatedWorkoutsForLift(lift);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientsInSelectedCycle, lift, currentWeek, cycleSettings, historicalData, currentCycleNumber]);
 
   const dayLifts: Lift[] = getLiftsForDaySlot(dayViewSlot, currentCycleSchedule);
@@ -590,6 +616,7 @@ export function SbdohControl({
       acc[dayLift] = getCalculatedWorkoutsForLift(dayLift);
       return acc;
     }, {} as Record<Lift, CalculatedWorkout[]>);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientsInSelectedCycle, lift, currentWeek, cycleSettings, historicalData, currentCycleNumber, dayViewSlot]);
 
   const getEffectiveWeekForWorkouts = (workouts: CalculatedWorkout[]): string => {
@@ -615,13 +642,20 @@ export function SbdohControl({
       mapping[dayLift] = getEffectiveWeekForWorkouts(dayWorkoutsByLift[dayLift] || []);
     }
     return mapping;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayLifts, dayWorkoutsByLift, currentWeek]);
 
   const effectiveWeekByLiftForLiftView = useMemo(() => {
     return {
       [lift]: getEffectiveWeekForWorkouts(calculatedWorkouts),
     } as Partial<Record<Lift, string>>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lift, calculatedWorkouts, currentWeek]);
+
+  const buildLiftCopyTextForWorkout = (workout: CalculatedWorkout, defaultText: string): string => {
+    const movementName = getClientMovementName(workout.client, lift);
+    return replaceLiftLabelInCopyText(defaultText, lift, movementName);
+  };
 
   const buildDayCopyTextForWorkout = (workout: CalculatedWorkout, defaultText: string): string => {
     const dayWeekday = dayViewSlot === "day1" ? currentWeekSchedule.day1Weekday : currentWeekSchedule.day2Weekday;
@@ -649,12 +683,16 @@ export function SbdohControl({
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
-    return formatDayWorkoutCopyText({
-        dayHeader: `${dayLifts.map((item) => getLiftDisplayName(item, currentCycleSchedule)).join(" + ")} ${dayDateLabel}`,
+    const baseText = formatDayWorkoutCopyText({
+      dayHeader: `${dayLifts.map((item) => getClientMovementName(workout.client, item)).join(" + ")} ${dayDateLabel}`,
       dayLifts,
       liftEntries,
       fallbackText: defaultText,
     });
+
+    return dayLifts.reduce((text, dayLift) => {
+      return replaceLiftLabelInCopyText(text, dayLift, getClientMovementName(workout.client, dayLift));
+    }, baseText);
   };
 
   const handleAiInsight = (client: Client) => {
@@ -726,14 +764,15 @@ export function SbdohControl({
 
     const result = await updateClientProfileAction(normalizedClient.id, {
       oneRepMaxes: normalizedClient.oneRepMaxes,
-      oneRepMaxesByCycle: normalizedClient.oneRepMaxesByCycle as any,
+      oneRepMaxesByCycle: normalizedClient.oneRepMaxesByCycle,
       trainingMaxes: normalizedClient.trainingMaxes,
       trainingMaxesByCycle: normalizedClient.trainingMaxesByCycle,
-      initialWeights: normalizedClient.initialWeights as any,
+      initialWeights: normalizedClient.initialWeights,
       cycleMembership: normalizedClient.cycleMembership,
       weekAssignmentsByCycle: normalizedClient.weekAssignmentsByCycle,
-      sessionStateByCycle: normalizedClient.sessionStateByCycle as any,
-      movementProfilesByCycle: normalizedClient.movementProfilesByCycle as any,
+      sessionStateByCycle: normalizedClient.sessionStateByCycle,
+      movementSelectionByCycle: normalizedClient.movementSelectionByCycle,
+      movementProfilesByCycle: normalizedClient.movementProfilesByCycle,
     });
 
     if (!result.success) {
@@ -895,7 +934,9 @@ export function SbdohControl({
 
     const calibrationClient = clients.find((client) => client.id === clientId);
     const calibrationState = calibrationClient?.movementCalibrationsByCycle?.[currentCycleNumber]?.[lift];
-    const movementName = getLiftDisplayName(lift, currentCycleSchedule);
+    const movementName = calibrationClient
+      ? getClientMovementName(calibrationClient, lift)
+      : getLiftDisplayName(lift, currentCycleSchedule);
     const movementProfile = calibrationClient
       ? getMovementProfileForCycle(calibrationClient, currentCycleNumber, movementName)
       : null;
@@ -1004,12 +1045,12 @@ export function SbdohControl({
     );
 
     const calibrationUpdateResult = await updateClientProfileAction(clientId, {
-      oneRepMaxes: nextOneRepMaxes as any,
-      oneRepMaxesByCycle: nextOneRepMaxesByCycle as any,
-      trainingMaxes: nextTrainingMaxes as any,
-      trainingMaxesByCycle: nextTrainingMaxesByCycle as any,
-      movementCalibrationsByCycle: nextCalibrationState as any,
-      movementProfilesByCycle: nextMovementProfilesByCycle as any,
+      oneRepMaxes: nextOneRepMaxes,
+      oneRepMaxesByCycle: nextOneRepMaxesByCycle,
+      trainingMaxes: nextTrainingMaxes,
+      trainingMaxesByCycle: nextTrainingMaxesByCycle,
+      movementCalibrationsByCycle: nextCalibrationState,
+      movementProfilesByCycle: nextMovementProfilesByCycle,
     });
 
     if (!calibrationUpdateResult.success) {
@@ -1023,7 +1064,7 @@ export function SbdohControl({
 
     toast({
       title: "Calibration Updated",
-      description: `${getLiftDisplayName(lift, currentCycleSchedule)} updated from ${weekKey} sets.`,
+      description: `${movementName} updated from ${weekKey} sets.`,
     });
   };
 
@@ -1103,7 +1144,10 @@ export function SbdohControl({
     }
   };
 
-  const handleUpdateGlobalMovementOptions = async (nextMovementOptions: string[]) => {
+  const handleUpdateGlobalMovementOptions = async (
+    nextMovementOptions: string[],
+    initialSettings?: GlobalMovementSettings
+  ) => {
     const normalized = Array.from(
       new Set(
         ["Deadlift", "Bench", "Squat", "Press", ...nextMovementOptions]
@@ -1114,15 +1158,20 @@ export function SbdohControl({
 
     setGlobalMovementOptions(normalized);
 
+    const nextSettings = {
+      ...buildGlobalMovementSettings(normalized, globalMovementSettings),
+      ...(initialSettings || {}),
+    };
+
     const result = await saveCycleSettingsAction(
       cycleSettingsByCycle,
       cycleNames,
       cycleSchedulesByCycle,
       normalized,
-      buildGlobalMovementSettings(normalized, globalMovementSettings)
+      nextSettings
     );
 
-    setGlobalMovementSettings(buildGlobalMovementSettings(normalized, globalMovementSettings));
+    setGlobalMovementSettings(nextSettings);
 
     if (!result.success) {
       toast({
@@ -1214,8 +1263,8 @@ export function SbdohControl({
           cycleMembership: client.cycleMembership,
           weekAssignmentsByCycle: client.weekAssignmentsByCycle,
           trainingMaxesByCycle: client.trainingMaxesByCycle,
-          oneRepMaxesByCycle: client.oneRepMaxesByCycle as any,
-        } as any)
+          oneRepMaxesByCycle: client.oneRepMaxesByCycle,
+        })
       )
     );
 
@@ -1437,7 +1486,7 @@ export function SbdohControl({
       return match ? parseInt(match[0], 10) : 0;
     };
 
-    const getWorkset3Scheme = (settings: any): "5+" | "3+" | "1+" | "5" | "other" => {
+    const getWorkset3Scheme = (settings: CycleWeekSettings | undefined): "5+" | "3+" | "1+" | "5" | "other" => {
       const raw = settings?.reps?.workset3;
       if (raw === undefined || raw === null) return "other";
       const repText = String(raw).trim();
@@ -1453,24 +1502,46 @@ export function SbdohControl({
     const sourceWeeks = Object.entries(cycleSettings)
       .sort(([a], [b]) => parseWeekNumber(a) - parseWeekNumber(b));
 
-    const latestByScheme: Partial<Record<"5+" | "3+" | "1+" | "5", any>> = {};
+    const latestByScheme: Partial<Record<"5+" | "3+" | "1+" | "5", CycleWeekSettings>> = {};
     for (const [, weekSettings] of sourceWeeks) {
       const scheme = getWorkset3Scheme(weekSettings);
       if (scheme !== "other") {
-        latestByScheme[scheme] = JSON.parse(JSON.stringify(weekSettings));
+        latestByScheme[scheme] = JSON.parse(JSON.stringify(weekSettings)) as CycleWeekSettings;
       }
     }
 
-    const fallbackWeek1 = cycleSettings.week1 ? JSON.parse(JSON.stringify(cycleSettings.week1)) : undefined;
-    const fallbackWeek2 = cycleSettings.week2 ? JSON.parse(JSON.stringify(cycleSettings.week2)) : undefined;
-    const fallbackWeek3 = cycleSettings.week3 ? JSON.parse(JSON.stringify(cycleSettings.week3)) : undefined;
-    const fallbackWeek4 = cycleSettings.week4 ? JSON.parse(JSON.stringify(cycleSettings.week4)) : undefined;
+    const fallbackWeek1 = cycleSettings.week1 ? JSON.parse(JSON.stringify(cycleSettings.week1)) as CycleWeekSettings : undefined;
+    const fallbackWeek2 = cycleSettings.week2 ? JSON.parse(JSON.stringify(cycleSettings.week2)) as CycleWeekSettings : undefined;
+    const fallbackWeek3 = cycleSettings.week3 ? JSON.parse(JSON.stringify(cycleSettings.week3)) as CycleWeekSettings : undefined;
+    const fallbackWeek4 = cycleSettings.week4 ? JSON.parse(JSON.stringify(cycleSettings.week4)) as CycleWeekSettings : undefined;
+    const firstSourceWeek = sourceWeeks[0]?.[1]
+      ? (JSON.parse(JSON.stringify(sourceWeeks[0][1])) as CycleWeekSettings)
+      : fallbackWeek1;
+    const lastSourceWeek = sourceWeeks[sourceWeeks.length - 1]?.[1]
+      ? (JSON.parse(JSON.stringify(sourceWeeks[sourceWeeks.length - 1][1])) as CycleWeekSettings)
+      : fallbackWeek4;
+    const createDefaultWeek = (name: string): CycleWeekSettings => ({
+      name,
+      percentages: {
+        warmup1: 0.5,
+        warmup2: 0.6,
+        workset1: 0.65,
+        workset2: 0.75,
+        workset3: 0.85,
+      },
+      reps: {
+        workset1: 5,
+        workset2: 5,
+        workset3: "5+",
+      },
+      accessories: {},
+    });
 
     const newCycleSettings: CycleSettings = {
-      week1: (latestByScheme["5+"] || fallbackWeek1 || fallbackWeek4 || JSON.parse(JSON.stringify(sourceWeeks[0]?.[1] || {}))) as any,
-      week2: (latestByScheme["3+"] || fallbackWeek2 || fallbackWeek1 || JSON.parse(JSON.stringify(sourceWeeks[0]?.[1] || {}))) as any,
-      week3: (latestByScheme["1+"] || fallbackWeek3 || fallbackWeek2 || JSON.parse(JSON.stringify(sourceWeeks[0]?.[1] || {}))) as any,
-      week4: (latestByScheme["5"] || fallbackWeek4 || fallbackWeek1 || JSON.parse(JSON.stringify(sourceWeeks[sourceWeeks.length - 1]?.[1] || {}))) as any,
+      week1: latestByScheme["5+"] || fallbackWeek1 || fallbackWeek4 || firstSourceWeek || createDefaultWeek("Week 1"),
+      week2: latestByScheme["3+"] || fallbackWeek2 || fallbackWeek1 || firstSourceWeek || createDefaultWeek("Week 2"),
+      week3: latestByScheme["1+"] || fallbackWeek3 || fallbackWeek2 || firstSourceWeek || createDefaultWeek("Week 3"),
+      week4: latestByScheme["5"] || fallbackWeek4 || fallbackWeek1 || lastSourceWeek || createDefaultWeek("Week 4"),
     };
 
     if (newCycleSettings.week1) newCycleSettings.week1.name = "Week 1";
@@ -1766,7 +1837,7 @@ export function SbdohControl({
         console.error("Week duplicated, but failed to persist assignment updates:", assignmentsResult.message);
       }
 
-      const loggedResult = await updateClientLoggedSetInputsBulkAction(updatedLoggedPayload as any);
+      const loggedResult = await updateClientLoggedSetInputsBulkAction(updatedLoggedPayload);
       if (!loggedResult.success) {
         console.error("Week duplicated, but failed to persist logged set shifts:", loggedResult.message);
       }
@@ -1774,7 +1845,7 @@ export function SbdohControl({
       const sessionResults = await Promise.all(
         updatedSessionPayload.map((item) =>
           updateClientProfileAction(item.id, {
-            sessionStateByCycle: item.sessionStateByCycle as any,
+            sessionStateByCycle: item.sessionStateByCycle,
           })
         )
       );
@@ -1959,7 +2030,7 @@ export function SbdohControl({
         console.error("Week deleted, but failed to persist assignment cleanup.");
       }
 
-      const loggedResult = await updateClientLoggedSetInputsBulkAction(updatedLoggedPayload as any);
+      const loggedResult = await updateClientLoggedSetInputsBulkAction(updatedLoggedPayload);
       if (!loggedResult.success) {
         console.error("Week deleted, but failed to persist logged set shifts.");
       }
@@ -1967,7 +2038,7 @@ export function SbdohControl({
       const sessionResults = await Promise.all(
         updatedSessionPayload.map((item) =>
           updateClientProfileAction(item.id, {
-            sessionStateByCycle: item.sessionStateByCycle as any,
+            sessionStateByCycle: item.sessionStateByCycle,
           })
         )
       );
@@ -2080,8 +2151,28 @@ export function SbdohControl({
               onUpdateGlobalMovementOptions={handleUpdateGlobalMovementOptions}
               globalMovementSettings={globalMovementSettings}
               onUpdateGlobalMovementSettings={async (nextMovementSettings) => {
+                const syncedSchedules = Object.fromEntries(
+                  Object.entries(cycleSchedulesByCycle).map(([cycleKey, schedule]) => {
+                    const nextLiftDisplayNames = { ...(schedule.liftDisplayNames || {}) };
+
+                    for (const lift of ["Deadlift", "Bench", "Squat", "Press"] as Lift[]) {
+                      const nextDisplayName = nextMovementSettings[lift]?.displayName?.trim();
+                      if (nextDisplayName) {
+                        nextLiftDisplayNames[lift] = nextDisplayName;
+                      }
+                    }
+
+                    return [cycleKey, {
+                      ...schedule,
+                      liftDisplayNames: nextLiftDisplayNames,
+                    }] as const;
+                  })
+                ) as typeof cycleSchedulesByCycle;
+
                 setGlobalMovementSettings(nextMovementSettings);
-                const result = await saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, nextMovementSettings);
+                setCycleSchedulesByCycle(syncedSchedules);
+
+                const result = await saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, syncedSchedules, globalMovementOptions, nextMovementSettings);
                 if (!result.success) {
                   throw new Error(result.message);
                 }
@@ -2169,6 +2260,7 @@ export function SbdohControl({
                   currentCycleNumber={currentCycleNumber}
                   onRepRecordUpdate={handleRepRecordUpdate}
                   onPersistLoggedSets={handlePersistLoggedSets}
+                  buildCopyText={buildLiftCopyTextForWorkout}
                   layoutMode={sessionLayout}
                   bulkLogAction={bulkLogAction}
                   isBulkLoggingActive={activeBulkLogLift === lift}
@@ -2312,6 +2404,8 @@ export function SbdohControl({
         client={selectedClientForProfile}
         cycleSettings={cycleSettings}
         currentCycleSchedule={currentCycleSchedule}
+        cycleSchedulesByCycle={cycleSchedulesByCycle}
+        globalMovementOptions={globalMovementOptions}
         globalMovementSettings={globalMovementSettings}
         currentGlobalWeek={currentWeek}
         currentCycleNumber={currentCycleNumber}

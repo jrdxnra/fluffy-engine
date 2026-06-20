@@ -55,13 +55,14 @@ export type MovementCalibrationByCycle = {
   };
 };
 
-export type MovementClassType = 'upper' | 'lower';
+export type MovementProgressionIncrement = 2.5 | 5 | 7.5 | 10;
+export type MovementClassType = MovementProgressionIncrement | 'upper' | 'lower';
 
 export type MovementProfile = {
   oneRepMax: number;
   trainingMax: number;
   classType: MovementClassType;
-  progressionIncrement: 2.5 | 5 | 7.5 | 10;
+  progressionIncrement: MovementProgressionIncrement;
   progressionHoldActive?: boolean;
   movementCycleNumber: number;
   calibrationPhaseActive: boolean;
@@ -77,6 +78,7 @@ export type MovementProfilesByCycle = {
 
 export type GlobalMovementSetting = {
   classType: MovementClassType;
+  displayName?: string;
 };
 
 export type GlobalMovementSettings = {
@@ -109,6 +111,9 @@ export interface Client {
   sessionStateByCycle?: { [cycleNumber: number]: SessionStateForCycle };
   loggedSetInputsByCycle?: LoggedSetInputsByCycle;
   movementCalibrationsByCycle?: MovementCalibrationByCycle;
+  movementSelectionByCycle?: {
+    [cycleNumber: number]: Partial<Record<Lift, string>>;
+  };
   movementProfilesByCycle?: MovementProfilesByCycle;
   notes?: string; // Client notes
 };

@@ -140,6 +140,10 @@ export function SettingsSidebar({
 }: SettingsSidebarProps) {
     const { toast } = useToast();
     const { isAdminMode } = useAdminModeContext();
+  void onAiInsight;
+  void onLogAllReps;
+  void isBulkLoggingActive;
+  void isAdminMode;
     const [isGraduating, setIsGraduating] = useState(false);
     const [isGraduateModalOpen, setIsGraduateModalOpen] = useState(false);
     const [isWeekOptionsOpen, setIsWeekOptionsOpen] = useState(false);
@@ -649,13 +653,13 @@ export function SettingsSidebar({
                     <Label>Movement Day Assignments</Label>
                     <p className="text-xs text-muted-foreground">
                       Movement label is display-only. Progression math follows the tracked slot:
-                      Deadlift/Squat = lower (+10 per cycle), Bench/Press = upper (+5 per cycle).
+                      Deadlift/Squat = 10 lbs, Bench/Press = 5 lbs.
                     </p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {Lifts.map((movement) => (
                         <div key={`graduate-movement-day-${movement}`} className="space-y-2 rounded-md border border-border/70 p-2">
                           <Label className="text-xs text-muted-foreground">
-                            Track Slot: {movement} {movement === "Squat" || movement === "Deadlift" ? "(Lower +10)" : "(Upper +5)"}
+                            Track Slot: {movement} {movement === "Squat" || movement === "Deadlift" ? "(10 lbs)" : "(5 lbs)"}
                           </Label>
                           <Select
                             value={nextLiftDisplayNames[movement]}

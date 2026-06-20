@@ -102,6 +102,7 @@ export function MobileWorkoutCard({
   onOpenProfile,
 }: MobileWorkoutCardProps) {
   const { client, sets, prTarget, sessionMode, effectiveWeekKey } = workout;
+  void prTarget;
 
   const topSet = sets.find((s) => s.type === "Work Set" && s.set === 3);
   const targetReps = topSet ? parseInt(String(topSet.reps).replace("+", ""), 10) : null;

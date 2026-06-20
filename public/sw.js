@@ -24,7 +24,7 @@ self.addEventListener("message", (event) => {
       self.registration
         .showNotification("Rest timer done! 💪", {
           body: "Time to get back to work.",
-          icon: "/favicon.ico",
+          icon: "/favicon.svg",
           vibrate: [600, 200, 600, 200, 600, 200, 600],
           tag: "rest-timer",
           requireInteraction: false,

@@ -234,6 +234,12 @@
     <h2>6) Recent Feature Updates</h2>
     <div class="card">
       <ul class="checklist">
+        <li><strong>Unified settings save:</strong> Global settings now use one dirty-aware <code>Save Changes</code> flow that writes only changed sections.</li>
+        <li><strong>Global movement library controls:</strong> New movements are created with progression class at add-time, duplicate movement names are blocked, and display names are editable.</li>
+        <li><strong>Client movement selection (per cycle):</strong> In Profile → Core Lift Movement Profiles, each tracked lift can map to a different movement for that client/cycle.</li>
+        <li><strong>New movement calibration guard:</strong> Switching a tracked lift to a custom movement now forces <code>Calibration required</code> unless that exact movement already has validated profile data in that cycle.</li>
+        <li><strong>Auto TM from 1RM:</strong> Editing movement 1RM in client profile now auto-calculates TM at 90% and rounds to nearest 5.</li>
+        <li><strong>Copy/workout movement alignment:</strong> Workout profile lookup, calibration writes, and copy text now follow each client's selected movement name.</li>
         <li><strong>Per-week session modes:</strong> Every week can now run its own mode: <code>Normal</code>, <code>Slide</code>, <code>Jack Shit</code>, <code>Pause Week</code>, or <code>Recovery</code>, with legacy fallback support.</li>
         <li><strong>Slide catch-up flow:</strong> Slide uses <code>Use From</code> to pick a prior source week for catch-up behavior; invalid forward choices are hidden.</li>
         <li><strong>Copy output includes actuals:</strong> Exported day/lift text now includes logged weight/reps so handoffs match performed work.</li>
@@ -250,6 +256,8 @@
     <h2>7) Correct Usage Rules</h2>
     <ul class="checklist">
       <li>Use <strong>Day View</strong> for normal team sessions; switch to Lift View only when needed.</li>
+      <li>Cycle day assignments live in <strong>Settings → Cycle Schedule</strong>; client movement swaps live in <strong>Client Profile</strong>.</li>
+      <li>For new/custom movement swaps, keep calibration active until at least one valid top-set source is logged.</li>
       <li>Log actual performance in the week where it occurs; do not expect values to auto-copy to a duplicated new week.</li>
       <li>When in doubt, check the session header row for exact Day/Cycle/Week context.</li>
       <li>Use duplicate/delete week intentionally—those operations renumber data by design.</li>
@@ -266,6 +274,8 @@
       <h3>"Copy from Squat was showing Deadlift data"</h3>
       <p>Fixed. A stale closure was using the sidebar's active lift state instead of the card's own lift. Copy now always uses the correct lift.</p>      <h3>"Why are week values not in duplicated week?"</h3>
       <p>Intentional. New duplicated week starts blank so it represents a fresh training exposure.</p>
+      <h3>"I switched to a new movement and it still looked stable"</h3>
+      <p>Switching to a custom movement should now force calibration-required. If you are viewing old saved state, reselect the movement and save once to re-baseline under the new rules.</p>
       <h3>"Sidebar minimized and I lose context"</h3>
       <p>Use the inline session header + toggle row; this is the intended workflow during active sessions.</p>
     </div>
@@ -279,7 +289,7 @@
       <li>Confirm roster reorder persists after refresh.</li>
     </ul>
 
-    <p class="subtle">Last updated: 2026-04-13</p>
+    <p class="subtle">Last updated: 2026-06-20</p>
   </div>
 </body>
 </html>

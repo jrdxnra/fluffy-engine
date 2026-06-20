@@ -1,6 +1,4 @@
-import type { Client, GlobalMovementSettings, Lift, MovementClassType, MovementProfile } from "@/lib/types";
-
-export type MovementProgressionIncrement = 2.5 | 5 | 7.5 | 10;
+import type { Client, GlobalMovementSettings, Lift, MovementClassType, MovementProfile, MovementProgressionIncrement } from "@/lib/types";
 
 const supportedProgressionIncrements: MovementProgressionIncrement[] = [2.5, 5, 7.5, 10];
 
@@ -8,16 +6,35 @@ export const normalizeMovementName = (name: string): string => {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
 };
 
+export const coerceMovementProgressionIncrement = (
+  value: number,
+  fallback: MovementProgressionIncrement = 5
+): MovementProgressionIncrement => {
+  const matched = supportedProgressionIncrements.find((increment) => increment === value);
+  return matched || fallback;
+};
+
+export const normalizeMovementClassType = (classType: MovementClassType): MovementProgressionIncrement => {
+  if (classType === "upper") return 5;
+  if (classType === "lower") return 10;
+  return coerceMovementProgressionIncrement(classType, 5);
+};
+
 export const getMovementClassTypeForLift = (lift: Lift): MovementClassType => {
-  return lift === "Bench" || lift === "Press" ? "upper" : "lower";
+  return lift === "Bench" || lift === "Press" ? 5 : 10;
 };
 
 export const inferMovementClassTypeFromName = (movementName: string): MovementClassType => {
   const normalized = normalizeMovementName(movementName);
-  if (normalized.includes("bench") || normalized.includes("press") || normalized.includes("dip") || normalized.includes("push")) {
-    return "upper";
+  if (
+    normalized.includes("bench") ||
+    normalized.includes("press") ||
+    normalized.includes("dip") ||
+    normalized.includes("push")
+  ) {
+    return 5;
   }
-  return "lower";
+  return 10;
 };
 
 export const resolveMovementClassType = (
@@ -42,15 +59,7 @@ export const getDefaultMovementProgressionIncrement = (
   fallbackLift?: Lift
 ): MovementProgressionIncrement => {
   const classType = resolveMovementClassType(movementName, globalMovementSettings, fallbackLift);
-  return classType === "upper" ? 5 : 10;
-};
-
-export const coerceMovementProgressionIncrement = (
-  value: number,
-  fallback: MovementProgressionIncrement = 5
-): MovementProgressionIncrement => {
-  const matched = supportedProgressionIncrements.find((increment) => increment === value);
-  return matched || fallback;
+  return normalizeMovementClassType(classType);
 };
 
 export const buildGlobalMovementSettings = (
@@ -62,14 +71,19 @@ export const buildGlobalMovementSettings = (
   for (const movementName of movementOptions) {
     const trimmed = movementName.trim();
     if (!trimmed) continue;
+    const existingEntry = existing?.[trimmed];
     result[trimmed] = {
-      classType: resolveMovementClassType(trimmed, existing),
+      classType: normalizeMovementClassType(resolveMovementClassType(trimmed, existing)),
+      displayName: (existingEntry?.displayName || trimmed).trim(),
     };
   }
 
   for (const [movementName, value] of Object.entries(existing || {})) {
     if (!result[movementName]) {
-      result[movementName] = value;
+      result[movementName] = {
+        classType: normalizeMovementClassType(value.classType),
+        displayName: (value.displayName || movementName).trim(),
+      };
     }
   }
 

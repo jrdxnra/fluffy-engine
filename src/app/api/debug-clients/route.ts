@@ -1,4 +1,4 @@
-import { graduateTeam, getClients } from '@/lib/data';
+import { getClients } from '@/lib/data';
 
 export async function GET() {
   try {
