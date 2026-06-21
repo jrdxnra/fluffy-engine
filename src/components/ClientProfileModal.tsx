@@ -98,15 +98,12 @@ export function ClientProfileModal({
   availableCycleNumbers = [1, 2, 3, 4],
   historicalData,
   onUpdateClient,
-  onResetTrainingMax,
   onDeleteClient,
 }: ClientProfileModalProps) {
   const [localClient, setLocalClient] = useState<Client | null>(client);
   const [isSaving, setIsSaving] = useState(false);
-  const [isResettingTM, setIsResettingTM] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedCycle, setSelectedCycle] = useState<number>(currentCycleNumber);
-  const [resetCycleNumber, setResetCycleNumber] = useState<number>(currentCycleNumber);
   const { isAdminMode } = useAdminModeContext();
   void currentGlobalWeek;
 
@@ -123,6 +120,7 @@ export function ClientProfileModal({
 
   useEffect(() => {
     if (!client) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocalClient(null);
       return;
     }
@@ -135,12 +133,7 @@ export function ClientProfileModal({
       oneRepMaxes: cycleOneRepMaxes || client.oneRepMaxes,
     });
     setSelectedCycle(currentCycleNumber);
-    setResetCycleNumber(currentCycleNumber);
   }, [client, currentCycleNumber]);
-
-  useEffect(() => {
-    setResetCycleNumber(currentCycleNumber);
-  }, [currentCycleNumber]);
 
   const progressChartDataByLift = useMemo(() => {
     if (!localClient) {
@@ -758,13 +751,6 @@ export function ClientProfileModal({
     }
   };
 
-  const handleResetTM = async () => {
-    if (!localClient) return;
-    setIsResettingTM(true);
-    await onResetTrainingMax(localClient.id, resetCycleNumber);
-    setIsResettingTM(false);
-  };
-
   const handleClose = () => {
     if (!client) {
       setLocalClient(null);
@@ -807,88 +793,37 @@ export function ClientProfileModal({
 
           <TabsContent value="1rm-progress" className="space-y-4">
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Client Movement Profiles</CardTitle>
+              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="text-base">Core Lift Movement Profiles</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This screen shows the four tracked lifts for this client in the selected cycle.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    To change cycle day assignments (Day 1/Day 2 movement slots), use Settings {"->"} Cycle Schedule.
+                  </p>
+                </div>
+                <div className="space-y-1 sm:min-w-[220px]">
+                  <Label className="text-xs">View Cycle</Label>
+                  <Select value={selectedCycle.toString()} onValueChange={(value) => setSelectedCycle(parseInt(value, 10))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {cycleOptions.map((cycle) => (
+                        <SelectItem key={cycle} value={cycle.toString()}>
+                          Cycle {cycle}
+                          {cycle === currentCycleNumber ? " (Current)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-md border p-3 bg-muted/30 space-y-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Core Lift Movement Profiles</p>
-                      <p className="text-xs text-muted-foreground">
-                        This screen shows the four tracked lifts for this client in the selected cycle.
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        To change cycle day assignments (Day 1/Day 2 movement slots), use Settings {"->"} Cycle Schedule.
-                      </p>
-                    </div>
-                    {isAdminMode && (
-                      <div className="rounded-md border p-3 bg-background/60">
-                        <p className="text-xs font-medium">Stall / Reset Protocol</p>
-                        <p className="text-[11px] text-muted-foreground mt-1">
-                          Recalculate TM from recent performance starting at a selected cycle and apply forward.
-                        </p>
-                        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Reset Starting At Cycle</Label>
-                            <Select
-                              value={resetCycleNumber.toString()}
-                              onValueChange={(value) => setResetCycleNumber(parseInt(value, 10))}
-                            >
-                              <SelectTrigger className="w-[140px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {(() => {
-                                  const cycleSet = new Set<number>([currentCycleNumber]);
-                                  Object.keys(localClient.trainingMaxesByCycle || {}).forEach((cycleKey) => {
-                                    const n = parseInt(cycleKey, 10);
-                                    if (!Number.isNaN(n)) cycleSet.add(n);
-                                  });
-
-                                  return Array.from(cycleSet)
-                                    .sort((a, b) => a - b)
-                                    .map((cycle) => (
-                                      <SelectItem key={cycle} value={cycle.toString()}>
-                                        Cycle {cycle}
-                                      </SelectItem>
-                                    ));
-                                })()}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <Button
-                            variant="outline"
-                            onClick={handleResetTM}
-                            disabled={isResettingTM || isSaving}
-                          >
-                            {isResettingTM ? "Resetting TM..." : `Reset From Cycle ${resetCycleNumber} Forward`}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs">View Cycle</Label>
-                      <Select value={selectedCycle.toString()} onValueChange={(value) => setSelectedCycle(parseInt(value, 10))}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {cycleOptions.map((cycle) => (
-                            <SelectItem key={cycle} value={cycle.toString()}>
-                              Cycle {cycle}
-                              {cycle === currentCycleNumber ? " (Current)" : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    {trackedMovementEntries.map(({ name, profile, trackedLift }) => (
-                      <div key={trackedLift ? `tracked-${trackedLift}` : name} className="rounded-md border bg-background/80 p-3">
+                <div className="space-y-3">
+                  {trackedMovementEntries.map(({ name, profile, trackedLift }) => (
+                    <div key={trackedLift ? `tracked-${trackedLift}` : name} className="rounded-md border bg-background/80 p-3">
                         <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
                           <div className="space-y-1 sm:col-span-2">
                             <Label className="text-xs">Movement</Label>
@@ -978,9 +913,8 @@ export function ClientProfileModal({
                           </div>
                           <span className="text-xs text-muted-foreground">Cycle #{selectedCycle}</span>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {Lifts.map((lift) => {
@@ -1045,38 +979,26 @@ export function ClientProfileModal({
 
           <TabsContent value="week-assignments" className="space-y-4">
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <CardTitle className="text-base">Cycle Week Assignments</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Select Cycle</Label>
-                  <Select
-                    value={selectedCycle.toString()}
-                    onValueChange={(value) => setSelectedCycle(parseInt(value, 10))}
-                  >
+                <div className="space-y-1 sm:min-w-[220px]">
+                  <Label className="text-xs">View Cycle</Label>
+                  <Select value={selectedCycle.toString()} onValueChange={(value) => setSelectedCycle(parseInt(value, 10))}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {/* Generate cycle options based on client's cycles */}
-                      {localClient?.weekAssignmentsByCycle && 
-                        Object.keys(localClient.weekAssignmentsByCycle).map((cycleKey) => (
-                          <SelectItem key={cycleKey} value={cycleKey}>
-                            Cycle {cycleKey}
-                            {parseInt(cycleKey) === currentCycleNumber && " (Current)"}
-                          </SelectItem>
-                        ))}
-                      {/* Always show current cycle option even if not yet set */}
-                      {!localClient?.weekAssignmentsByCycle || !localClient.weekAssignmentsByCycle[selectedCycle] && (
-                        <SelectItem value={selectedCycle.toString()}>
-                          Cycle {selectedCycle} (Current)
+                      {cycleOptions.map((cycle) => (
+                        <SelectItem key={cycle} value={cycle.toString()}>
+                          Cycle {cycle}
+                          {cycle === currentCycleNumber ? " (Current)" : ""}
                         </SelectItem>
-                      )}
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
-
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <div className="space-y-2 rounded-md border p-3">
                   <Label className="text-sm font-medium">Client Cycle Membership</Label>
                   <p className="text-xs text-muted-foreground">Checked cycles are where this client appears.</p>
@@ -1221,7 +1143,7 @@ export function ClientProfileModal({
           {isAdminMode && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" disabled={isSaving || isResettingTM || isDeleting}>
+                <Button variant="destructive" disabled={isSaving || isDeleting}>
                   {isDeleting ? "Deleting..." : "Delete Client"}
                 </Button>
               </AlertDialogTrigger>
