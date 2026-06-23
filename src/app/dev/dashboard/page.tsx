@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { SbdohControl } from "@/components/SbdohControl";
-import { MobileDevShell } from "@/components/dev-dashboard/MobileDevShell";
+import { ControlShellClient } from "@/components/ControlShellClient";
 import { getAppSettings, getClients, getHistoricalData } from "@/lib/data";
 import { Weight } from "lucide-react";
 
@@ -33,17 +32,7 @@ async function DevContent() {
   };
 
   return (
-    <>
-      {/* Desktop: existing production shell — untouched */}
-      <div className="hidden md:flex md:flex-col md:flex-1">
-        <SbdohControl {...sharedProps} />
-      </div>
-
-      {/* Mobile: new mobile shell — isolated to <md */}
-      <div className="flex flex-col flex-1 md:hidden">
-        <MobileDevShell {...sharedProps} />
-      </div>
-    </>
+    <ControlShellClient {...sharedProps} />
   );
 }
 

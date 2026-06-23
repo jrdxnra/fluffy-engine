@@ -1,6 +1,5 @@
 import { Suspense } from "react";
-import { SbdohControl } from "@/components/SbdohControl";
-import { MobileDevShell } from "@/components/dev-dashboard/MobileDevShell";
+import { ControlShellClient } from "@/components/ControlShellClient";
 import { getAppSettings, getClients, getHistoricalData } from "@/lib/data";
 import { Weight } from "lucide-react";
 
@@ -23,16 +22,7 @@ async function ControlContent() {
   };
 
   return (
-    <>
-      {/* Desktop layout — hidden on mobile */}
-      <div className="hidden md:flex md:flex-col md:flex-1">
-        <SbdohControl {...sharedProps} />
-      </div>
-      {/* Mobile layout — hidden on desktop */}
-      <div className="flex flex-col flex-1 md:hidden">
-        <MobileDevShell {...sharedProps} />
-      </div>
-    </>
+    <ControlShellClient {...sharedProps} />
   );
 }
 

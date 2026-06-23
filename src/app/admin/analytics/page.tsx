@@ -7,11 +7,11 @@ export const revalidate = 0;
 type SearchParamValue = string | string[] | undefined;
 
 type AdminAnalyticsPageProps = {
-  searchParams?: Promise<Record<string, SearchParamValue>> | Record<string, SearchParamValue>;
+  searchParams?: Promise<Record<string, SearchParamValue>>;
 };
 
 export default async function AdminAnalyticsPage({ searchParams }: AdminAnalyticsPageProps) {
-  const resolvedSearchParams = await Promise.resolve(searchParams ?? {});
+  const resolvedSearchParams = (await searchParams) ?? {};
   const [clients, historicalData, appSettings] = await Promise.all([
     getClients(),
     getHistoricalData(),
