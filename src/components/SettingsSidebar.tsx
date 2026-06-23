@@ -145,6 +145,12 @@ export function SettingsSidebar({
   void isBulkLoggingActive;
   void isAdminMode;
     const [isGraduating, setIsGraduating] = useState(false);
+
+    const openAdminAnalytics = () => {
+      if (typeof window !== "undefined") {
+        window.location.assign("/admin/analytics");
+      }
+    };
     const [isGraduateModalOpen, setIsGraduateModalOpen] = useState(false);
     const [isWeekOptionsOpen, setIsWeekOptionsOpen] = useState(false);
     const [selectedWeekForOptions, setSelectedWeekForOptions] = useState<string | null>(null);
@@ -536,6 +542,14 @@ export function SettingsSidebar({
               </div>
             </SidebarMenuItem>
           ) : null}
+          <SidebarMenuItem>
+            <button
+              type="button"
+              className="h-8 w-full rounded-md opacity-0 pointer-events-auto"
+              aria-label="Open admin analytics"
+              onClick={openAdminAnalytics}
+            />
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton onClick={onAddClient} tooltip="Add New Client">
               <Plus /> <span>Add Client</span>

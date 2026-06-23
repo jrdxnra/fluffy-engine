@@ -2275,12 +2275,6 @@ export function SbdohControl({
                       <Rows3 className="h-4 w-4" />
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    className="h-8 w-20 rounded-md opacity-0"
-                    aria-label="Open admin analytics"
-                    onClick={() => router.push("/admin/analytics")}
-                  />
                 </div>
               </div>
             </div>
