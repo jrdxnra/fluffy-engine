@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   Client,
   CycleScheduleSettings,
@@ -76,6 +76,7 @@ export function SbdohControl({
   initialHistoricalData,
 }: SbdohControlProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const { toggleAdminMode } = useAdminModeContext();
@@ -408,6 +409,69 @@ export function SbdohControl({
     }
     setTheme(nextTheme);
   };
+
+  const openAdminAnalytics = (source: string) => {
+    if (typeof window !== "undefined") {
+      console.info("[nav-debug] openAdminAnalytics click", {
+        source,
+        href: window.location.href,
+        pathname: window.location.pathname,
+      });
+    }
+
+    router.push("/admin/analytics");
+
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => {
+        const reachedTarget = window.location.pathname === "/admin/analytics";
+        console.info("[nav-debug] openAdminAnalytics post-push", {
+          source,
+          reachedTarget,
+          href: window.location.href,
+          pathname: window.location.pathname,
+        });
+        if (!reachedTarget) {
+          console.warn("[nav-debug] openAdminAnalytics fallback hard-nav", { source });
+          window.location.assign("/admin/analytics");
+        }
+      }, 180);
+    }
+  };
+
+  const searchParamsString = searchParams.toString();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    console.info("[nav-debug] route", {
+      pathname,
+      search: searchParamsString,
+      href: window.location.href,
+    });
+
+    const handlePopState = () => {
+      console.info("[nav-debug] popstate", {
+        href: window.location.href,
+        pathname: window.location.pathname,
+        search: window.location.search,
+      });
+    };
+
+    const handlePageShow = () => {
+      console.info("[nav-debug] pageshow", {
+        href: window.location.href,
+        pathname: window.location.pathname,
+      });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("pageshow", handlePageShow);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, [pathname, searchParamsString]);
 
   useEffect(() => {
     const weekdayNames = [
@@ -2275,6 +2339,19 @@ export function SbdohControl({
                       <Rows3 className="h-4 w-4" />
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    className="h-8 w-20 rounded-md opacity-0 pointer-events-auto"
+                    aria-label="Open admin analytics"
+                    onPointerDown={() => {
+                      if (typeof window !== "undefined") {
+                        console.info("[nav-debug] hidden trigger pointerdown", {
+                          href: window.location.href,
+                        });
+                      }
+                    }}
+                    onClick={() => openAdminAnalytics("layout-toggle-hidden")}
+                  />
                 </div>
               </div>
             </div>

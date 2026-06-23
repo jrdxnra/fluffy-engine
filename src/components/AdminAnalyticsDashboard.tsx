@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   ArrowLeft,
@@ -64,6 +64,8 @@ export function AdminAnalyticsDashboard({
   initialHistoricalOpen = false,
 }: AdminAnalyticsDashboardProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const [isRefreshing, startRefreshTransition] = useTransition();
@@ -73,6 +75,29 @@ export function AdminAnalyticsDashboard({
   const [isHistoricalOpen, setIsHistoricalOpen] = useState(initialHistoricalOpen);
   const [navigatingRecordKey, setNavigatingRecordKey] = useState<string | null>(null);
   const [reviewingRecordKey, setReviewingRecordKey] = useState<string | null>(null);
+
+  const searchParamsString = searchParams.toString();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    console.info("[nav-debug] analytics route", {
+      pathname,
+      search: searchParamsString,
+      href: window.location.href,
+    });
+
+    const handlePopState = () => {
+      console.info("[nav-debug] analytics popstate", {
+        href: window.location.href,
+        pathname: window.location.pathname,
+        search: window.location.search,
+      });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [pathname, searchParamsString]);
 
   useEffect(() => {
     const now = new Date();
@@ -291,21 +316,19 @@ export function AdminAnalyticsDashboard({
 
     const sessionContext = resolveSessionContext(sourceClient, record);
 
-    const analyticsStateParams = new URLSearchParams();
-    if (activeClient) analyticsStateParams.set("ids", activeClient.clientId);
-    analyticsStateParams.set("active", activeClient.clientId);
-    analyticsStateParams.set("hist", isHistoricalOpen ? "1" : "0");
-    const analyticsStateUrl = analyticsStateParams.toString()
-      ? `/admin/analytics?${analyticsStateParams.toString()}`
-      : "/admin/analytics";
-    window.history.replaceState({}, "", analyticsStateUrl);
-
     const coachParams = new URLSearchParams();
     coachParams.set("layout", "vertical");
     coachParams.set("cycle", String(sessionContext.cycleNumber));
     coachParams.set("week", sessionContext.weekKey);
     coachParams.set("lift", record.lift);
     coachParams.set("clientId", activeClient.clientId);
+
+    console.info("[nav-debug] analytics -> coach session", {
+      from: typeof window !== "undefined" ? window.location.href : "server",
+      to: `/?${coachParams.toString()}`,
+      recordId: record.id,
+      clientId: activeClient.clientId,
+    });
 
     router.push(`/?${coachParams.toString()}`);
   };
@@ -343,21 +366,19 @@ export function AdminAnalyticsDashboard({
   };
 
   const navigateToCoachClient = (client: Client, preferredLift?: Lift) => {
-    const analyticsStateParams = new URLSearchParams();
-    analyticsStateParams.set("ids", client.id);
-    analyticsStateParams.set("active", client.id);
-    analyticsStateParams.set("hist", isHistoricalOpen ? "1" : "0");
-    const analyticsStateUrl = analyticsStateParams.toString()
-      ? `/admin/analytics?${analyticsStateParams.toString()}`
-      : "/admin/analytics";
-    window.history.replaceState({}, "", analyticsStateUrl);
-
     const coachParams = new URLSearchParams();
     coachParams.set("layout", "vertical");
     coachParams.set("cycle", String(client.currentCycleNumber || 1));
     coachParams.set("week", resolveCurrentWeekKey(client));
     coachParams.set("lift", preferredLift || "Deadlift");
     coachParams.set("clientId", client.id);
+
+    console.info("[nav-debug] analytics -> coach client", {
+      from: typeof window !== "undefined" ? window.location.href : "server",
+      to: `/?${coachParams.toString()}`,
+      clientId: client.id,
+      preferredLift: preferredLift || "Deadlift",
+    });
 
     router.push(`/?${coachParams.toString()}`);
   };
