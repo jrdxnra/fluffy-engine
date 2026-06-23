@@ -411,11 +411,18 @@ export function SbdohControl({
   };
 
   const openAdminAnalytics = (source: string) => {
+    const attemptId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
     if (typeof window !== "undefined") {
       console.info("[nav-debug] openAdminAnalytics click", {
+        attemptId,
         source,
         href: window.location.href,
         pathname: window.location.pathname,
+        search: window.location.search,
+        historyLength: window.history.length,
+        visibilityState: document.visibilityState,
+        activeElement: document.activeElement?.tagName || null,
       });
     }
 
@@ -425,16 +432,29 @@ export function SbdohControl({
       window.setTimeout(() => {
         const reachedTarget = window.location.pathname === "/admin/analytics";
         console.info("[nav-debug] openAdminAnalytics post-push", {
+          attemptId,
           source,
           reachedTarget,
           href: window.location.href,
           pathname: window.location.pathname,
+          search: window.location.search,
+          historyLength: window.history.length,
         });
         if (!reachedTarget) {
-          console.warn("[nav-debug] openAdminAnalytics fallback hard-nav", { source });
+          console.warn("[nav-debug] openAdminAnalytics fallback hard-nav", { attemptId, source });
           window.location.assign("/admin/analytics");
         }
       }, 180);
+
+      window.setTimeout(() => {
+        console.info("[nav-debug] openAdminAnalytics +1000ms", {
+          attemptId,
+          href: window.location.href,
+          pathname: window.location.pathname,
+          search: window.location.search,
+          historyLength: window.history.length,
+        });
+      }, 1000);
     }
   };
 
@@ -454,22 +474,33 @@ export function SbdohControl({
         href: window.location.href,
         pathname: window.location.pathname,
         search: window.location.search,
+        historyLength: window.history.length,
       });
     };
 
-    const handlePageShow = () => {
+    const handlePageShow = (event: PageTransitionEvent) => {
       console.info("[nav-debug] pageshow", {
         href: window.location.href,
         pathname: window.location.pathname,
+        persisted: event.persisted,
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      console.info("[nav-debug] visibilitychange", {
+        visibilityState: document.visibilityState,
+        href: window.location.href,
       });
     };
 
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [pathname, searchParamsString]);
 
@@ -2347,6 +2378,17 @@ export function SbdohControl({
                       if (typeof window !== "undefined") {
                         console.info("[nav-debug] hidden trigger pointerdown", {
                           href: window.location.href,
+                          pathname: window.location.pathname,
+                          search: window.location.search,
+                          historyLength: window.history.length,
+                        });
+                      }
+                    }}
+                    onMouseDown={() => {
+                      if (typeof window !== "undefined") {
+                        console.info("[nav-debug] hidden trigger mousedown", {
+                          href: window.location.href,
+                          pathname: window.location.pathname,
                         });
                       }
                     }}

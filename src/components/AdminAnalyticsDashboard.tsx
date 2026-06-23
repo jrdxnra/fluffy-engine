@@ -76,6 +76,37 @@ export function AdminAnalyticsDashboard({
   const [navigatingRecordKey, setNavigatingRecordKey] = useState<string | null>(null);
   const [reviewingRecordKey, setReviewingRecordKey] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    console.info("[nav-debug] analytics mount", {
+      href: window.location.href,
+      pathname: window.location.pathname,
+      search: window.location.search,
+      historyLength: window.history.length,
+    });
+
+    const onPopState = () => {
+      console.info("[nav-debug] analytics popstate", {
+        href: window.location.href,
+        pathname: window.location.pathname,
+        search: window.location.search,
+        historyLength: window.history.length,
+      });
+    };
+
+    window.addEventListener("popstate", onPopState);
+
+    return () => {
+      console.info("[nav-debug] analytics unmount", {
+        href: window.location.href,
+        pathname: window.location.pathname,
+        search: window.location.search,
+      });
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, []);
+
   const searchParamsString = searchParams.toString();
 
   useEffect(() => {
