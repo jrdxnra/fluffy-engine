@@ -147,12 +147,15 @@ export interface CycleSettings {
 };
 
 export interface HistoricalRecord {
+  id?: string;
   clientId: string;
   date: string; // ISO string
   lift: Lift;
   weight: number;
   reps: number;
   estimated1RM: number;
+  reviewedIssue?: boolean;
+  reviewedAt?: string;
 };
 
 export type WorkoutSet = {

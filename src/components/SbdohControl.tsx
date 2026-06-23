@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type {
   Client,
   CycleScheduleSettings,
@@ -76,6 +76,7 @@ export function SbdohControl({
   initialHistoricalData,
 }: SbdohControlProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { toggleAdminMode } = useAdminModeContext();
   
@@ -254,6 +255,7 @@ export function SbdohControl({
   const [activeBulkLogLift, setActiveBulkLogLift] = useState<Lift | null>(null);
   const [bulkLogAction, setBulkLogAction] = useState<BulkLogAction | null>(null);
   const hasAutoDateSelectionRef = useRef(false);
+  const appliedDeepLinkRef = useRef(false);
 
   // Compute available cycles from clients
   // Compute available cycles from cycleSettingsByCycle instead of from client data
@@ -273,6 +275,47 @@ export function SbdohControl({
     () => getEffectiveCycleSchedule(cycleSchedulesByCycle[currentCycleNumber]),
     [cycleSchedulesByCycle, currentCycleNumber]
   );
+  const deepLinkClientId = searchParams.get("clientId") || undefined;
+
+  useEffect(() => {
+    if (appliedDeepLinkRef.current) return;
+
+    const layoutParam = searchParams.get("layout");
+    const cycleParam = searchParams.get("cycle");
+    const weekParam = searchParams.get("week");
+    const liftParam = searchParams.get("lift");
+
+    if (!layoutParam && !cycleParam && !weekParam && !liftParam) {
+      return;
+    }
+
+    if (layoutParam === "vertical" || layoutParam === "horizontal") {
+      setSessionLayout(layoutParam);
+    }
+
+    const parsedCycle = cycleParam ? Number(cycleParam) : NaN;
+    const targetCycle = Number.isFinite(parsedCycle) && parsedCycle > 0 ? parsedCycle : 1;
+
+    if (Number.isFinite(parsedCycle) && parsedCycle > 0) {
+      setCurrentCycleNumber(parsedCycle);
+    }
+
+    if (weekParam) {
+      setCurrentWeek(weekParam);
+    }
+
+    const isLift = (value: string): value is Lift =>
+      value === "Deadlift" || value === "Bench" || value === "Squat" || value === "Press";
+
+    if (liftParam && isLift(liftParam)) {
+      setLift(liftParam);
+      const targetSchedule = getEffectiveCycleSchedule(initialCycleSchedulesByCycle[targetCycle]);
+      setDayViewSlot(getLiftDaySlot(liftParam, targetSchedule));
+    }
+
+    hasAutoDateSelectionRef.current = true;
+    appliedDeepLinkRef.current = true;
+  }, [searchParams, initialCycleSchedulesByCycle]);
 
   const getClientMovementName = (client: Client, targetLift: Lift): string => {
     return (
@@ -598,6 +641,11 @@ export function SbdohControl({
   const getLiftDateIso = (targetLift: Lift): string | undefined => {
     const slot = getLiftDaySlot(targetLift, currentCycleSchedule);
     return slot === "day1" ? currentWeekSchedule.day1Date : currentWeekSchedule.day2Date;
+  };
+  const getWorkoutDateIsoForWeek = (weekKey: string, targetLift: Lift): string | undefined => {
+    const weekSchedule = getCycleWeekSchedule(currentCycleSchedule, weekKey);
+    const slot = getLiftDaySlot(targetLift, currentCycleSchedule);
+    return slot === "day1" ? weekSchedule.day1Date : weekSchedule.day2Date;
   };
   const currentWeekLabel = cycleSettings[currentWeek]?.name || currentWeek;
   const currentWeekSchemeLabel = cycleSettings[currentWeek]?.reps?.workset3
@@ -2227,6 +2275,12 @@ export function SbdohControl({
                       <Rows3 className="h-4 w-4" />
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    className="h-8 w-20 rounded-md opacity-0"
+                    aria-label="Open admin analytics"
+                    onClick={() => router.push("/admin/analytics")}
+                  />
                 </div>
               </div>
             </div>
@@ -2255,6 +2309,7 @@ export function SbdohControl({
                   weekName={cycleSettings[currentWeek]?.name || currentWeek}
                   workoutDateLabel={getLiftDateLabel(lift)}
                   workoutDateIso={getLiftDateIso(lift)}
+                  resolveWorkoutDateIso={getWorkoutDateIsoForWeek}
                   cycleSettings={cycleSettings}
                   currentWeek={currentWeek}
                   currentCycleNumber={currentCycleNumber}
@@ -2267,6 +2322,7 @@ export function SbdohControl({
                   onBulkLogToggle={() => handleLogAllReps(lift)}
                   showWarmups={showWarmupsByLift[lift]}
                   onOpenProfile={handleClientProfile}
+                  initialFocusedClientId={deepLinkClientId}
                 />
                 <AccessoryDisplay
                   lift={lift}
@@ -2345,6 +2401,7 @@ export function SbdohControl({
                         weekName={cycleSettings[currentWeek]?.name || currentWeek}
                         workoutDateLabel={getLiftDateLabel(dayLift)}
                         workoutDateIso={getLiftDateIso(dayLift)}
+                        resolveWorkoutDateIso={getWorkoutDateIsoForWeek}
                         cycleSettings={cycleSettings}
                         currentWeek={currentWeek}
                         currentCycleNumber={currentCycleNumber}
@@ -2357,6 +2414,7 @@ export function SbdohControl({
                         onBulkLogToggle={() => handleLogAllReps(dayLift)}
                         showWarmups={showWarmupsByLift[dayLift]}
                         onOpenProfile={handleClientProfile}
+                        initialFocusedClientId={deepLinkClientId}
                       />
                     ) : (
                       <div className="h-0" />

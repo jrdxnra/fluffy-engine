@@ -7,9 +7,11 @@ import {
   doc,
   getDoc,
   getDocs,
+  query,
   setDoc,
   Timestamp,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { logDataConsistencyValidation, validateAllClientsDataConsistency } from './data-validation';
@@ -455,6 +457,7 @@ export const getHistoricalData = async (): Promise<HistoricalRecord[]> => {
     querySnapshot.forEach((docSnapshot) => {
       const data = docSnapshot.data();
       records.push({
+        id: docSnapshot.id,
         ...data,
         date: data.date instanceof Timestamp ? data.date.toDate().toISOString() : data.date,
       } as HistoricalRecord);
@@ -486,6 +489,122 @@ export const addHistoricalRecord = async (record: HistoricalRecord) => {
     return { id: docRef.id, ...record };
   } catch (error) {
     console.error('Error adding historical record:', error);
+    throw error;
+  }
+};
+
+export const upsertHistoricalRecord = async (record: HistoricalRecord) => {
+  try {
+    const sourceDate = new Date(record.date);
+    const sameUtcDay = (value: unknown) => {
+      const parsed =
+        value instanceof Timestamp
+          ? value.toDate()
+          : value instanceof Date
+            ? value
+            : typeof value === 'string'
+              ? new Date(value)
+              : null;
+
+      if (!parsed || Number.isNaN(parsed.getTime())) return false;
+
+      return (
+        parsed.getUTCFullYear() === sourceDate.getUTCFullYear() &&
+        parsed.getUTCMonth() === sourceDate.getUTCMonth() &&
+        parsed.getUTCDate() === sourceDate.getUTCDate()
+      );
+    };
+
+    const recordsRef = collection(db, 'historicalRecords');
+    const candidateQuery = query(
+      recordsRef,
+      where('clientId', '==', record.clientId),
+      where('lift', '==', record.lift)
+    );
+
+    const existingSnapshot = await getDocs(candidateQuery);
+    const recordToSave = {
+      ...record,
+      date: sourceDate,
+    };
+
+    const sameDayDocs = existingSnapshot.docs.filter((docSnapshot) => sameUtcDay(docSnapshot.data().date));
+
+    if (sameDayDocs.length === 0) {
+      const created = await addDoc(recordsRef, recordToSave);
+      return { id: created.id, ...record, mode: 'created' as const };
+    }
+
+    const matches = sameDayDocs.slice().sort((a, b) => {
+      const aDate = a.data().date;
+      const bDate = b.data().date;
+      const aTime = aDate instanceof Timestamp ? aDate.toMillis() : new Date(aDate).getTime();
+      const bTime = bDate instanceof Timestamp ? bDate.toMillis() : new Date(bDate).getTime();
+      return bTime - aTime;
+    });
+
+    const [primary, ...duplicates] = matches;
+    await updateDoc(primary.ref, recordToSave);
+
+    if (duplicates.length > 0) {
+      await Promise.all(duplicates.map((duplicate) => deleteDoc(duplicate.ref)));
+    }
+
+    return {
+      id: primary.id,
+      ...record,
+      mode: 'updated' as const,
+      removedDuplicates: duplicates.length,
+    };
+  } catch (error) {
+    console.error('Error upserting historical record:', error);
+    throw error;
+  }
+};
+
+export const deleteHistoricalRecordById = async (recordId: string) => {
+  try {
+    const recordRef = doc(db, 'historicalRecords', recordId);
+    await deleteDoc(recordRef);
+    return { success: true, id: recordId };
+  } catch (error) {
+    console.error('Error deleting historical record by id:', error);
+    throw error;
+  }
+};
+
+export const updateHistoricalRecordById = async (
+  recordId: string,
+  updates: Pick<HistoricalRecord, 'weight' | 'reps' | 'estimated1RM' | 'date'>
+) => {
+  try {
+    const recordRef = doc(db, 'historicalRecords', recordId);
+    await updateDoc(recordRef, {
+      weight: updates.weight,
+      reps: updates.reps,
+      estimated1RM: updates.estimated1RM,
+      date: new Date(updates.date),
+    });
+    return { success: true, id: recordId };
+  } catch (error) {
+    console.error('Error updating historical record by id:', error);
+    throw error;
+  }
+};
+
+export const updateHistoricalRecordReviewStateById = async (
+  recordId: string,
+  reviewedIssue: boolean
+) => {
+  try {
+    const recordRef = doc(db, 'historicalRecords', recordId);
+    await updateDoc(recordRef, {
+      reviewedIssue,
+      reviewedAt: reviewedIssue ? new Date().toISOString() : null,
+    });
+    return { success: true, id: recordId, reviewedIssue };
+  } catch (error) {
+    console.error('Error updating historical record review state by id:', error);
     throw error;
   }
 };

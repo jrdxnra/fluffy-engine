@@ -40,6 +40,7 @@ type WorkoutTableProps = {
   weekName: string;
   workoutDateLabel?: string;
   workoutDateIso?: string;
+  resolveWorkoutDateIso?: (weekKey: string, lift: Lift) => string | undefined;
   cycleSettings: CycleSettings;
   currentWeek: string;
   onRepRecordUpdate: (newRecord: HistoricalRecord) => void;
@@ -62,6 +63,7 @@ type WorkoutTableProps = {
   onBulkLogToggle?: () => void;
   showWarmups?: boolean;
   onOpenProfile?: (client: Client) => void;
+  initialFocusedClientId?: string;
 };
 
 type SetCellProps = {
@@ -169,7 +171,10 @@ const SetCell = ({
               disabled={isSaving}
             />
             <Input
-              type="number"
+              type="text"
+              inputMode="numeric"
+              maxLength={2}
+              pattern="[0-9]*"
               placeholder="reps"
               className="h-8 w-14 text-right text-sm font-code [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
               value={input.reps}
@@ -216,7 +221,10 @@ const SetCell = ({
             disabled={isSaving}
           />
           <Input
-            type="number"
+            type="text"
+            inputMode="numeric"
+            maxLength={2}
+            pattern="[0-9]*"
             placeholder="reps"
             className={`${isFocusedSize ? "h-9 w-16 text-sm" : "h-7 w-12 text-xs"} font-code [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
             value={input.reps}
@@ -228,10 +236,9 @@ const SetCell = ({
     </div>
   );
 };
-
-
-export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, workoutDateIso, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false, onOpenProfile }: WorkoutTableProps) {
+export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, workoutDateIso, resolveWorkoutDateIso, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false, onOpenProfile, initialFocusedClientId }: WorkoutTableProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const navFocusAppliedRef = useRef<string | null>(null);
   const [, setClientNotes] = useState<{ [key: string]: string }>({});
   void workoutDateIso;
   void isBulkLoggingActive;
@@ -285,6 +292,16 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
     }
   }, [workouts, focusedClientId]);
 
+  useEffect(() => {
+    if (!initialFocusedClientId) return;
+    if (navFocusAppliedRef.current === initialFocusedClientId) return;
+    if (!workouts.some((workout) => workout.client.id === initialFocusedClientId)) return;
+
+    setFocusedClientId(initialFocusedClientId);
+    setExpandedRows({ [initialFocusedClientId]: true });
+    navFocusAppliedRef.current = initialFocusedClientId;
+  }, [initialFocusedClientId, workouts]);
+
   const focusedIndex = focusedClientId
     ? workouts.findIndex((workout) => workout.client.id === focusedClientId)
     : -1;
@@ -326,13 +343,17 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
 
   const handleSetInputChange = (clientId: string, setIndex: number, field: "weight" | "reps", value: string) => {
     const setKey = `${setIndex}`;
+    const normalizedValue = field === "reps"
+      ? value.replace(/\D/g, "").slice(0, 2)
+      : value;
+
     setRowInputs(prev => ({
       ...prev,
       [clientId]: {
         ...(prev[clientId] || {}),
         [setKey]: {
           ...(prev[clientId]?.[setKey] || { weight: "", reps: "" }),
-          [field]: value
+          [field]: normalizedValue
         }
       }
     }));
@@ -354,6 +375,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
     effectiveWeekKey: string,
     persistedSetMap: LoggedSetMap,
     rowData: { [key: string]: { weight: string; reps: string } },
+    rowWorkoutDateIso: string | undefined,
     collapseOnSave = true,
   ) => {
     setSavingRows(prev => ({ ...prev, [clientId]: true }));
@@ -409,7 +431,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
       let logged = false;
       if (bestE1RM > 0) {
         try {
-          const result = await logRepRecordAction(clientId, lift, bestWeight, bestReps, workoutDateIso);
+          const result = await logRepRecordAction(clientId, lift, bestWeight, bestReps, rowWorkoutDateIso);
           if (result.success) {
             logged = true;
             onRepRecordUpdate({
@@ -516,7 +538,8 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
       [clientId]: nextRowData,
     }));
 
-    await persistRowData(clientId, sets, effectiveWeekKey, persistedSetMap, nextRowData, false);
+    const rowWorkoutDateIso = resolveWorkoutDateIso?.(effectiveWeekKey, lift) ?? workoutDateIso;
+    await persistRowData(clientId, sets, effectiveWeekKey, persistedSetMap, nextRowData, rowWorkoutDateIso, false);
   };
 
   const handleSaveRowInputs = async (
@@ -533,7 +556,8 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
       return;
     }
 
-    await persistRowData(clientId, sets, effectiveWeekKey, persistedSetMap, rowData);
+    const rowWorkoutDateIso = resolveWorkoutDateIso?.(effectiveWeekKey, lift) ?? workoutDateIso;
+    await persistRowData(clientId, sets, effectiveWeekKey, persistedSetMap, rowData, rowWorkoutDateIso);
   };
 
   const openAllRows = () => {

@@ -167,7 +167,7 @@ export async function logRepRecordAction(
 ) {
   "use server";
   try {
-    const { addHistoricalRecord } = await import("@/lib/data");
+    const { upsertHistoricalRecord } = await import("@/lib/data");
     const resolvedDate = workoutDateIso && /^\d{4}-\d{2}-\d{2}$/.test(workoutDateIso)
       ? `${workoutDateIso}T12:00:00.000Z`
       : new Date().toISOString();
@@ -181,8 +181,9 @@ export async function logRepRecordAction(
     };
     
     console.log("Server Action: Logging rep record", record);
-    await addHistoricalRecord(record);
+    await upsertHistoricalRecord(record);
     revalidatePath("/");
+    revalidatePath("/admin/analytics");
     return { success: true, message: "Workout logged.", loggedAt: resolvedDate };
   } catch (error) {
     console.error("Error logging rep record:", error);
@@ -657,6 +658,7 @@ export async function upsertClientLoggedSetEntriesAction(args: {
     });
 
     revalidatePath("/");
+    revalidatePath("/admin/analytics");
     return { success: true, message: "Logged set entries updated.", merged };
   } catch (error) {
     console.error("Error upserting logged set entries:", error);
