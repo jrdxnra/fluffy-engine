@@ -378,6 +378,15 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
     rowWorkoutDateIso: string | undefined,
     collapseOnSave = true,
   ) => {
+    const workout = workouts.find((item) => item.client.id === clientId);
+    const recommendedTrainingMax = workout?.trainingMax;
+    const topSet = sets.find((set) => set.type === "Work Set" && set.set === 3);
+    const recommendedTopSetReps = topSet
+      ? parseInt(String(topSet.reps).replace(/\D/g, ""), 10)
+      : undefined;
+    const recommendedTarget1RM = topSet && recommendedTopSetReps
+      ? Math.round(topSet.weight * (1 + recommendedTopSetReps / 30))
+      : undefined;
     setSavingRows(prev => ({ ...prev, [clientId]: true }));
     const loggedSetActuals: Record<number, { weight: number; reps: number }> = {};
     const persistedSetEntries: LoggedSetMap = {};
@@ -431,7 +440,19 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
       let logged = false;
       if (bestE1RM > 0) {
         try {
-          const result = await logRepRecordAction(clientId, lift, bestWeight, bestReps, rowWorkoutDateIso);
+          const result = await logRepRecordAction(
+            clientId,
+            lift,
+            bestWeight,
+            bestReps,
+            rowWorkoutDateIso,
+            {
+              trainingMax: recommendedTrainingMax,
+              topSetWeight: topSet?.weight,
+              topSetReps: recommendedTopSetReps,
+              target1RM: recommendedTarget1RM,
+            }
+          );
           if (result.success) {
             logged = true;
             onRepRecordUpdate({
@@ -441,6 +462,10 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
               weight: bestWeight,
               reps: bestReps,
               estimated1RM: bestE1RM,
+              recommendedTrainingMax,
+              recommendedTopSetWeight: topSet?.weight,
+              recommendedTopSetReps,
+              recommendedTarget1RM,
             });
           }
         } catch {

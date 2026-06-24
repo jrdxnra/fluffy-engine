@@ -15,7 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { logDataConsistencyValidation, validateAllClientsDataConsistency } from './data-validation';
-import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement } from './movement-profiles';
+import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForLift } from './movement-profiles';
 import { getEffectiveCycleMembership, withCycleAdded } from './cycle-membership';
 import { inferCycleMembershipForBackfill } from './cycle-membership';
 
@@ -648,10 +648,20 @@ export const graduateTeam = async (
 
     const noIncrementLiftSet = new Set(options?.noIncrementLifts || []);
     const calibrationLiftSet = new Set(options?.calibrationLifts || []);
+    const appSettings = await getAppSettings();
 
     const result = clients.map((client) => {
       const currentCycle = client.currentCycleNumber || 1;
       const nextCycle = currentCycle + 1;
+      const currentCycleSchedule = appSettings.cycleSchedulesByCycle?.[currentCycle];
+
+      const heldLiftSet = new Set<Lift>();
+      (['Squat', 'Deadlift', 'Bench', 'Press'] as Lift[]).forEach((lift) => {
+        const profile = getMovementProfileForLift(client, currentCycle, lift, currentCycleSchedule);
+        if (profile?.progressionHoldActive || profile?.calibrationPhaseActive) {
+          heldLiftSet.add(lift);
+        }
+      });
 
       const currentCycleCalibration = client.movementCalibrationsByCycle?.[currentCycle] || {};
       const recentlyCalibratedLiftSet = new Set(
@@ -661,10 +671,10 @@ export const graduateTeam = async (
       );
 
       const incrementByLift: Record<Lift, number> = {
-        Squat: noIncrementLiftSet.has('Squat') || recentlyCalibratedLiftSet.has('Squat') ? 0 : 10,
-        Deadlift: noIncrementLiftSet.has('Deadlift') || recentlyCalibratedLiftSet.has('Deadlift') ? 0 : 10,
-        Bench: noIncrementLiftSet.has('Bench') || recentlyCalibratedLiftSet.has('Bench') ? 0 : 5,
-        Press: noIncrementLiftSet.has('Press') || recentlyCalibratedLiftSet.has('Press') ? 0 : 5,
+        Squat: noIncrementLiftSet.has('Squat') || recentlyCalibratedLiftSet.has('Squat') || heldLiftSet.has('Squat') ? 0 : 10,
+        Deadlift: noIncrementLiftSet.has('Deadlift') || recentlyCalibratedLiftSet.has('Deadlift') || heldLiftSet.has('Deadlift') ? 0 : 10,
+        Bench: noIncrementLiftSet.has('Bench') || recentlyCalibratedLiftSet.has('Bench') || heldLiftSet.has('Bench') ? 0 : 5,
+        Press: noIncrementLiftSet.has('Press') || recentlyCalibratedLiftSet.has('Press') || heldLiftSet.has('Press') ? 0 : 5,
       };
 
       const newTrainingMaxes = {

@@ -154,6 +154,10 @@ export interface HistoricalRecord {
   weight: number;
   reps: number;
   estimated1RM: number;
+  recommendedTrainingMax?: number;
+  recommendedTopSetWeight?: number;
+  recommendedTopSetReps?: number;
+  recommendedTarget1RM?: number;
   reviewedIssue?: boolean;
   reviewedAt?: string;
 };
@@ -171,6 +175,7 @@ export type WorkoutSet = {
 export type CalculatedWorkout = {
   client: Client;
   sets: WorkoutSet[];
+  trainingMax?: number;
   prTarget?: {
     reps: number;
     lastMonth1RM: number;

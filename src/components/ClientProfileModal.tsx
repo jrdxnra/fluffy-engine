@@ -36,6 +36,7 @@ import { Lifts } from "@/lib/types";
 import { getEffectiveCycleSchedule, getLiftDisplayName } from "@/lib/schedule";
 import { normalizeMovementName, resolveMovementClassType } from "@/lib/movement-profiles";
 import { getEffectiveCycleMembership } from "@/lib/cycle-membership";
+import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { ClientProgressChart } from "./ClientProgressChart";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
 import { getDefaultMovementProgressionIncrement } from "@/lib/movement-profiles";
@@ -205,10 +206,14 @@ export function ClientProfileModal({
 
     const isCalibrationRequired = (movementName: string, profile: MovementProfile, fallbackLift?: Lift) => {
       const matchedLift = resolveMatchedLift(movementName, fallbackLift);
-      const liftNeedsCalibration = matchedLift
-        ? Boolean(cycleCalibrationMap[matchedLift]?.needsCalibration)
-        : false;
-      return liftNeedsCalibration || !profile.sourceWeekKey;
+      if (!matchedLift) return !profile.sourceWeekKey;
+      return isLiftCalibrationRequired(
+        localClient,
+        selectedCycle,
+        matchedLift,
+        profile,
+        Boolean(cycleCalibrationMap[matchedLift]?.needsCalibration)
+      );
     };
 
     for (const lift of Lifts) {
@@ -702,7 +707,13 @@ export function ClientProfileModal({
           }
 
           const canExitCalibration = Boolean(existingProfile?.sourceWeekKey);
-          const liftNeedsCalibration = Boolean(localClient.movementCalibrationsByCycle?.[selectedCycle]?.[lift]?.needsCalibration);
+          const liftNeedsCalibration = isLiftCalibrationRequired(
+            localClient,
+            selectedCycle,
+            lift,
+            existingProfile,
+            Boolean(localClient.movementCalibrationsByCycle?.[selectedCycle]?.[lift]?.needsCalibration)
+          );
           mergedMovementProfilesForCycle[targetProfileName] = {
             ...(existingProfile || {}),
             oneRepMax: mainLiftOneRepMaxes[lift],
@@ -887,29 +898,27 @@ export function ClientProfileModal({
                             <span className="text-[11px] rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
                               {trackedLift} · {(selectedCycleSchedule?.liftDayAssignments?.[trackedLift] || "day1") === "day2" ? "Day 2" : "Day 1"}
                             </span>
-                            {profile.calibrationPhaseActive || !profile.sourceWeekKey ? (
-                              <span className="text-[11px] rounded-full bg-amber-100 text-amber-900 px-2 py-0.5">
-                                Calibration required
-                              </span>
-                            ) : null}
-                            <Button
+                            <button
                               type="button"
-                              variant={profile.calibrationPhaseActive ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => handleMovementCalibrationToggle(name, !profile.calibrationPhaseActive)}
-                              disabled={!profile.sourceWeekKey && !profile.calibrationPhaseActive}
-                            >
-                              {profile.calibrationPhaseActive ? "Calibrating" : "Stable"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant={profile.progressionHoldActive ? "default" : "outline"}
-                              size="sm"
+                              className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-60 ${
+                                profile.progressionHoldActive
+                                  ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                  : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                              }`}
                               onClick={() => handleMovementHoldToggle(name, !profile.progressionHoldActive)}
                               disabled={!profile.sourceWeekKey && profile.progressionHoldActive}
                             >
-                              {profile.progressionHoldActive ? "Hold" : "Progressing"}
-                            </Button>
+                              {profile.progressionHoldActive ? "Hold" : "Progress"}
+                            </button>
+                            {profile.calibrationPhaseActive || !profile.sourceWeekKey ? (
+                              <span className="text-[11px] rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-indigo-700 dark:text-indigo-300">
+                                Calibration required
+                              </span>
+                            ) : (
+                              <span className="text-[11px] rounded-full border border-slate-500/30 bg-slate-500/10 px-2 py-0.5 text-slate-700 dark:text-slate-300">
+                                Stable
+                              </span>
+                            )}
                           </div>
                           <span className="text-xs text-muted-foreground">Cycle #{selectedCycle}</span>
                         </div>
@@ -965,8 +974,6 @@ export function ClientProfileModal({
                           <ClientProgressChart
                             data={progressChartDataByLift[lift] || []}
                             movementLabel={displayMovementName}
-                            currentOneRepMax={actual1RM}
-                            currentTrainingMax={trainingMax}
                           />
                         </div>
                       </div>

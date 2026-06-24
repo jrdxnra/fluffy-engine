@@ -106,6 +106,9 @@ export function MobileWorkoutCard({
 
   const topSet = sets.find((s) => s.type === "Work Set" && s.set === 3);
   const targetReps = topSet ? parseInt(String(topSet.reps).replace("+", ""), 10) : null;
+  const recommendedTarget1RM = topSet && targetReps
+    ? Math.round(topSet.weight * (1 + targetReps / 30))
+    : undefined;
   const lastLiftAtRepRange = targetReps
     ? historicalData
         .filter(
@@ -189,7 +192,19 @@ export function MobileWorkoutCard({
       let logged = false;
       if (bestE1RM > 0) {
         try {
-          const result = await logRepRecordAction(client.id, lift, bestWeight, bestReps, workoutDateIso);
+          const result = await logRepRecordAction(
+            client.id,
+            lift,
+            bestWeight,
+            bestReps,
+            workoutDateIso,
+            {
+              trainingMax: workout.trainingMax,
+              topSetWeight: topSet?.weight,
+              topSetReps: targetReps ?? undefined,
+              target1RM: recommendedTarget1RM,
+            }
+          );
           if (result.success) {
             logged = true;
             onRepRecordUpdate({
@@ -199,6 +214,10 @@ export function MobileWorkoutCard({
               weight: bestWeight,
               reps: bestReps,
               estimated1RM: bestE1RM,
+              recommendedTrainingMax: workout.trainingMax,
+              recommendedTopSetWeight: topSet?.weight,
+              recommendedTopSetReps: targetReps ?? undefined,
+              recommendedTarget1RM,
             });
           }
         } catch {

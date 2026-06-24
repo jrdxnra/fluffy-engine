@@ -1,5 +1,6 @@
 import { Lifts } from "@/lib/types";
 import type { Client, HistoricalRecord, Lift, LoggedSetInputsByCycle, CycleScheduleSettings } from "@/lib/types";
+import { getMovementProfileForLift } from "@/lib/movement-profiles";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RECENT_WINDOW_DAYS = 90;
@@ -222,7 +223,22 @@ const getPreviousCycleNumber = (client: Client, currentCycleNumber: number): num
   return candidateCycles[0] ?? null;
 };
 
-const getCurrentTrainingMax = (client: Client, lift: Lift, currentCycleNumber: number): number => {
+const getCurrentTrainingMax = (
+  client: Client,
+  lift: Lift,
+  currentCycleNumber: number,
+  cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>
+): number => {
+  const profile = getMovementProfileForLift(
+    client,
+    currentCycleNumber,
+    lift,
+    cycleSchedulesByCycle?.[currentCycleNumber]
+  );
+  if (profile?.trainingMax && profile.trainingMax > 0) {
+    return profile.trainingMax;
+  }
+
   return (
     client.trainingMaxesByCycle?.[currentCycleNumber]?.[lift] ??
     client.trainingMaxes?.[lift] ??
@@ -230,9 +246,25 @@ const getCurrentTrainingMax = (client: Client, lift: Lift, currentCycleNumber: n
   );
 };
 
-const getPreviousTrainingMax = (client: Client, lift: Lift, currentCycleNumber: number): number | null => {
+const getPreviousTrainingMax = (
+  client: Client,
+  lift: Lift,
+  currentCycleNumber: number,
+  cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>
+): number | null => {
   const previousCycleNumber = getPreviousCycleNumber(client, currentCycleNumber);
   if (!previousCycleNumber) return null;
+
+  const previousProfile = getMovementProfileForLift(
+    client,
+    previousCycleNumber,
+    lift,
+    cycleSchedulesByCycle?.[previousCycleNumber]
+  );
+  if (previousProfile?.trainingMax && previousProfile.trainingMax > 0) {
+    return previousProfile.trainingMax;
+  }
+
   return client.trainingMaxesByCycle?.[previousCycleNumber]?.[lift] ?? null;
 };
 
@@ -241,6 +273,7 @@ const summarizeLift = (
   lift: Lift,
   historicalData: HistoricalRecord[],
   now: Date,
+  cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>,
 ): LiftAnalytics => {
   const currentCycleNumber = client.currentCycleNumber || 1;
   const records = getLiftRecords(historicalData, client.id, lift);
@@ -265,8 +298,8 @@ const summarizeLift = (
     ? Math.max(...priorRecords.map((record) => record.estimated1RM))
     : null;
 
-  const currentTrainingMax = getCurrentTrainingMax(client, lift, currentCycleNumber);
-  const previousTrainingMax = getPreviousTrainingMax(client, lift, currentCycleNumber);
+  const currentTrainingMax = getCurrentTrainingMax(client, lift, currentCycleNumber, cycleSchedulesByCycle);
+  const previousTrainingMax = getPreviousTrainingMax(client, lift, currentCycleNumber, cycleSchedulesByCycle);
   const trainingMaxDelta = previousTrainingMax === null ? null : currentTrainingMax - previousTrainingMax;
 
   const latestEstimated1RM = recentRecords[0]?.estimated1RM ?? null;
@@ -671,7 +704,7 @@ export const buildAdminAnalyticsReport = (
       return Lifts;
     })();
 
-    const liftAnalytics = liftsToAnalyze.map((lift) => summarizeLift(client, lift, historicalData, now));
+    const liftAnalytics = liftsToAnalyze.map((lift) => summarizeLift(client, lift, historicalData, now, cycleSchedulesByCycle));
     const improvingLifts = liftAnalytics.filter((item) => item.trend === "up").map((item) => item.lift);
     const plateauLifts = liftAnalytics.filter((item) => item.plateauRisk).map((item) => item.lift);
     const downtrendLifts = liftAnalytics.filter((item) => item.trend === "down").map((item) => item.lift);

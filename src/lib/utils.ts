@@ -149,7 +149,7 @@ export const calculateWorkout = (
       }
   }
 
-  return { client, sets, prTarget };
+  return { client, sets, prTarget, trainingMax: tm };
 };
 
 export const exportToCsv = (workouts: CalculatedWorkout[], lift: Lift, weekName: string) => {

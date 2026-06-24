@@ -23,7 +23,7 @@ import { AddClientSheet } from "@/components/AddClientSheet";
 import { AccessoryDisplay } from "@/components/AccessoryDisplay";
 import { AiInsightsDialog } from "@/components/AiInsightsDialog";
 import { calculateWorkout } from "@/lib/utils";
-import { getCycleWeekSchedule, getEffectiveCycleSchedule, getLiftDaySlot, getLiftsForDaySlot, getLiftDisplayName, getRecommendedSessionSelection } from "@/lib/schedule";
+import { getCycleWeekSchedule, getEffectiveCycleSchedule, getLiftDaySlot, getLiftsForDaySlot, getLiftDisplayName, getRecommendedSessionSelection, resolveClientMovementName } from "@/lib/schedule";
 import { ProgressChartDialog } from "@/components/ProgressChartDialog";
 import { ConfigSettingsDialog } from "@/components/ConfigSettingsDialog";
 import { ClientProfileModal } from "@/components/ClientProfileModal";
@@ -32,7 +32,8 @@ import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 import { normalizeCycleSettingsByCycle } from "@/lib/cycle-settings-normalizer";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
-import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForCycle, resolveMovementClassType } from "@/lib/movement-profiles";
+import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForLift, resolveMovementClassType } from "@/lib/movement-profiles";
+import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { getEffectiveCycleMembership, isClientInCycle, withCycleAdded, withCycleRemoved } from "@/lib/cycle-membership";
 import { Columns3, Moon, Rows3, Sun } from "lucide-react";
 import {
@@ -319,10 +320,7 @@ export function SbdohControl({
   }, [searchParams, initialCycleSchedulesByCycle]);
 
   const getClientMovementName = (client: Client, targetLift: Lift): string => {
-    return (
-      client.movementSelectionByCycle?.[currentCycleNumber]?.[targetLift] ||
-      getLiftDisplayName(targetLift, currentCycleSchedule)
-    ).trim();
+    return resolveClientMovementName(client, currentCycleNumber, targetLift, currentCycleSchedule);
   };
 
   const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -640,7 +638,7 @@ export function SbdohControl({
         selectedWeekSettingsForClient;
 
       const movementName = getClientMovementName(client, targetLift);
-      const movementProfile = getMovementProfileForCycle(client, currentCycleNumber, movementName);
+      const movementProfile = getMovementProfileForLift(client, currentCycleNumber, targetLift, currentCycleSchedule);
 
       const workout = calculateWorkout(
         client,
@@ -657,7 +655,13 @@ export function SbdohControl({
       );
 
       const calibrationState = client.movementCalibrationsByCycle?.[currentCycleNumber]?.[targetLift];
-      const needsCalibration = Boolean(calibrationState?.needsCalibration);
+      const needsCalibration = isLiftCalibrationRequired(
+        client,
+        currentCycleNumber,
+        targetLift,
+        movementProfile,
+        Boolean(calibrationState?.needsCalibration)
+      );
       const effectiveWeekNumber = parseInt((effectiveWeekKey.match(/\d+/)?.[0] || "0"), 10);
       const hasMovementOneRepMax = Boolean(movementProfile && movementProfile.oneRepMax > 0);
       const hidePrescribedForCalibration = needsCalibration && effectiveWeekNumber === 1 && !hasMovementOneRepMax;
@@ -1081,13 +1085,18 @@ export function SbdohControl({
       ? getClientMovementName(calibrationClient, lift)
       : getLiftDisplayName(lift, currentCycleSchedule);
     const movementProfile = calibrationClient
-      ? getMovementProfileForCycle(calibrationClient, currentCycleNumber, movementName)
+      ? getMovementProfileForLift(calibrationClient, currentCycleNumber, lift, currentCycleSchedule)
       : null;
     const cycleOneRepMax = calibrationClient
       ? (calibrationClient.oneRepMaxesByCycle?.[currentCycleNumber]?.[lift] ?? calibrationClient.oneRepMaxes[lift])
       : 0;
-    const shouldAttemptCalibration = Boolean(calibrationState?.needsCalibration)
-      || (movementProfile ? movementProfile.oneRepMax <= 0 : cycleOneRepMax <= 0);
+    // Only calibrate when no 1RM has been established yet for this movement/cycle.
+    // Once a 1RM is set it is frozen — the TM progresses each cycle via graduation,
+    // not by re-deriving from logged sets (stale needsCalibration flags are ignored).
+    const hasEstablishedOneRepMax = movementProfile
+      ? movementProfile.oneRepMax > 0
+      : cycleOneRepMax > 0;
+    const shouldAttemptCalibration = !hasEstablishedOneRepMax;
     if (!calibrationClient || !shouldAttemptCalibration) {
       return;
     }
@@ -1543,16 +1552,35 @@ export function SbdohControl({
           (targetLift) => previousCycleCalibration[targetLift]?.needsCalibration
         )
       );
+
+      const basePreviousCycleSchedule = getEffectiveCycleSchedule(
+        cycleSchedulesByCycle[previousCycle] || currentCycleSchedule
+      );
+      const previousCycleSchedule = {
+        ...basePreviousCycleSchedule,
+        liftDisplayNames: {
+          ...(basePreviousCycleSchedule.liftDisplayNames || {}),
+          ...(overrides.liftDisplayNames || {}),
+        },
+      };
+
+      const heldLiftSet = new Set<Lift>();
+      (['Squat', 'Deadlift', 'Bench', 'Press'] as Lift[]).forEach((targetLift) => {
+        const profile = getMovementProfileForLift(client, previousCycle, targetLift, previousCycleSchedule);
+        if (profile?.progressionHoldActive || profile?.calibrationPhaseActive) {
+          heldLiftSet.add(targetLift);
+        }
+      });
       
       // Get the current training maxes (from the cycle they're graduating from)
       const currentTrainingMaxes = client.trainingMaxesByCycle?.[previousCycle] ?? client.trainingMaxes;
       
       // Calculate new training maxes for the new cycle
       const newTrainingMaxes = {
-        Squat: calibrationLiftSet.has("Squat") ? 0 : currentTrainingMaxes.Squat + (recentlyCalibratedLiftSet.has("Squat") ? 0 : 10),
-        Deadlift: calibrationLiftSet.has("Deadlift") ? 0 : currentTrainingMaxes.Deadlift + (recentlyCalibratedLiftSet.has("Deadlift") ? 0 : 10),
-        Bench: calibrationLiftSet.has("Bench") ? 0 : currentTrainingMaxes.Bench + (recentlyCalibratedLiftSet.has("Bench") ? 0 : 5),
-        Press: calibrationLiftSet.has("Press") ? 0 : currentTrainingMaxes.Press + (recentlyCalibratedLiftSet.has("Press") ? 0 : 5),
+        Squat: calibrationLiftSet.has("Squat") ? 0 : currentTrainingMaxes.Squat + (recentlyCalibratedLiftSet.has("Squat") || heldLiftSet.has("Squat") ? 0 : 10),
+        Deadlift: calibrationLiftSet.has("Deadlift") ? 0 : currentTrainingMaxes.Deadlift + (recentlyCalibratedLiftSet.has("Deadlift") || heldLiftSet.has("Deadlift") ? 0 : 10),
+        Bench: calibrationLiftSet.has("Bench") ? 0 : currentTrainingMaxes.Bench + (recentlyCalibratedLiftSet.has("Bench") || heldLiftSet.has("Bench") ? 0 : 5),
+        Press: calibrationLiftSet.has("Press") ? 0 : currentTrainingMaxes.Press + (recentlyCalibratedLiftSet.has("Press") || heldLiftSet.has("Press") ? 0 : 5),
       };
 
       const nextOneRepMaxes = {

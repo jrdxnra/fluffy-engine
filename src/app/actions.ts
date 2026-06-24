@@ -163,7 +163,13 @@ export async function logRepRecordAction(
   lift: string,
   weight: number,
   reps: number,
-  workoutDateIso?: string
+  workoutDateIso?: string,
+  recommendation?: {
+    trainingMax?: number;
+    topSetWeight?: number;
+    topSetReps?: number;
+    target1RM?: number;
+  }
 ) {
   "use server";
   try {
@@ -178,6 +184,10 @@ export async function logRepRecordAction(
       weight,
       reps,
       estimated1RM: calculate1RM(weight, reps),
+      recommendedTrainingMax: recommendation?.trainingMax,
+      recommendedTopSetWeight: recommendation?.topSetWeight,
+      recommendedTopSetReps: recommendation?.topSetReps,
+      recommendedTarget1RM: recommendation?.target1RM,
     };
     
     console.log("Server Action: Logging rep record", record);

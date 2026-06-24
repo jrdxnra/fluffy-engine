@@ -1,4 +1,4 @@
-import type { CycleScheduleSettings, CycleSettings, DaySlot, Lift, Weekday } from "@/lib/types";
+import type { Client, CycleScheduleSettings, CycleSettings, DaySlot, Lift, Weekday } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 
 const weekdayOrder: Weekday[] = [
@@ -92,6 +92,19 @@ export const getLiftDisplayName = (
 ): string => {
   const effective = getEffectiveCycleSchedule(schedule);
   return effective.liftDisplayNames?.[lift] || lift;
+};
+
+export const resolveClientMovementName = (
+  client: Client,
+  cycleNumber: number,
+  lift: Lift,
+  schedule?: CycleScheduleSettings
+): string => {
+  return (
+    client.movementSelectionByCycle?.[cycleNumber]?.[lift] ||
+    getLiftDisplayName(lift, schedule) ||
+    lift
+  ).trim();
 };
 
 export const getCycleWeekSchedule = (

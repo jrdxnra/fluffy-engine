@@ -1,4 +1,5 @@
-import type { Client, GlobalMovementSettings, Lift, MovementClassType, MovementProfile, MovementProgressionIncrement } from "@/lib/types";
+import type { Client, CycleScheduleSettings, GlobalMovementSettings, Lift, MovementClassType, MovementProfile, MovementProgressionIncrement } from "@/lib/types";
+import { getLiftDisplayName, resolveClientMovementName } from "@/lib/schedule";
 
 const supportedProgressionIncrements: MovementProgressionIncrement[] = [2.5, 5, 7.5, 10];
 
@@ -104,4 +105,27 @@ export const getMovementProfileForCycle = (
 
   const byNormalized = Object.entries(profilesForCycle).find(([key]) => normalizeMovementName(key) === normalized);
   return byNormalized?.[1] || null;
+};
+
+export const getMovementProfileForLift = (
+  client: Client,
+  cycleNumber: number,
+  lift: Lift,
+  schedule?: CycleScheduleSettings
+): MovementProfile | null => {
+  const resolvedName = resolveClientMovementName(client, cycleNumber, lift, schedule);
+  const scheduleName = getLiftDisplayName(lift, schedule);
+  const candidates = [resolvedName, scheduleName, lift].filter(Boolean);
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    const normalized = normalizeMovementName(candidate);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+
+    const profile = getMovementProfileForCycle(client, cycleNumber, candidate);
+    if (profile) return profile;
+  }
+
+  return null;
 };

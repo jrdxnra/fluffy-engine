@@ -19,6 +19,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { buildAdminAnalyticsReport, type ClientAnalytics } from "@/lib/admin-analytics";
+import { isLiftCalibrationRequired } from "@/lib/calibration";
+import { getMovementProfileForLift } from "@/lib/movement-profiles";
+import { getEffectiveCycleSchedule, resolveClientMovementName } from "@/lib/schedule";
 import type { Client, HistoricalRecord, Lift, CycleScheduleSettings } from "@/lib/types";
 
 const statusBadgeClassNames: Record<string, string> = {
@@ -75,6 +78,7 @@ export function AdminAnalyticsDashboard({
   const [isHistoricalOpen, setIsHistoricalOpen] = useState(initialHistoricalOpen);
   const [navigatingRecordKey, setNavigatingRecordKey] = useState<string | null>(null);
   const [reviewingRecordKey, setReviewingRecordKey] = useState<string | null>(null);
+  const [updatingMovementKey, setUpdatingMovementKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -208,14 +212,138 @@ export function AdminAnalyticsDashboard({
     return clientById.get(activeClient.clientId) || null;
   }, [activeClient, clientById]);
 
-  const getMovementNameForClient = (client: ClientAnalytics, lift: Lift): string => {
+  const getMovementNameForClient = (client: ClientAnalytics, lift: Lift, cycleOverride?: number): string => {
     const sourceClient = clientById.get(client.clientId);
     if (!sourceClient) return lift;
-    const currentCycleNumber = client.currentCycleNumber || 1;
-    return (
-      sourceClient.movementSelectionByCycle?.[currentCycleNumber]?.[lift] ||
-      lift
-    ).trim();
+    const currentCycleNumber = cycleOverride || client.currentCycleNumber || 1;
+    const cycleSchedule = getEffectiveCycleSchedule(cycleSchedulesByCycle[currentCycleNumber]);
+    return resolveClientMovementName(sourceClient, currentCycleNumber, lift, cycleSchedule);
+  };
+
+  const getEffectiveCycleForDetail = (): number => {
+    if (typeof selectedCycleView === "number") return selectedCycleView;
+    return detailClient?.currentCycleNumber || activeSourceClient?.currentCycleNumber || 1;
+  };
+
+  const getLiftProfileStatus = (lift: Lift) => {
+    if (!detailClient || !activeSourceClient) {
+      return {
+        progressionHoldActive: false,
+        calibrationPhaseActive: false,
+      };
+    }
+
+    const cycleNumber = getEffectiveCycleForDetail();
+    const profile = getMovementProfileForLift(activeSourceClient, cycleNumber, lift, cycleSchedulesByCycle[cycleNumber]);
+    const calibrationEntry = activeSourceClient.movementCalibrationsByCycle?.[cycleNumber]?.[lift];
+    const calibrationRequired = isLiftCalibrationRequired(
+      activeSourceClient,
+      cycleNumber,
+      lift,
+      profile,
+      Boolean(calibrationEntry?.needsCalibration)
+    );
+
+    return {
+      progressionHoldActive: Boolean(profile?.progressionHoldActive),
+      calibrationPhaseActive: Boolean(profile?.calibrationPhaseActive || calibrationRequired),
+    };
+  };
+
+  const getHoldAdvisoryForLift = (
+    lift: Lift
+  ): { shouldAdvise: boolean; reason?: string; suggestedMode?: "hold" | "progress" } => {
+    if (!detailClient || !activeSourceClient) return { shouldAdvise: false };
+
+    const cycleNumber = getEffectiveCycleForDetail();
+    const profileStatus = getLiftProfileStatus(lift);
+    const records = localHistoricalData
+      .filter((record) => record.clientId === detailClient.clientId && record.lift === lift)
+      .filter((record) => resolveSessionContext(activeSourceClient, record).cycleNumber === cycleNumber)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const latestThreeRepTopSet = records.find(
+      (record) => record.recommendedTopSetReps === 3 && (record.recommendedTopSetWeight || 0) > 0
+    );
+
+    if (!latestThreeRepTopSet || !latestThreeRepTopSet.recommendedTopSetWeight) {
+      return { shouldAdvise: false };
+    }
+
+    const hitPrescribedTopWeight = latestThreeRepTopSet.weight >= latestThreeRepTopSet.recommendedTopSetWeight;
+    const reps = latestThreeRepTopSet.reps;
+
+    if (!profileStatus.progressionHoldActive) {
+      const shouldAdviseHold = hitPrescribedTopWeight && reps === 3;
+      if (!shouldAdviseHold) return { shouldAdvise: false };
+      return {
+        shouldAdvise: true,
+        suggestedMode: "hold",
+        reason: `3-week top set met at ${latestThreeRepTopSet.recommendedTopSetWeight} x 3. Consider hold for technique consolidation.`,
+      };
+    }
+
+    // Reverse advisory: client is currently on hold and is now clearly outperforming target.
+    // If recent exposures beat the prescribed top set target by reps (or load), recommend progress.
+    const holdRecords = records
+      .filter((record) => record.recommendedTopSetReps === 3 && (record.recommendedTopSetWeight || 0) > 0)
+      .slice(0, 3);
+    const strongExposures = holdRecords.filter((record) => {
+      const prescribedWeight = record.recommendedTopSetWeight || 0;
+      const prescribedReps = record.recommendedTopSetReps || 0;
+      const beatsByReps = record.weight >= prescribedWeight && record.reps >= prescribedReps + 1;
+      const beatsByLoad = record.weight >= prescribedWeight + 5 && record.reps >= prescribedReps;
+      return beatsByReps || beatsByLoad;
+    });
+
+    const shouldAdviseProgress = holdRecords.length >= 2 && strongExposures.length >= 2;
+    if (!shouldAdviseProgress) return { shouldAdvise: false };
+
+    return {
+      shouldAdvise: true,
+      suggestedMode: "progress",
+      reason: `On hold but beating 3-week top-set targets in ${strongExposures.length}/${holdRecords.length} recent exposures. Consider resuming progression.`,
+    };
+  };
+
+  const applyMovementStatus = async (lift: Lift, mode: "hold" | "progress") => {
+    if (!detailClient || !activeSourceClient) return;
+
+    const cycleNumber = getEffectiveCycleForDetail();
+    const key = `${detailClient.clientId}:${cycleNumber}:${lift}:${mode}`;
+    setUpdatingMovementKey(key);
+
+    try {
+      const response = await fetch("/api/admin-analytics/movement-status", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clientId: detailClient.clientId,
+          cycleNumber,
+          lift,
+          mode,
+        }),
+      });
+
+      const payload = await response.json();
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.message || "Failed to update movement status.");
+      }
+
+      toast({
+        title: "Movement status updated",
+        description: `${getMovementNameForClient(detailClient, lift, cycleNumber)} set to ${mode}.`,
+      });
+      router.refresh();
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Update failed",
+        description: error instanceof Error ? error.message : "Failed to update movement status.",
+      });
+    } finally {
+      setUpdatingMovementKey(null);
+    }
   };
 
   const availableCycles = useMemo(() => {
@@ -813,7 +941,15 @@ export function AdminAnalyticsDashboard({
                     <section>
                       <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Lift-by-lift snapshot</h3>
                       <div className="mt-3 overflow-hidden rounded-3xl border border-border/70">
-                        <table className="w-full text-sm">
+                        <table className="w-full table-fixed text-sm">
+                          <colgroup>
+                            <col className="w-[16%]" />
+                            <col className="w-[10%]" />
+                            <col className="w-[12%]" />
+                            <col className="w-[12%]" />
+                            <col className="w-[16%]" />
+                            <col className="w-[34%]" />
+                          </colgroup>
                           <thead className="bg-muted/40 text-left text-xs uppercase tracking-[0.18em] text-muted-foreground">
                             <tr>
                               <th className="px-4 py-3">Lift</th>
@@ -821,22 +957,72 @@ export function AdminAnalyticsDashboard({
                               <th className="px-4 py-3">TM delta</th>
                               <th className="px-4 py-3">e1RM delta</th>
                               <th className="px-4 py-3">Trend</th>
+                              <th className="px-4 py-3">Advisory & Controls</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {detailClient.liftAnalytics.map((lift) => (
-                              <tr key={`${detailClient.clientId}-${lift.lift}`} className="border-t border-border/70">
-                                <td className="px-4 py-3 font-medium text-foreground">{getMovementNameForClient(detailClient, lift.lift)}</td>
-                                <td className="px-4 py-3 text-muted-foreground">{lift.currentTrainingMax || "-"}</td>
-                                <td className="px-4 py-3 text-muted-foreground">{formatSigned(lift.trainingMaxDelta)}</td>
-                                <td className="px-4 py-3 text-muted-foreground">{formatSigned(lift.estimated1RMDelta)}</td>
-                                <td className="px-4 py-3">
-                                  <Badge variant="outline" className={trendClassName(lift.trend, lift.plateauRisk)}>
-                                    {lift.plateauRisk ? "Plateau watch" : trendLabel(lift.trend)}
-                                  </Badge>
-                                </td>
-                              </tr>
-                            ))}
+                            {detailClient.liftAnalytics.map((lift) => {
+                              const profileStatus = getLiftProfileStatus(lift.lift);
+                              const advisory = getHoldAdvisoryForLift(lift.lift);
+                              const nextMode: "hold" | "progress" = profileStatus.progressionHoldActive ? "progress" : "hold";
+                              const toggleKey = `${detailClient.clientId}:${getEffectiveCycleForDetail()}:${lift.lift}:${nextMode}`;
+
+                              return (
+                                <tr key={`${detailClient.clientId}-${lift.lift}`} className="border-t border-border/70">
+                                  <td className="px-4 py-3 font-medium text-foreground align-top">{getMovementNameForClient(detailClient, lift.lift, getEffectiveCycleForDetail())}</td>
+                                  <td className="px-4 py-3 text-muted-foreground align-top">{lift.currentTrainingMax || "-"}</td>
+                                  <td className="px-4 py-3 text-muted-foreground align-top">{formatSigned(lift.trainingMaxDelta)}</td>
+                                  <td className="px-4 py-3 text-muted-foreground align-top">{formatSigned(lift.estimated1RMDelta)}</td>
+                                  <td className="px-4 py-3 align-top">
+                                    <Badge variant="outline" className={trendClassName(lift.trend, lift.plateauRisk)}>
+                                      {lift.plateauRisk ? "Plateau watch" : trendLabel(lift.trend)}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-4 py-3 align-top">
+                                    <div className="space-y-2">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                          type="button"
+                                          className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-60 ${
+                                            profileStatus.progressionHoldActive
+                                              ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                              : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                                          }`}
+                                          disabled={updatingMovementKey === toggleKey}
+                                          onClick={() => void applyMovementStatus(lift.lift, nextMode)}
+                                        >
+                                          {updatingMovementKey === toggleKey ? "Saving..." : (profileStatus.progressionHoldActive ? "Hold" : "Progress")}
+                                        </button>
+                                        {profileStatus.calibrationPhaseActive ? (
+                                          <Badge variant="outline" className="border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">
+                                            Calibrating
+                                          </Badge>
+                                        ) : (
+                                          <Badge variant="outline" className="border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300">
+                                            Stable
+                                          </Badge>
+                                        )}
+                                        {advisory.shouldAdvise ? (
+                                          <Badge
+                                            variant="outline"
+                                            className={
+                                              advisory.suggestedMode === "progress"
+                                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                                                : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                            }
+                                          >
+                                            {advisory.suggestedMode === "progress" ? "Progress advised" : "Hold advised"}
+                                          </Badge>
+                                        ) : null}
+                                      </div>
+                                      {advisory.reason ? (
+                                        <p className="text-xs text-muted-foreground">{advisory.reason}</p>
+                                      ) : null}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>

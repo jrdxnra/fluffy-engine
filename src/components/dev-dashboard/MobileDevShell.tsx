@@ -34,12 +34,14 @@ import {
   getLiftsForDaySlot,
   getCycleWeekSchedule,
   getRecommendedSessionSelection,
+  resolveClientMovementName,
 } from "@/lib/schedule";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 import { formatBasicWorkoutCopyText, formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
-import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForCycle, resolveMovementClassType } from "@/lib/movement-profiles";
+import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForLift, resolveMovementClassType } from "@/lib/movement-profiles";
+import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { getEffectiveCycleMembership, isClientInCycle } from "@/lib/cycle-membership";
 import {
   upsertClientLoggedSetEntriesAction,
@@ -323,8 +325,8 @@ export function MobileDevShell({
         resolveWorkoutWeekSettings(cycleSettings, effectiveWeekKey, assignedScheme) ||
         effectiveWeekSettings;
 
-      const movementName = getLiftDisplayName(targetLift, currentCycleSchedule);
-      const movementProfile = getMovementProfileForCycle(client, currentCycleNumber, movementName);
+      const movementName = resolveClientMovementName(client, currentCycleNumber, targetLift, currentCycleSchedule);
+      const movementProfile = getMovementProfileForLift(client, currentCycleNumber, targetLift, currentCycleSchedule);
 
       const workout = calculateWorkout(
         client,
@@ -343,7 +345,14 @@ export function MobileDevShell({
       const calibrationState = client.movementCalibrationsByCycle?.[currentCycleNumber]?.[targetLift];
       const effectiveWeekNumber = parseInt((effectiveWeekKey.match(/\d+/)?.[0] || "0"), 10);
       const hasMovementOneRepMax = Boolean(movementProfile && movementProfile.oneRepMax > 0);
-      const hidePrescribedForCalibration = Boolean(calibrationState?.needsCalibration) && effectiveWeekNumber === 1 && !hasMovementOneRepMax;
+      const needsCalibration = isLiftCalibrationRequired(
+        client,
+        currentCycleNumber,
+        targetLift,
+        movementProfile,
+        Boolean(calibrationState?.needsCalibration)
+      );
+      const hidePrescribedForCalibration = needsCalibration && effectiveWeekNumber === 1 && !hasMovementOneRepMax;
 
       if (hidePrescribedForCalibration) {
         workout.sets = workout.sets.map((set) => ({
@@ -498,16 +507,22 @@ export function MobileDevShell({
 
     const calibrationClient = clients.find((c) => c.id === clientId);
     const calibrationState = calibrationClient?.movementCalibrationsByCycle?.[currentCycleNumber]?.[targetLift];
-    const movementName = getLiftDisplayName(targetLift, currentCycleSchedule);
+    const movementName = calibrationClient
+      ? resolveClientMovementName(calibrationClient, currentCycleNumber, targetLift, currentCycleSchedule)
+      : getLiftDisplayName(targetLift, currentCycleSchedule);
     const movementProfile = calibrationClient
-      ? getMovementProfileForCycle(calibrationClient, currentCycleNumber, movementName)
+      ? getMovementProfileForLift(calibrationClient, currentCycleNumber, targetLift, currentCycleSchedule)
       : null;
     const cycleOneRepMax = calibrationClient
       ? (calibrationClient.oneRepMaxesByCycle?.[currentCycleNumber]?.[targetLift] ?? calibrationClient.oneRepMaxes[targetLift])
       : 0;
-    const shouldAttemptCalibration = Boolean(calibrationState?.needsCalibration)
-      || currentCycleNumber === 1
-      || (movementProfile ? movementProfile.oneRepMax <= 0 : cycleOneRepMax <= 0);
+    // Only calibrate when no 1RM has been established yet for this movement/cycle.
+    // Once a 1RM is set it is frozen — the TM progresses each cycle via graduation,
+    // not by re-deriving from logged sets.
+    const hasEstablishedOneRepMax = movementProfile
+      ? movementProfile.oneRepMax > 0
+      : cycleOneRepMax > 0;
+    const shouldAttemptCalibration = !hasEstablishedOneRepMax;
 
     if (!calibrationClient || !shouldAttemptCalibration) {
       return;
@@ -551,7 +566,7 @@ export function MobileDevShell({
       [currentCycleNumber]: {
         ...(calibrationClient.movementCalibrationsByCycle?.[currentCycleNumber] || {}),
         [targetLift]: {
-          needsCalibration: true,
+          needsCalibration: false,
           calibratedAt: new Date().toISOString(),
           estimated1RM: bestEstimated1RM,
           sourceWeekKey: weekKey,

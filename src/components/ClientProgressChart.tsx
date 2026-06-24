@@ -14,8 +14,6 @@ import { mround } from "@/lib/utils";
 type ClientProgressChartProps = {
   data: HistoricalRecord[];
   movementLabel: string;
-  currentOneRepMax?: number;
-  currentTrainingMax?: number;
 };
 
 const chartConfig = {
@@ -23,8 +21,8 @@ const chartConfig = {
     label: "Actual 1RM",
     color: "hsl(var(--primary))",
   },
-  recommendedTM: {
-    label: "Recommended TM",
+  recommendedTarget: {
+    label: "Recommended 1RM",
     color: "hsl(var(--muted-foreground))",
   },
 } as const;
@@ -33,8 +31,6 @@ const chartConfig = {
 export function ClientProgressChart({
   data,
   movementLabel,
-  currentOneRepMax,
-  currentTrainingMax,
 }: ClientProgressChartProps) {
   const historicalPoints = (() => {
     // Deduplicate by calendar day — keep the best estimated1RM per day
@@ -52,35 +48,16 @@ export function ClientProgressChart({
         ...item,
         formattedDate: format(new Date(item.date), "MMM d"),
         actual1RM: item.estimated1RM,
-        recommendedTM: mround(item.estimated1RM * 0.9),
+        recommendedTarget:
+          item.recommendedTarget1RM ??
+          (item.recommendedTopSetWeight && item.recommendedTopSetReps
+            ? Math.round(item.recommendedTopSetWeight * (1 + item.recommendedTopSetReps / 30))
+            : item.recommendedTrainingMax ?? mround(item.estimated1RM * 0.9)),
         isCurrent: false,
       }));
   })();
 
-  const latestHistorical = historicalPoints[historicalPoints.length - 1];
-  const effectiveCurrentOneRepMax = currentOneRepMax ?? latestHistorical?.actual1RM ?? 0;
-  const effectiveCurrentTrainingMax = currentTrainingMax ?? latestHistorical?.recommendedTM ?? 0;
-  const shouldAppendCurrentPoint =
-    effectiveCurrentOneRepMax > 0 &&
-    (
-      !latestHistorical ||
-      latestHistorical.actual1RM !== effectiveCurrentOneRepMax ||
-      latestHistorical.recommendedTM !== effectiveCurrentTrainingMax
-    );
-
-  const currentPoint = {
-    date: new Date().toISOString(),
-    formattedDate: "Now",
-    actual1RM: effectiveCurrentOneRepMax,
-    recommendedTM: effectiveCurrentTrainingMax,
-    weight: null,
-    reps: null,
-    isCurrent: true,
-  };
-
-  const formattedData = shouldAppendCurrentPoint
-    ? [...historicalPoints, currentPoint]
-    : historicalPoints;
+  const formattedData = historicalPoints;
 
   return (
     <ChartContainer config={chartConfig} className="h-full w-full">
@@ -126,15 +103,13 @@ export function ClientProgressChart({
                       Actual 1RM: {props.payload.actual1RM} lbs
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      Recommended TM: {props.payload.recommendedTM} lbs
+                      Recommended 1RM: {props.payload.recommendedTarget} lbs
                     </div>
                     {props.payload.weight && props.payload.reps ? (
                       <div className="text-xs text-muted-foreground">
                         {props.payload.weight} lbs x {props.payload.reps} reps
                       </div>
-                    ) : (
-                      <div className="text-xs text-muted-foreground">Current profile settings</div>
-                    )}
+                    ) : null}
                   </div>
                 );
               }}
@@ -156,13 +131,13 @@ export function ClientProgressChart({
         />
         <Line
           type="monotone"
-          dataKey="recommendedTM"
-          stroke="var(--color-recommendedTM)"
+          dataKey="recommendedTarget"
+          stroke="var(--color-recommendedTarget)"
           strokeWidth={2}
           strokeDasharray="6 4"
           dot={{
             r: 3,
-            fill: "var(--color-recommendedTM)",
+            fill: "var(--color-recommendedTarget)",
             stroke: "hsl(var(--background))",
             strokeWidth: 2,
           }}
