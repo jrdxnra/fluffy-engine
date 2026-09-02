@@ -14,6 +14,7 @@ import type {
   SessionMode,
   LoggedSetMap,
   LoggedSetInputsByCycle,
+  TrainingGroup,
 } from "@/lib/types";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -35,16 +36,25 @@ import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
 import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForLift, resolveMovementClassType } from "@/lib/movement-profiles";
 import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { getEffectiveCycleMembership, isClientInCycle, withCycleAdded, withCycleRemoved } from "@/lib/cycle-membership";
+import {
+  buildGroupTransferUpdate,
+  getActiveClients,
+  getClientForTrainingGroup,
+  getClientsInTrainingGroup,
+  getGroupProgramStateFromClient,
+  getDefaultTrainingGroupId,
+  getTrainingGroupById,
+} from "@/lib/training-groups";
 import { Columns3, Moon, Rows3, Sun } from "lucide-react";
 import {
   deleteClientAction,
+  unassignClientsFromGroupAction,
   deleteCycleAction,
   resetClientTrainingMaxAction,
   saveCycleSettingsAction,
   upsertClientLoggedSetEntriesAction,
   updateClientLoggedSetInputsBulkAction,
   updateClientProfileAction,
-  updateClientRosterOrderAction,
   updateClientWeekAssignmentsAction,
 } from "@/app/actions";
 import { useToast } from "@/hooks/use-toast";
@@ -64,6 +74,7 @@ type SbdohControlProps = {
   initialCycleSchedulesByCycle: Record<number, CycleScheduleSettings>;
   initialGlobalMovementOptions: string[];
   initialGlobalMovementSettings: GlobalMovementSettings;
+  initialTrainingGroups: TrainingGroup[];
   initialHistoricalData: HistoricalRecord[];
 };
 
@@ -74,6 +85,7 @@ export function SbdohControl({
   initialCycleSchedulesByCycle,
   initialGlobalMovementOptions,
   initialGlobalMovementSettings,
+  initialTrainingGroups,
   initialHistoricalData,
 }: SbdohControlProps) {
   const router = useRouter();
@@ -147,6 +159,10 @@ export function SbdohControl({
     });
   });
   const [historicalData, setHistoricalData] = useState<HistoricalRecord[]>(initialHistoricalData);
+  const [trainingGroups, setTrainingGroups] = useState<TrainingGroup[]>(initialTrainingGroups);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(() =>
+    getDefaultTrainingGroupId(initialTrainingGroups)
+  );
   
   // Store settings per cycle: { 1: { week1: {...}, week2: {...} }, 2: { week1: {...}, week2: {...} } }
   const [cycleSettingsByCycle, setCycleSettingsByCycle] = useState<Record<number, CycleSettings>>(() => {
@@ -225,8 +241,16 @@ export function SbdohControl({
     });
   }, [cycleNames, cycleSchedulesByCycle, cycleSettingsByCycle, globalMovementOptions, globalMovementSettings, normalizedInitial.changed]);
   
+  const selectedTrainingGroup = useMemo(
+    () => getTrainingGroupById(trainingGroups, selectedGroupId || undefined),
+    [selectedGroupId, trainingGroups]
+  );
+  const activeCycleSettingsByCycle = selectedTrainingGroup?.program.cycleSettingsByCycle || cycleSettingsByCycle;
+  const activeCycleNames = selectedTrainingGroup?.program.cycleNames || cycleNames;
+  const activeCycleSchedulesByCycle = selectedTrainingGroup?.program.cycleSchedulesByCycle || cycleSchedulesByCycle;
+
   // Helper to get current cycle's settings
-  const cycleSettings = cycleSettingsByCycle[currentCycleNumber] || cycleSettingsByCycle[1];
+  const cycleSettings = activeCycleSettingsByCycle[currentCycleNumber] || activeCycleSettingsByCycle[1];
 
   useEffect(() => {
     if (cycleSettings[currentWeek]) return;
@@ -250,8 +274,9 @@ export function SbdohControl({
   const [isProgressChartDialogOpen, setProgressChartDialogOpen] = useState(false);
   const [selectedClientForAi, setSelectedClientForAi] = useState<Client | null>(null);
 
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [sessionLayout, setSessionLayout] = useState<"horizontal" | "vertical">("vertical");
   const [activeBulkLogLift, setActiveBulkLogLift] = useState<Lift | null>(null);
@@ -263,19 +288,19 @@ export function SbdohControl({
   // Compute available cycles from cycleSettingsByCycle instead of from client data
   // This ensures cycles aren't lost when clients are moved between cycles
   const availableCycles = useMemo(() => {
-    const cycleNumbers = Object.keys(cycleSettingsByCycle)
+    const cycleNumbers = Object.keys(activeCycleSettingsByCycle)
       .map(Number)
       .sort((a, b) => a - b);
     
     return cycleNumbers.map(cycleNumber => ({
       cycleNumber,
-      name: cycleNames[cycleNumber] || `Cycle ${cycleNumber}`,
+      name: activeCycleNames[cycleNumber] || `Cycle ${cycleNumber}`,
     }));
-  }, [cycleSettingsByCycle, cycleNames]);
+  }, [activeCycleNames, activeCycleSettingsByCycle]);
 
   const currentCycleSchedule = useMemo(
-    () => getEffectiveCycleSchedule(cycleSchedulesByCycle[currentCycleNumber]),
-    [cycleSchedulesByCycle, currentCycleNumber]
+    () => getEffectiveCycleSchedule(activeCycleSchedulesByCycle[currentCycleNumber]),
+    [activeCycleSchedulesByCycle, currentCycleNumber]
   );
   const deepLinkClientId = searchParams.get("clientId") || undefined;
 
@@ -339,14 +364,14 @@ export function SbdohControl({
   useEffect(() => {
     if (hasAutoDateSelectionRef.current) return;
 
-    const preferredCycleNumber = clients.reduce(
+    const preferredCycleNumber = selectedTrainingGroup?.currentCycleNumber || clients.reduce(
       (maxCycle, client) => Math.max(maxCycle, client.currentCycleNumber || 1),
       1
     );
 
     const selection = getRecommendedSessionSelection(
-      cycleSettingsByCycle,
-      cycleSchedulesByCycle,
+      activeCycleSettingsByCycle,
+      activeCycleSchedulesByCycle,
       new Date(),
       preferredCycleNumber
     );
@@ -359,7 +384,7 @@ export function SbdohControl({
     setAutoSelectedDay(selection.daySlot);
     hasAutoDateSelectionRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cycleSettingsByCycle, cycleSchedulesByCycle]);
+  }, [activeCycleSettingsByCycle, activeCycleSchedulesByCycle, selectedTrainingGroup]);
 
   const currentWeekSchedule = useMemo(
     () => getCycleWeekSchedule(currentCycleSchedule, currentWeek),
@@ -367,9 +392,41 @@ export function SbdohControl({
   );
 
   const clientsInSelectedCycle = useMemo(
-    () => clients.filter((client) => isClientInCycle(client, currentCycleNumber)),
-    [clients, currentCycleNumber]
+    () => {
+      const groupClients = selectedTrainingGroup
+        ? getClientsInTrainingGroup(clients, selectedTrainingGroup.id).map((client) =>
+            getClientForTrainingGroup(client, selectedTrainingGroup.id)
+          )
+        : getActiveClients(clients);
+      return selectedTrainingGroup
+        ? groupClients
+        : groupClients.filter((client) => isClientInCycle(client, currentCycleNumber));
+    },
+    [clients, currentCycleNumber, selectedTrainingGroup]
   );
+
+  const handleGroupSelect = (groupId: string) => {
+    const group = getTrainingGroupById(trainingGroups, groupId);
+    if (!group) return;
+    setSelectedGroupId(groupId);
+    const selection = getRecommendedSessionSelection(
+      group.program.cycleSettingsByCycle,
+      group.program.cycleSchedulesByCycle,
+      new Date(),
+      group.currentCycleNumber
+    );
+    setCurrentCycleNumber(selection?.cycleNumber || group.currentCycleNumber);
+    setCurrentWeek(selection?.weekKey || "week1");
+    if (selection) {
+      setDayViewSlot(selection.daySlot);
+      setAutoSelectedDay(selection.daySlot);
+    }
+  };
+
+  const handleOpenGroupSettings = (groupId: string) => {
+    handleGroupSelect(groupId);
+    setIsSettingsOpen(true);
+  };
 
   const ensureMutableCycle = (operation?: string): boolean => {
     void operation;
@@ -552,15 +609,25 @@ export function SbdohControl({
   };
 
   const handleLiftChange = (newLift: Lift) => {
-    startTransition(() => {
-      setLift(newLift);
-    });
+    setLift(newLift);
   };
   const handleWeekChange = (newWeek: string) => {
-    startTransition(() => {
-      setCurrentWeek(newWeek);
+    console.info("[week-nav-debug] week click", {
+      fromWeek: currentWeek,
+      toWeek: newWeek,
+      cycle: currentCycleNumber,
+      href: typeof window !== "undefined" ? window.location.href : undefined,
     });
+    setCurrentWeek(newWeek);
   };
+
+  useEffect(() => {
+    console.info("[week-nav-debug] week state changed", {
+      currentWeek,
+      cycle: currentCycleNumber,
+      href: typeof window !== "undefined" ? window.location.href : undefined,
+    });
+  }, [currentWeek, currentCycleNumber]);
 
   const getCalculatedWorkoutsForLift = (targetLift: Lift): CalculatedWorkout[] => {
     const selectedWeekSettings = cycleSettings[currentWeek];
@@ -846,7 +913,7 @@ export function SbdohControl({
     setSelectedClientForAi(client);
     setAiInsightsDialogOpen(true);
   };
-  
+
   const handleClientProfile = (client: Client) => {
     setSelectedClientForProfile(client);
     setClientProfileModalOpen(true);
@@ -907,19 +974,35 @@ export function SbdohControl({
       trainingMaxesByCycle: rebuiltTrainingMaxesByCycle,
     };
 
-    setClients(prev => prev.map(c => c.id === updatedClient.id ? normalizedClient : c));
+    const persistedClient = selectedTrainingGroup
+      ? {
+          ...normalizedClient,
+          programStateByGroup: {
+            ...(updatedClient.programStateByGroup || {}),
+            [selectedTrainingGroup.id]: getGroupProgramStateFromClient(normalizedClient),
+          },
+        }
+      : normalizedClient;
 
-    const result = await updateClientProfileAction(normalizedClient.id, {
-      oneRepMaxes: normalizedClient.oneRepMaxes,
-      oneRepMaxesByCycle: normalizedClient.oneRepMaxesByCycle,
-      trainingMaxes: normalizedClient.trainingMaxes,
-      trainingMaxesByCycle: normalizedClient.trainingMaxesByCycle,
-      initialWeights: normalizedClient.initialWeights,
-      cycleMembership: normalizedClient.cycleMembership,
-      weekAssignmentsByCycle: normalizedClient.weekAssignmentsByCycle,
-      sessionStateByCycle: normalizedClient.sessionStateByCycle,
-      movementSelectionByCycle: normalizedClient.movementSelectionByCycle,
-      movementProfilesByCycle: normalizedClient.movementProfilesByCycle,
+    setClients(prev => prev.map(c => c.id === updatedClient.id ? persistedClient : c));
+
+    const result = await updateClientProfileAction(persistedClient.id, {
+      oneRepMaxes: persistedClient.oneRepMaxes,
+      oneRepMaxesByCycle: persistedClient.oneRepMaxesByCycle,
+      trainingMaxes: persistedClient.trainingMaxes,
+      trainingMaxesByCycle: persistedClient.trainingMaxesByCycle,
+      initialWeights: persistedClient.initialWeights,
+      status: persistedClient.status,
+      activeGroupId: persistedClient.activeGroupId,
+      groupEnrollmentHistory: persistedClient.groupEnrollmentHistory,
+      programStateByGroup: persistedClient.programStateByGroup,
+      ...(selectedTrainingGroup ? {} : {
+        cycleMembership: persistedClient.cycleMembership,
+        weekAssignmentsByCycle: persistedClient.weekAssignmentsByCycle,
+        sessionStateByCycle: persistedClient.sessionStateByCycle,
+        movementSelectionByCycle: persistedClient.movementSelectionByCycle,
+        movementProfilesByCycle: persistedClient.movementProfilesByCycle,
+      }),
     });
 
     if (!result.success) {
@@ -992,6 +1075,34 @@ export function SbdohControl({
     });
   };
   
+  const handleTransferClient = async (
+    targetClient: Client,
+    toGroupId: string,
+    placement: "current_program" | "week_1"
+  ) => {
+    const update = buildGroupTransferUpdate(targetClient, toGroupId, placement);
+    const result = await updateClientProfileAction(targetClient.id, update);
+
+    if (!result.success) {
+      toast({
+        variant: "destructive",
+        title: "Transfer Failed",
+        description: result.message,
+      });
+      return;
+    }
+
+    setClients((prev) => prev.map((c) => (c.id === targetClient.id ? { ...c, ...update } : c)));
+    if (selectedClientForProfile?.id === targetClient.id) {
+      setSelectedClientForProfile({ ...targetClient, ...update });
+    }
+
+    toast({
+      title: "Client Transferred",
+      description: "The client has been moved to the new group.",
+    });
+  };
+
   const handleRepRecordUpdate = (newRecord: HistoricalRecord) => {
     setHistoricalData(prev => [...prev, newRecord]);
   };
@@ -1014,7 +1125,9 @@ export function SbdohControl({
     const targetClient = clients.find((client) => client.id === clientId);
     if (!targetClient) return;
 
-    const existing = targetClient.loggedSetInputsByCycle || {};
+    const existing = selectedTrainingGroup
+      ? targetClient.programStateByGroup?.[selectedTrainingGroup.id]?.loggedSetInputsByCycle || {}
+      : targetClient.loggedSetInputsByCycle || {};
     const cycleData = existing[currentCycleNumber] || {};
     const weekData = cycleData[weekKey] || {};
     const liftData = weekData[lift] || {};
@@ -1043,7 +1156,17 @@ export function SbdohControl({
         client.id === clientId
           ? {
               ...client,
-              loggedSetInputsByCycle: updatedPayload,
+              ...(selectedTrainingGroup
+                ? {
+                    programStateByGroup: {
+                      ...(client.programStateByGroup || {}),
+                      [selectedTrainingGroup.id]: {
+                        ...(client.programStateByGroup?.[selectedTrainingGroup.id] || {}),
+                        loggedSetInputsByCycle: updatedPayload,
+                      },
+                    },
+                  }
+                : { loggedSetInputsByCycle: updatedPayload }),
             }
           : client
       )
@@ -1051,6 +1174,7 @@ export function SbdohControl({
 
     const result = await upsertClientLoggedSetEntriesAction({
       clientId,
+      groupId: selectedTrainingGroup?.id,
       cycleNumber: currentCycleNumber,
       weekKey,
       lift,
@@ -1072,7 +1196,17 @@ export function SbdohControl({
           client.id === clientId
             ? {
                 ...client,
-                loggedSetInputsByCycle: result.merged,
+                ...(selectedTrainingGroup
+                  ? {
+                      programStateByGroup: {
+                        ...(client.programStateByGroup || {}),
+                        [selectedTrainingGroup.id]: {
+                          ...(client.programStateByGroup?.[selectedTrainingGroup.id] || {}),
+                          loggedSetInputsByCycle: result.merged,
+                        },
+                      },
+                    }
+                  : { loggedSetInputsByCycle: result.merged }),
               }
             : client
         )
@@ -1220,35 +1354,6 @@ export function SbdohControl({
     });
   };
 
-  const handleReorderClient = async (clientId: string, direction: "up" | "down") => {
-    const currentIndex = clients.findIndex((client) => client.id === clientId);
-    if (currentIndex < 0) return;
-
-    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= clients.length) return;
-
-    const reordered = [...clients];
-    const [moved] = reordered.splice(currentIndex, 1);
-    reordered.splice(targetIndex, 0, moved);
-
-    setClients(reordered);
-
-    const updates = reordered.map((client, index) => ({
-      id: client.id,
-      rosterOrder: index,
-    }));
-
-    const result = await updateClientRosterOrderAction(updates);
-    if (!result.success) {
-      toast({
-        variant: "destructive",
-        title: "Reorder Failed",
-        description: result.message,
-      });
-      return;
-    }
-  };
-
   const handleUpdateCycleSettings = async (cycleNumber: number, newSettings: CycleSettings) => {
     if (!ensureMutableCycle("Updating cycle settings")) return;
 
@@ -1338,6 +1443,44 @@ export function SbdohControl({
       title: "Global Settings Updated",
       description: "Movement options were saved.",
     });
+  };
+
+  const handleUpdateTrainingGroups = async (nextGroups: TrainingGroup[]) => {
+    const result = await saveCycleSettingsAction(
+      cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings, nextGroups
+    );
+    if (!result.success) throw new Error(result.message);
+    setTrainingGroups(nextGroups);
+  };
+
+  const updateSelectedGroupProgram = async (
+    updates: Partial<TrainingGroup["program"]>
+  ) => {
+    if (!selectedTrainingGroup) return;
+    const nextGroups = trainingGroups.map((group) =>
+      group.id === selectedTrainingGroup.id
+        ? { ...group, program: { ...group.program, ...updates } }
+        : group
+    );
+    await handleUpdateTrainingGroups(nextGroups);
+  };
+
+  const handleUnassignClientsFromGroup = async (groupId: string) => {
+    const result = await unassignClientsFromGroupAction(groupId);
+    if (!result.success) throw new Error(result.message);
+
+    const unassignedAt = new Date().toISOString();
+    setClients((previous) => previous.map((client) =>
+      client.activeGroupId === groupId
+        ? {
+            ...client,
+            activeGroupId: undefined,
+            groupEnrollmentHistory: (client.groupEnrollmentHistory || []).map((entry) =>
+              entry.groupId === groupId && !entry.leftAt ? { ...entry, leftAt: unassignedAt } : entry
+            ),
+          }
+        : client
+    ));
   };
 
   const handleUpdateCycleClientMembership = async (cycleNumber: number, selectedClientIds: string[]) => {
@@ -1535,16 +1678,17 @@ export function SbdohControl({
   ) => {
     console.log("=== START GRADUATE TEAM ===");
     console.log("newCycleNumber:", newCycleNumber);
-    console.log("Current cycleSettingsByCycle keys:", Object.keys(cycleSettingsByCycle));
+    console.log("Current cycleSettingsByCycle keys:", Object.keys(activeCycleSettingsByCycle));
     console.log("Current cycleSettings for cycle", currentCycleNumber, "keys:", Object.keys(cycleSettings));
-    
+
+    const groupId = selectedTrainingGroup?.id;
     // The database has already been updated by graduateTeamAction
     // Update local state with the graduated clients and new cycle
     const calibrationLiftSet = new Set(overrides.calibrationLifts || []);
 
     const updatedClients = graduatedClients.map(client => {
-      // Get the previous cycle number
-      const previousCycle = client.currentCycleNumber || 1;
+      // Get the previous cycle number (group-scoped when a group is selected)
+      const previousCycle = (groupId ? client.programStateByGroup?.[groupId]?.currentCycleNumber : undefined) ?? client.currentCycleNumber ?? 1;
 
       const previousCycleCalibration = client.movementCalibrationsByCycle?.[previousCycle] || {};
       const recentlyCalibratedLiftSet = new Set(
@@ -1554,7 +1698,7 @@ export function SbdohControl({
       );
 
       const basePreviousCycleSchedule = getEffectiveCycleSchedule(
-        cycleSchedulesByCycle[previousCycle] || currentCycleSchedule
+        activeCycleSchedulesByCycle[previousCycle] || currentCycleSchedule
       );
       const previousCycleSchedule = {
         ...basePreviousCycleSchedule,
@@ -1617,11 +1761,36 @@ export function SbdohControl({
           needsCalibration: true,
         };
       }
-      
+
+      const groupScopedProgress = groupId
+        ? {
+            programStateByGroup: {
+              ...(client.programStateByGroup || {}),
+              [groupId]: {
+                ...(client.programStateByGroup?.[groupId] || {}),
+                currentCycleNumber: newCycleNumber,
+                cycleMembership: Array.from(
+                  new Set([...(client.programStateByGroup?.[groupId]?.cycleMembership || []), newCycleNumber])
+                ).sort((a, b) => a - b),
+                weekAssignmentsByCycle: {
+                  ...(client.programStateByGroup?.[groupId]?.weekAssignmentsByCycle || {}),
+                  [newCycleNumber]: { week1: "5", week2: "3", week3: "1" },
+                },
+              },
+            },
+          }
+        : {
+            currentCycleNumber: newCycleNumber,
+            cycleMembership: withCycleAdded(client, newCycleNumber),
+            weekAssignmentsByCycle: {
+              ...(client.weekAssignmentsByCycle || {}),
+              [newCycleNumber]: { week1: "5", week2: "3", week3: "1" }
+            },
+          };
+
       return {
         ...client,
-        currentCycleNumber: newCycleNumber,
-        cycleMembership: withCycleAdded(client, newCycleNumber),
+        ...groupScopedProgress,
         oneRepMaxesByCycle: {
           ...(client.oneRepMaxesByCycle || {}),
           [newCycleNumber]: nextOneRepMaxes,
@@ -1631,10 +1800,6 @@ export function SbdohControl({
         trainingMaxesByCycle: {
           ...(client.trainingMaxesByCycle || {}),
           [newCycleNumber]: newTrainingMaxes
-        },
-        weekAssignmentsByCycle: {
-          ...(client.weekAssignmentsByCycle || {}),
-          [newCycleNumber]: { week1: "5", week2: "3", week3: "1" }
         },
         movementCalibrationsByCycle: {
           ...(client.movementCalibrationsByCycle || {}),
@@ -1694,8 +1859,8 @@ export function SbdohControl({
     const createDefaultWeek = (name: string): CycleWeekSettings => ({
       name,
       percentages: {
-        warmup1: 0.5,
-        warmup2: 0.6,
+        warmup1: 0.25,
+        warmup2: 0.35,
         workset1: 0.65,
         workset2: 0.75,
         workset3: 0.85,
@@ -1722,11 +1887,11 @@ export function SbdohControl({
     console.log("Built fresh 4-week settings for new cycle. Keys:", Object.keys(newCycleSettings));
     
     const updatedCycleSettingsByCycle = {
-      ...cycleSettingsByCycle,
+      ...activeCycleSettingsByCycle,
       [newCycleNumber]: newCycleSettings,
     };
     const updatedCycleNames = {
-      ...cycleNames,
+      ...activeCycleNames,
       [newCycleNumber]: `Cycle ${newCycleNumber}`,
     };
 
@@ -1741,7 +1906,7 @@ export function SbdohControl({
       return `${year}-${month}-${day}`;
     };
 
-    const currentCycleSchedule = cycleSchedulesByCycle[currentCycleNumber] || {
+    const currentCycleSchedule = activeCycleSchedulesByCycle[currentCycleNumber] || {
       cycleStartDate: "",
       day1Weekday: "Tuesday",
       day2Weekday: "Thursday",
@@ -1750,10 +1915,10 @@ export function SbdohControl({
 
     const cycleLengthWeeks = currentCycleSchedule.skipDeloadWeek ? 3 : 4;
     const nextCycleStartDate = addDaysToIso(currentCycleSchedule.cycleStartDate || "", cycleLengthWeeks * 7);
-    const existingNextCycleSchedule = cycleSchedulesByCycle[newCycleNumber];
+    const existingNextCycleSchedule = activeCycleSchedulesByCycle[newCycleNumber];
 
     const updatedCycleSchedules = {
-      ...cycleSchedulesByCycle,
+      ...activeCycleSchedulesByCycle,
       [newCycleNumber]: {
         ...currentCycleSchedule,
         ...(existingNextCycleSchedule || {}),
@@ -1774,19 +1939,38 @@ export function SbdohControl({
       },
     };
     
-    setCycleSettingsByCycle(updatedCycleSettingsByCycle);
     console.log("Updated cycleSettingsByCycle. All cycle keys:", Object.keys(updatedCycleSettingsByCycle));
     console.log("New cycle", newCycleNumber, "has weeks:", Object.keys(updatedCycleSettingsByCycle[newCycleNumber]));
     
     // Update the current cycle view to the new cycle
     setCurrentCycleNumber(newCycleNumber);
-    // Add default name for the new cycle
-    setCycleNames(updatedCycleNames);
-    setCycleSchedulesByCycle(updatedCycleSchedules);
-    
-    saveCycleSettingsAction(updatedCycleSettingsByCycle, updatedCycleNames, updatedCycleSchedules, globalMovementOptions, globalMovementSettings).catch(error => {
-      console.error("Failed to save cycle settings after graduation:", error);
-    });
+
+    if (groupId) {
+      const nextGroups = trainingGroups.map((group) =>
+        group.id === groupId
+          ? {
+              ...group,
+              currentCycleNumber: newCycleNumber,
+              program: {
+                cycleSettingsByCycle: updatedCycleSettingsByCycle,
+                cycleNames: updatedCycleNames,
+                cycleSchedulesByCycle: updatedCycleSchedules,
+              },
+            }
+          : group
+      );
+      handleUpdateTrainingGroups(nextGroups).catch(error => {
+        console.error("Failed to save group cycle settings after graduation:", error);
+      });
+    } else {
+      setCycleSettingsByCycle(updatedCycleSettingsByCycle);
+      setCycleNames(updatedCycleNames);
+      setCycleSchedulesByCycle(updatedCycleSchedules);
+
+      saveCycleSettingsAction(updatedCycleSettingsByCycle, updatedCycleNames, updatedCycleSchedules, globalMovementOptions, globalMovementSettings).catch(error => {
+        console.error("Failed to save cycle settings after graduation:", error);
+      });
+    }
     
     console.log("=== END GRADUATE TEAM ===");
   };
@@ -1810,6 +1994,51 @@ export function SbdohControl({
       }
     }
     return normalized;
+  };
+
+  const getScopedClientProgramMaps = (client: Client) => {
+    const groupId = selectedTrainingGroup?.id;
+    const groupState = groupId ? client.programStateByGroup?.[groupId] : undefined;
+
+    return {
+      groupId,
+      groupState,
+      shouldUpdate: groupId ? client.activeGroupId === groupId : true,
+      clientCycle: groupId ? (groupState?.currentCycleNumber || currentCycleNumber) : (client.currentCycleNumber || 1),
+      weekAssignmentsByCycle: groupId ? (groupState?.weekAssignmentsByCycle || {}) : (client.weekAssignmentsByCycle || {}),
+      loggedSetInputsByCycle: groupId ? (groupState?.loggedSetInputsByCycle || {}) : (client.loggedSetInputsByCycle || {}),
+      sessionStateByCycle: groupId ? (groupState?.sessionStateByCycle || {}) : (client.sessionStateByCycle || {}),
+    };
+  };
+
+  const withScopedClientProgramMaps = (
+    client: Client,
+    scoped: ReturnType<typeof getScopedClientProgramMaps>,
+    updates: {
+      weekAssignmentsByCycle: Client["weekAssignmentsByCycle"];
+      loggedSetInputsByCycle: LoggedSetInputsByCycle;
+      sessionStateByCycle: Client["sessionStateByCycle"];
+    }
+  ): Client => {
+    if (scoped.groupId) {
+      return {
+        ...client,
+        programStateByGroup: {
+          ...(client.programStateByGroup || {}),
+          [scoped.groupId]: {
+            ...(scoped.groupState || {}),
+            currentCycleNumber: scoped.clientCycle,
+            cycleMembership: scoped.groupState?.cycleMembership || [scoped.clientCycle],
+            ...updates,
+          },
+        },
+      };
+    }
+
+    return {
+      ...client,
+      ...updates,
+    };
   };
 
   const handleDuplicateWeek = async (weekKey: string) => {
@@ -1874,12 +2103,14 @@ export function SbdohControl({
     console.log("newCycleSettings after duplicate:", newCycleSettings);
     
     const updatedCycleSettingsByCycle = {
-      ...cycleSettingsByCycle,
+      ...activeCycleSettingsByCycle,
       [currentCycleNumber]: newCycleSettings,
     };
     
     // Update this cycle's settings
-    setCycleSettingsByCycle(updatedCycleSettingsByCycle);
+    if (!selectedTrainingGroup) {
+      setCycleSettingsByCycle(updatedCycleSettingsByCycle);
+    }
     console.log("Updated cycleSettingsByCycle for cycle", currentCycleNumber);
     console.log("New week keys:", Object.keys(newCycleSettings));
     
@@ -1887,12 +2118,13 @@ export function SbdohControl({
     
     // Update all clients' weekAssignmentsByCycle to include the new week
     const updatedClients = clients.map(client => {
-      const clientCycle = client.currentCycleNumber || 1;
-      if (clientCycle !== currentCycleNumber) {
+      const scoped = getScopedClientProgramMaps(client);
+      const clientCycle = scoped.clientCycle;
+      if (!scoped.shouldUpdate || clientCycle !== currentCycleNumber) {
         return client;
       }
       
-      const currentCycleAssignments = client.weekAssignmentsByCycle?.[clientCycle] || {};
+      const currentCycleAssignments = scoped.weekAssignmentsByCycle[clientCycle] || {};
       const newAssignments: Record<string, string> = {};
 
       // Carry forward only true overrides from old defaults, shifting weeks after insertion
@@ -1917,7 +2149,7 @@ export function SbdohControl({
 
       const cleanedAssignments = normalizeWeekAssignments(newAssignments, newCycleSettings);
 
-      const currentLoggedByWeek = client.loggedSetInputsByCycle?.[clientCycle] || {};
+      const currentLoggedByWeek = scoped.loggedSetInputsByCycle[clientCycle] || {};
       const shiftedLoggedByWeek: Record<string, Partial<Record<Lift, LoggedSetMap>>> = {};
       for (const [loggedWeekKey, loggedWeekValue] of Object.entries(currentLoggedByWeek)) {
         const loggedMatch = loggedWeekKey.match(/\d+/);
@@ -1928,11 +2160,11 @@ export function SbdohControl({
       }
 
       const nextLogged = {
-        ...(client.loggedSetInputsByCycle || {}),
+        ...scoped.loggedSetInputsByCycle,
         [clientCycle]: shiftedLoggedByWeek,
       } as LoggedSetInputsByCycle;
 
-      const currentSessionState = client.sessionStateByCycle?.[clientCycle];
+      const currentSessionState = scoped.sessionStateByCycle[clientCycle];
       const modeByWeek = currentSessionState?.modeByWeek || {};
       const flowWeekKeyByWeek = currentSessionState?.flowWeekKeyByWeek || {};
       const shiftedModeByWeek: Record<string, SessionMode> = {};
@@ -1955,7 +2187,7 @@ export function SbdohControl({
       }
 
       const nextSessionStateByCycle = {
-        ...(client.sessionStateByCycle || {}),
+        ...scoped.sessionStateByCycle,
         [clientCycle]: {
           ...(currentSessionState || { mode: "normal" as SessionMode }),
           modeByWeek: shiftedModeByWeek,
@@ -1963,61 +2195,87 @@ export function SbdohControl({
         },
       };
       
-      return {
-        ...client,
+      return withScopedClientProgramMaps(client, scoped, {
         weekAssignmentsByCycle: {
-          ...(client.weekAssignmentsByCycle || {}),
+          ...scoped.weekAssignmentsByCycle,
           [clientCycle]: cleanedAssignments,
         },
         loggedSetInputsByCycle: nextLogged,
         sessionStateByCycle: nextSessionStateByCycle,
-      };
+      });
     });
     
     setClients(updatedClients);
     
     const updatedAssignmentsPayload = updatedClients
-      .filter(client => (client.currentCycleNumber || 1) === currentCycleNumber)
+      .filter(client => {
+        const scoped = getScopedClientProgramMaps(client);
+        return scoped.shouldUpdate && scoped.clientCycle === currentCycleNumber;
+      })
       .map(client => ({
         id: client.id,
-        weekAssignmentsByCycle: client.weekAssignmentsByCycle || {},
+        weekAssignmentsByCycle: selectedTrainingGroup
+          ? client.programStateByGroup?.[selectedTrainingGroup.id]?.weekAssignmentsByCycle || {}
+          : client.weekAssignmentsByCycle || {},
       }));
 
     const updatedLoggedPayload = updatedClients
-      .filter(client => (client.currentCycleNumber || 1) === currentCycleNumber)
+      .filter(client => {
+        const scoped = getScopedClientProgramMaps(client);
+        return scoped.shouldUpdate && scoped.clientCycle === currentCycleNumber;
+      })
       .map(client => ({
         id: client.id,
-        loggedSetInputsByCycle: client.loggedSetInputsByCycle || {},
+        loggedSetInputsByCycle: selectedTrainingGroup
+          ? client.programStateByGroup?.[selectedTrainingGroup.id]?.loggedSetInputsByCycle || {}
+          : client.loggedSetInputsByCycle || {},
       }));
 
     const updatedSessionPayload = updatedClients
-      .filter(client => (client.currentCycleNumber || 1) === currentCycleNumber)
+      .filter(client => {
+        const scoped = getScopedClientProgramMaps(client);
+        return scoped.shouldUpdate && scoped.clientCycle === currentCycleNumber;
+      })
       .map(client => ({
         id: client.id,
-        sessionStateByCycle: client.sessionStateByCycle || {},
+        sessionStateByCycle: selectedTrainingGroup
+          ? client.programStateByGroup?.[selectedTrainingGroup.id]?.sessionStateByCycle || {}
+          : client.sessionStateByCycle || {},
       }));
     
     try {
-      const cycleSettingsResult = await saveCycleSettingsAction(updatedCycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings);
-      if (!cycleSettingsResult.success) {
-        throw new Error(cycleSettingsResult.message || "Failed to save cycle settings.");
+      if (selectedTrainingGroup) {
+        await updateSelectedGroupProgram({ cycleSettingsByCycle: updatedCycleSettingsByCycle });
+      } else {
+        const cycleSettingsResult = await saveCycleSettingsAction(updatedCycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings);
+        if (!cycleSettingsResult.success) {
+          throw new Error(cycleSettingsResult.message || "Failed to save cycle settings.");
+        }
       }
 
-      const assignmentsResult = await updateClientWeekAssignmentsAction(updatedAssignmentsPayload);
+      const assignmentsResult = await updateClientWeekAssignmentsAction(updatedAssignmentsPayload, selectedTrainingGroup?.id);
       if (!assignmentsResult.success) {
         console.error("Week duplicated, but failed to persist assignment updates:", assignmentsResult.message);
       }
 
-      const loggedResult = await updateClientLoggedSetInputsBulkAction(updatedLoggedPayload);
+      const loggedResult = await updateClientLoggedSetInputsBulkAction(updatedLoggedPayload, selectedTrainingGroup?.id);
       if (!loggedResult.success) {
         console.error("Week duplicated, but failed to persist logged set shifts:", loggedResult.message);
       }
 
       const sessionResults = await Promise.all(
         updatedSessionPayload.map((item) =>
-          updateClientProfileAction(item.id, {
-            sessionStateByCycle: item.sessionStateByCycle,
-          })
+          updateClientProfileAction(item.id, selectedTrainingGroup
+            ? {
+                programStateByGroup: {
+                  ...(updatedClients.find((client) => client.id === item.id)?.programStateByGroup || {}),
+                  [selectedTrainingGroup.id]: {
+                    ...(updatedClients.find((client) => client.id === item.id)?.programStateByGroup?.[selectedTrainingGroup.id] || {}),
+                    sessionStateByCycle: item.sessionStateByCycle,
+                  },
+                },
+              }
+            : { sessionStateByCycle: item.sessionStateByCycle })
         )
       );
       if (sessionResults.some((result) => !result.success)) {
@@ -2060,10 +2318,12 @@ export function SbdohControl({
     }
 
     const updatedCycleSettingsByCycle = {
-      ...cycleSettingsByCycle,
+      ...activeCycleSettingsByCycle,
       [currentCycleNumber]: newCycleSettings,
     };
-    setCycleSettingsByCycle(updatedCycleSettingsByCycle);
+    if (!selectedTrainingGroup) {
+      setCycleSettingsByCycle(updatedCycleSettingsByCycle);
+    }
 
     const currentWeekMatch = currentWeek.match(/\d+/);
     const currentWeekNum = currentWeekMatch ? parseInt(currentWeekMatch[0], 10) : 1;
@@ -2080,12 +2340,13 @@ export function SbdohControl({
     setCurrentWeek(`week${nextWeekNum}`);
 
     const updatedClients = clients.map(client => {
-      const clientCycle = client.currentCycleNumber || 1;
-      if (clientCycle !== currentCycleNumber) {
+      const scoped = getScopedClientProgramMaps(client);
+      const clientCycle = scoped.clientCycle;
+      if (!scoped.shouldUpdate || clientCycle !== currentCycleNumber) {
         return client;
       }
 
-      const currentCycleAssignments = client.weekAssignmentsByCycle?.[clientCycle] || {};
+      const currentCycleAssignments = scoped.weekAssignmentsByCycle[clientCycle] || {};
       const newAssignments: Record<string, string> = {};
 
       for (const [assignmentWeekKey, repScheme] of Object.entries(currentCycleAssignments)) {
@@ -2105,7 +2366,7 @@ export function SbdohControl({
 
       const cleanedAssignments = normalizeWeekAssignments(newAssignments, newCycleSettings);
 
-      const currentLoggedByWeek = client.loggedSetInputsByCycle?.[clientCycle] || {};
+      const currentLoggedByWeek = scoped.loggedSetInputsByCycle[clientCycle] || {};
       const shiftedLoggedByWeek: Record<string, Partial<Record<Lift, LoggedSetMap>>> = {};
       for (const [loggedWeekKey, loggedWeekValue] of Object.entries(currentLoggedByWeek)) {
         const loggedMatch = loggedWeekKey.match(/\d+/);
@@ -2118,11 +2379,11 @@ export function SbdohControl({
       }
 
       const nextLogged = {
-        ...(client.loggedSetInputsByCycle || {}),
+        ...scoped.loggedSetInputsByCycle,
         [clientCycle]: shiftedLoggedByWeek,
       } as LoggedSetInputsByCycle;
 
-      const currentSessionState = client.sessionStateByCycle?.[clientCycle];
+      const currentSessionState = scoped.sessionStateByCycle[clientCycle];
       const modeByWeek = currentSessionState?.modeByWeek || {};
       const flowWeekKeyByWeek = currentSessionState?.flowWeekKeyByWeek || {};
       const shiftedModeByWeek: Record<string, SessionMode> = {};
@@ -2147,7 +2408,7 @@ export function SbdohControl({
       }
 
       const nextSessionStateByCycle = {
-        ...(client.sessionStateByCycle || {}),
+        ...scoped.sessionStateByCycle,
         [clientCycle]: {
           ...(currentSessionState || { mode: "normal" as SessionMode }),
           modeByWeek: shiftedModeByWeek,
@@ -2155,62 +2416,88 @@ export function SbdohControl({
         },
       };
 
-      return {
-        ...client,
+      return withScopedClientProgramMaps(client, scoped, {
         weekAssignmentsByCycle: {
-          ...(client.weekAssignmentsByCycle || {}),
+          ...scoped.weekAssignmentsByCycle,
           [clientCycle]: cleanedAssignments,
         },
         loggedSetInputsByCycle: nextLogged,
         sessionStateByCycle: nextSessionStateByCycle,
-      };
+      });
     });
 
     setClients(updatedClients);
 
     const updatedAssignmentsPayload = updatedClients
-      .filter(client => (client.currentCycleNumber || 1) === currentCycleNumber)
+      .filter(client => {
+        const scoped = getScopedClientProgramMaps(client);
+        return scoped.shouldUpdate && scoped.clientCycle === currentCycleNumber;
+      })
       .map(client => ({
         id: client.id,
-        weekAssignmentsByCycle: client.weekAssignmentsByCycle || {},
+        weekAssignmentsByCycle: selectedTrainingGroup
+          ? client.programStateByGroup?.[selectedTrainingGroup.id]?.weekAssignmentsByCycle || {}
+          : client.weekAssignmentsByCycle || {},
       }));
 
     const updatedLoggedPayload = updatedClients
-      .filter(client => (client.currentCycleNumber || 1) === currentCycleNumber)
+      .filter(client => {
+        const scoped = getScopedClientProgramMaps(client);
+        return scoped.shouldUpdate && scoped.clientCycle === currentCycleNumber;
+      })
       .map(client => ({
         id: client.id,
-        loggedSetInputsByCycle: client.loggedSetInputsByCycle || {},
+        loggedSetInputsByCycle: selectedTrainingGroup
+          ? client.programStateByGroup?.[selectedTrainingGroup.id]?.loggedSetInputsByCycle || {}
+          : client.loggedSetInputsByCycle || {},
       }));
 
     const updatedSessionPayload = updatedClients
-      .filter(client => (client.currentCycleNumber || 1) === currentCycleNumber)
+      .filter(client => {
+        const scoped = getScopedClientProgramMaps(client);
+        return scoped.shouldUpdate && scoped.clientCycle === currentCycleNumber;
+      })
       .map(client => ({
         id: client.id,
-        sessionStateByCycle: client.sessionStateByCycle || {},
+        sessionStateByCycle: selectedTrainingGroup
+          ? client.programStateByGroup?.[selectedTrainingGroup.id]?.sessionStateByCycle || {}
+          : client.sessionStateByCycle || {},
       }));
 
     try {
-      const cycleSettingsResult = await saveCycleSettingsAction(updatedCycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings);
-      if (!cycleSettingsResult.success) {
-        console.error("Failed to persist cycle settings while deleting week:", cycleSettingsResult.message);
-        return false;
+      if (selectedTrainingGroup) {
+        await updateSelectedGroupProgram({ cycleSettingsByCycle: updatedCycleSettingsByCycle });
+      } else {
+        const cycleSettingsResult = await saveCycleSettingsAction(updatedCycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings);
+        if (!cycleSettingsResult.success) {
+          console.error("Failed to persist cycle settings while deleting week:", cycleSettingsResult.message);
+          return false;
+        }
       }
 
-      const assignmentsResult = await updateClientWeekAssignmentsAction(updatedAssignmentsPayload);
+      const assignmentsResult = await updateClientWeekAssignmentsAction(updatedAssignmentsPayload, selectedTrainingGroup?.id);
       if (!assignmentsResult.success) {
         console.error("Week deleted, but failed to persist assignment cleanup.");
       }
 
-      const loggedResult = await updateClientLoggedSetInputsBulkAction(updatedLoggedPayload);
+      const loggedResult = await updateClientLoggedSetInputsBulkAction(updatedLoggedPayload, selectedTrainingGroup?.id);
       if (!loggedResult.success) {
         console.error("Week deleted, but failed to persist logged set shifts.");
       }
 
       const sessionResults = await Promise.all(
         updatedSessionPayload.map((item) =>
-          updateClientProfileAction(item.id, {
-            sessionStateByCycle: item.sessionStateByCycle,
-          })
+          updateClientProfileAction(item.id, selectedTrainingGroup
+            ? {
+                programStateByGroup: {
+                  ...(updatedClients.find((client) => client.id === item.id)?.programStateByGroup || {}),
+                  [selectedTrainingGroup.id]: {
+                    ...(updatedClients.find((client) => client.id === item.id)?.programStateByGroup?.[selectedTrainingGroup.id] || {}),
+                    sessionStateByCycle: item.sessionStateByCycle,
+                  },
+                },
+              }
+            : { sessionStateByCycle: item.sessionStateByCycle })
         )
       );
       if (sessionResults.some((result) => !result.success)) {
@@ -2288,39 +2575,63 @@ export function SbdohControl({
           onWeekChange={handleWeekChange}
           cycleSettings={cycleSettings}
           clients={clients}
+          trainingGroups={trainingGroups}
+          selectedGroupId={selectedGroupId}
+          onGroupSelect={handleGroupSelect}
+          onGroupSettingsOpen={handleOpenGroupSettings}
           currentCycleNumber={currentCycleNumber}
           skipDeloadWeek={Boolean(currentCycleSchedule.skipDeloadWeek)}
           availableCycleNumbers={availableCycles.map(cycle => cycle.cycleNumber)}
           onCycleChange={setCurrentCycleNumber}
-          onAddClient={() => setAddClientSheetOpen(true)}
           onClientProfile={handleClientProfile}
           onAiInsight={handleAiInsight}
-          onReorderClient={handleReorderClient}
           onLogAllReps={() => handleLogAllReps(sidebarBulkTargetLift)}
           isBulkLoggingActive={activeBulkLogLift === sidebarBulkTargetLift}
           onDuplicateWeek={handleDuplicateWeek}
           onDeleteWeek={handleDeleteWeek}
-          onGraduateTeam={handleGraduateTeam}
-          canGraduate={true}
-          currentCycleSchedule={currentCycleSchedule}
-          globalMovementOptions={globalMovementOptions}
           globalSettingsControl={(
             <ConfigSettingsDialog
-              cycleSettingsByCycle={cycleSettingsByCycle}
-              onUpdateCycleSettings={handleUpdateCycleSettings}
-              cycleSchedulesByCycle={cycleSchedulesByCycle}
-              onUpdateCycleSchedule={handleUpdateCycleSchedule}
+              open={isSettingsOpen}
+              onOpenChange={setIsSettingsOpen}
+              cycleSettingsByCycle={activeCycleSettingsByCycle}
+              onUpdateCycleSettings={async (cycleNumber, settings) => {
+                if (!selectedTrainingGroup) return handleUpdateCycleSettings(cycleNumber, settings);
+                await updateSelectedGroupProgram({
+                  cycleSettingsByCycle: { ...activeCycleSettingsByCycle, [cycleNumber]: settings },
+                });
+              }}
+              cycleSchedulesByCycle={activeCycleSchedulesByCycle}
+              onUpdateCycleSchedule={async (cycleNumber, schedule) => {
+                if (!selectedTrainingGroup) return handleUpdateCycleSchedule(cycleNumber, schedule);
+                await updateSelectedGroupProgram({
+                  cycleSchedulesByCycle: { ...activeCycleSchedulesByCycle, [cycleNumber]: schedule },
+                });
+              }}
               currentWeekKey={currentWeek}
               cycles={availableCycles}
               currentCycleNumber={currentCycleNumber}
-              onRenameCycle={handleRenameCycle}
-              onDeleteCycle={handleDeleteCycle}
+              onRenameCycle={async (cycleNumber, name) => {
+                if (!selectedTrainingGroup) return handleRenameCycle(cycleNumber, name);
+                await updateSelectedGroupProgram({
+                  cycleNames: { ...activeCycleNames, [cycleNumber]: name },
+                });
+              }}
+              onDeleteCycle={selectedTrainingGroup ? undefined : handleDeleteCycle}
               onCycleChange={setCurrentCycleNumber}
               clients={clients}
-              onUpdateCycleClientMembership={handleUpdateCycleClientMembership}
+              onAddClient={() => setAddClientSheetOpen(true)}
+              onClientProfile={handleClientProfile}
+              onUpdateCycleClientMembership={selectedTrainingGroup ? undefined : handleUpdateCycleClientMembership}
               globalMovementOptions={globalMovementOptions}
               onUpdateGlobalMovementOptions={handleUpdateGlobalMovementOptions}
               globalMovementSettings={globalMovementSettings}
+              trainingGroups={trainingGroups}
+              onUpdateTrainingGroups={handleUpdateTrainingGroups}
+              onUnassignClientsFromGroup={handleUnassignClientsFromGroup}
+              selectedGroupId={selectedGroupId}
+              onGroupSelect={handleGroupSelect}
+              onGraduateTeam={handleGraduateTeam}
+              canGraduate={true}
               onUpdateGlobalMovementSettings={async (nextMovementSettings) => {
                 const syncedSchedules = Object.fromEntries(
                   Object.entries(cycleSchedulesByCycle).map(([cycleKey, schedule]) => {
@@ -2361,7 +2672,7 @@ export function SbdohControl({
               <p
                 className={`absolute left-1/2 -translate-x-1/2 ${isSidebarOpen ? "-ml-[131px]" : "-ml-[3px]"} text-lg font-bold tracking-tight ${shouldStrikeSessionHeader ? "line-through opacity-70" : ""}`}
               >
-                {sessionHeaderLabel}
+                {selectedTrainingGroup ? `${selectedTrainingGroup.name} · ${sessionHeaderLabel}` : sessionHeaderLabel}
                 {shouldStrikeSessionHeader ? " (Skipped)" : ""}
               </p>
               <div className="fixed right-4 top-2 z-40 sm:right-6">
@@ -2578,6 +2889,7 @@ export function SbdohControl({
         onOpenChange={setAddClientSheetOpen}
         liftDisplayNames={currentCycleSchedule.liftDisplayNames}
         globalMovementOptions={globalMovementOptions}
+        trainingGroups={trainingGroups}
         onClientAdded={(newClient) => setClients(prev => [...prev, newClient])}
       />
       <AiInsightsDialog 
@@ -2613,6 +2925,8 @@ export function SbdohControl({
         onUpdateClient={handleUpdateClient}
         onResetTrainingMax={handleResetClientTrainingMax}
         onDeleteClient={handleDeleteClient}
+        trainingGroups={trainingGroups}
+        onTransferClient={handleTransferClient}
       />
     </SidebarProvider>
   );

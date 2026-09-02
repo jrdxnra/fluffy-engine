@@ -6,6 +6,7 @@ import type {
   CycleScheduleSettings,
   CycleSettings,
   GlobalMovementSettings,
+  TrainingGroup,
   HistoricalRecord,
   Lift,
   LoggedSetInputsByCycle,
@@ -44,10 +45,20 @@ import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, ge
 import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { getEffectiveCycleMembership, isClientInCycle } from "@/lib/cycle-membership";
 import {
+  buildGroupTransferUpdate,
+  getActiveClients,
+  getClientForTrainingGroup,
+  getClientsInTrainingGroup,
+  getGroupProgramStateFromClient,
+  getDefaultTrainingGroupId,
+  getTrainingGroupById,
+} from "@/lib/training-groups";
+import {
   upsertClientLoggedSetEntriesAction,
   updateClientProfileAction,
   resetClientTrainingMaxAction,
   deleteClientAction,
+  unassignClientsFromGroupAction,
   saveCycleSettingsAction,
 } from "@/app/actions";
 import type { CalculatedWorkout } from "@/lib/types";
@@ -59,6 +70,7 @@ type MobileDevShellProps = {
   initialCycleSchedulesByCycle: Record<number, CycleScheduleSettings>;
   initialGlobalMovementOptions?: string[];
   initialGlobalMovementSettings?: GlobalMovementSettings;
+  initialTrainingGroups: TrainingGroup[];
   initialHistoricalData: HistoricalRecord[];
 };
 
@@ -71,6 +83,7 @@ export function MobileDevShell({
   initialCycleSchedulesByCycle,
   initialGlobalMovementOptions,
   initialGlobalMovementSettings,
+  initialTrainingGroups,
   initialHistoricalData,
 }: MobileDevShellProps) {
   const { toast } = useToast();
@@ -91,6 +104,10 @@ export function MobileDevShell({
   );
 
   const [historicalData, setHistoricalData] = useState<HistoricalRecord[]>(initialHistoricalData);
+  const [trainingGroups, setTrainingGroups] = useState<TrainingGroup[]>(initialTrainingGroups);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(() =>
+    getDefaultTrainingGroupId(initialTrainingGroups)
+  );
   const [cycleSettingsByCycle, setCycleSettingsByCycle] = useState<Record<number, CycleSettings>>(
     () => (Object.keys(initialCycleSettingsByCycle).length > 0 ? initialCycleSettingsByCycle : { 1: {} as CycleSettings })
   );
@@ -133,6 +150,15 @@ export function MobileDevShell({
   const handleLiftChange = (newLift: Lift) => { setFocusedClientId(null); setLift(newLift); };
   const handleViewModeChange = (mode: "day" | "lift") => { setFocusedClientId(null); setActiveDayLift(null); setViewMode(mode); };
   const handleDaySlotChange = (slot: "day1" | "day2") => { setFocusedClientId(null); setActiveDayLift(null); setDayViewSlot(slot); };
+  const handleWeekChange = (weekKey: string) => {
+    console.info("[week-nav-debug] mobile week click", {
+      fromWeek: currentWeek,
+      toWeek: weekKey,
+      cycle: currentCycleNumber,
+      href: typeof window !== "undefined" ? window.location.href : undefined,
+    });
+    setCurrentWeek(weekKey);
+  };
   const [showWarmups, setShowWarmups] = useState(false);
   const [focusedClientId, setFocusedClientId] = useState<string | null>(null);
   const [activeDayLift, setActiveDayLift] = useState<string | null>(null);
@@ -141,6 +167,7 @@ export function MobileDevShell({
   const hasAutoDateSelectionRef = useRef(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // ── Dialog states ────────────────────────────────────────────────────────────
   const [isAddClientSheetOpen, setAddClientSheetOpen] = useState(false);
@@ -151,11 +178,18 @@ export function MobileDevShell({
   const [selectedClientForProfile, setSelectedClientForProfile] = useState<Client | null>(null);
 
   // ── Derived ──────────────────────────────────────────────────────────────────
-  const cycleSettings = cycleSettingsByCycle[currentCycleNumber] || cycleSettingsByCycle[1] || EMPTY_CYCLE_SETTINGS;
+  const selectedTrainingGroup = useMemo(
+    () => getTrainingGroupById(trainingGroups, selectedGroupId || undefined),
+    [selectedGroupId, trainingGroups]
+  );
+  const activeCycleSettingsByCycle = selectedTrainingGroup?.program.cycleSettingsByCycle || cycleSettingsByCycle;
+  const activeCycleNames = selectedTrainingGroup?.program.cycleNames || cycleNames;
+  const activeCycleSchedulesByCycle = selectedTrainingGroup?.program.cycleSchedulesByCycle || cycleSchedulesByCycle;
+  const cycleSettings = activeCycleSettingsByCycle[currentCycleNumber] || activeCycleSettingsByCycle[1] || EMPTY_CYCLE_SETTINGS;
 
   const currentCycleSchedule = useMemo(
-    () => getEffectiveCycleSchedule(cycleSchedulesByCycle[currentCycleNumber]),
-    [cycleSchedulesByCycle, currentCycleNumber]
+    () => getEffectiveCycleSchedule(activeCycleSchedulesByCycle[currentCycleNumber]),
+    [activeCycleSchedulesByCycle, currentCycleNumber]
   );
 
   const currentWeekSchedule = useMemo(
@@ -166,14 +200,14 @@ export function MobileDevShell({
   useEffect(() => {
     if (hasAutoDateSelectionRef.current) return;
 
-    const preferredCycleNumber = clients.reduce(
+    const preferredCycleNumber = selectedTrainingGroup?.currentCycleNumber || clients.reduce(
       (maxCycle, client) => Math.max(maxCycle, client.currentCycleNumber || 1),
       1
     );
 
     const selection = getRecommendedSessionSelection(
-      cycleSettingsByCycle,
-      cycleSchedulesByCycle,
+      activeCycleSettingsByCycle,
+      activeCycleSchedulesByCycle,
       new Date(),
       preferredCycleNumber
     );
@@ -184,21 +218,50 @@ export function MobileDevShell({
     setCurrentWeek(selection.weekKey);
     setDayViewSlot(selection.daySlot);
     hasAutoDateSelectionRef.current = true;
-  }, [cycleSettingsByCycle, cycleSchedulesByCycle, clients]);
+  }, [activeCycleSettingsByCycle, activeCycleSchedulesByCycle, clients, selectedTrainingGroup]);
 
   const availableCycles = useMemo(
     () =>
-      Object.keys(cycleSettingsByCycle)
+      Object.keys(activeCycleSettingsByCycle)
         .map(Number)
         .sort((a, b) => a - b)
-        .map((n) => ({ cycleNumber: n, name: cycleNames[n] || `Cycle ${n}` })),
-    [cycleSettingsByCycle, cycleNames]
+        .map((n) => ({ cycleNumber: n, name: activeCycleNames[n] || `Cycle ${n}` })),
+    [activeCycleNames, activeCycleSettingsByCycle]
   );
 
   const clientsInSelectedCycle = useMemo(
-    () => clients.filter((client) => isClientInCycle(client, currentCycleNumber)),
-    [clients, currentCycleNumber]
+    () => {
+      const groupClients = selectedTrainingGroup
+        ? getClientsInTrainingGroup(clients, selectedTrainingGroup.id).map((client) =>
+            getClientForTrainingGroup(client, selectedTrainingGroup.id)
+          )
+        : getActiveClients(clients);
+      return selectedTrainingGroup
+        ? groupClients
+        : groupClients.filter((client) => isClientInCycle(client, currentCycleNumber));
+    },
+    [clients, currentCycleNumber, selectedTrainingGroup]
   );
+
+  const handleGroupSelect = (groupId: string) => {
+    const group = getTrainingGroupById(trainingGroups, groupId);
+    if (!group) return;
+    setSelectedGroupId(groupId);
+    const selection = getRecommendedSessionSelection(
+      group.program.cycleSettingsByCycle,
+      group.program.cycleSchedulesByCycle,
+      new Date(),
+      group.currentCycleNumber
+    );
+    setCurrentCycleNumber(selection?.cycleNumber || group.currentCycleNumber);
+    setCurrentWeek(selection?.weekKey || "week1");
+    if (selection) setDayViewSlot(selection.daySlot);
+  };
+
+  const handleOpenGroupSettings = (groupId: string) => {
+    handleGroupSelect(groupId);
+    setIsSettingsOpen(true);
+  };
 
   const dayLifts: Lift[] = getLiftsForDaySlot(dayViewSlot, currentCycleSchedule);
 
@@ -242,6 +305,14 @@ export function MobileDevShell({
     })[0];
     if (first) setCurrentWeek(first);
   }, [cycleSettings, currentWeek]);
+
+  useEffect(() => {
+    console.info("[week-nav-debug] mobile week state changed", {
+      currentWeek,
+      cycle: currentCycleNumber,
+      href: typeof window !== "undefined" ? window.location.href : undefined,
+    });
+  }, [currentWeek, currentCycleNumber]);
 
   // ── Scroll spy: track which lift section is at the top of the viewport ───────
   useEffect(() => {
@@ -432,10 +503,13 @@ export function MobileDevShell({
     currentWeekLabel.toLowerCase().includes("deload");
   const strikeTitle = Boolean(currentCycleSchedule.skipDeloadWeek) && isDeload;
 
-  const sessionTitle =
+  const sessionLabel =
     viewMode === "day"
       ? `${getDayLabel(dayViewSlot)} · C${currentCycleNumber} ${currentWeekLabel} (${currentWeekSchemeLabel})`
       : `${getLiftDisplayName(lift, currentCycleSchedule)} · C${currentCycleNumber} ${currentWeekLabel} (${currentWeekSchemeLabel})`;
+  const sessionTitle = selectedTrainingGroup
+    ? `${selectedTrainingGroup.name} · ${sessionLabel}`
+    : sessionLabel;
 
   // ── Action handlers ───────────────────────────────────────────────────────────
   const handleRepRecordUpdate = (record: HistoricalRecord) => {
@@ -458,7 +532,9 @@ export function MobileDevShell({
     const target = clients.find((c) => c.id === clientId);
     if (!target) return;
 
-    const existing = target.loggedSetInputsByCycle || {};
+    const existing = selectedTrainingGroup
+      ? target.programStateByGroup?.[selectedTrainingGroup.id]?.loggedSetInputsByCycle || {}
+      : target.loggedSetInputsByCycle || {};
     const cycleData = existing[currentCycleNumber] || {};
     const weekData = cycleData[weekKey] || {};
     const liftData = (weekData[targetLift] as LoggedSetMap) || {};
@@ -479,12 +555,28 @@ export function MobileDevShell({
       },
     };
 
-    setClients((prev) =>
-      prev.map((c) => (c.id === clientId ? { ...c, loggedSetInputsByCycle: updated } : c))
-    );
+    setClients((prev) => prev.map((client) =>
+      client.id === clientId
+        ? {
+            ...client,
+            ...(selectedTrainingGroup
+              ? {
+                  programStateByGroup: {
+                    ...(client.programStateByGroup || {}),
+                    [selectedTrainingGroup.id]: {
+                      ...(client.programStateByGroup?.[selectedTrainingGroup.id] || {}),
+                      loggedSetInputsByCycle: updated,
+                    },
+                  },
+                }
+              : { loggedSetInputsByCycle: updated }),
+          }
+        : client
+    ));
 
     const result = await upsertClientLoggedSetEntriesAction({
       clientId,
+      groupId: selectedTrainingGroup?.id,
       cycleNumber: currentCycleNumber,
       weekKey,
       lift: targetLift,
@@ -499,8 +591,23 @@ export function MobileDevShell({
 
     if (result.merged) {
       setClients((prev) =>
-        prev.map((c) =>
-          c.id === clientId ? { ...c, loggedSetInputsByCycle: result.merged } : c
+        prev.map((client) =>
+          client.id === clientId
+            ? {
+                ...client,
+                ...(selectedTrainingGroup
+                  ? {
+                      programStateByGroup: {
+                        ...(client.programStateByGroup || {}),
+                        [selectedTrainingGroup.id]: {
+                          ...(client.programStateByGroup?.[selectedTrainingGroup.id] || {}),
+                          loggedSetInputsByCycle: result.merged,
+                        },
+                      },
+                    }
+                  : { loggedSetInputsByCycle: result.merged }),
+              }
+            : client
         )
       );
     }
@@ -666,17 +773,33 @@ export function MobileDevShell({
       },
     };
 
-    setClients((prev) => prev.map((c) => (c.id === updatedClient.id ? normalizedClient : c)));
+    const persistedClient = selectedTrainingGroup
+      ? {
+          ...normalizedClient,
+          programStateByGroup: {
+            ...(updatedClient.programStateByGroup || {}),
+            [selectedTrainingGroup.id]: getGroupProgramStateFromClient(normalizedClient),
+          },
+        }
+      : normalizedClient;
 
-    const result = await updateClientProfileAction(normalizedClient.id, {
-      oneRepMaxes: normalizedClient.oneRepMaxes,
-      trainingMaxes: normalizedClient.trainingMaxes,
-      trainingMaxesByCycle: normalizedClient.trainingMaxesByCycle,
-      cycleMembership: normalizedClient.cycleMembership,
-      weekAssignmentsByCycle: normalizedClient.weekAssignmentsByCycle,
-      sessionStateByCycle: normalizedClient.sessionStateByCycle as Parameters<typeof updateClientProfileAction>[1]["sessionStateByCycle"],
-      movementSelectionByCycle: normalizedClient.movementSelectionByCycle,
-      movementProfilesByCycle: normalizedClient.movementProfilesByCycle,
+    setClients((prev) => prev.map((c) => (c.id === updatedClient.id ? persistedClient : c)));
+
+    const result = await updateClientProfileAction(persistedClient.id, {
+      oneRepMaxes: persistedClient.oneRepMaxes,
+      trainingMaxes: persistedClient.trainingMaxes,
+      trainingMaxesByCycle: persistedClient.trainingMaxesByCycle,
+      status: persistedClient.status,
+      activeGroupId: persistedClient.activeGroupId,
+      groupEnrollmentHistory: persistedClient.groupEnrollmentHistory,
+      programStateByGroup: persistedClient.programStateByGroup,
+      ...(selectedTrainingGroup ? {} : {
+        cycleMembership: persistedClient.cycleMembership,
+        weekAssignmentsByCycle: persistedClient.weekAssignmentsByCycle,
+        sessionStateByCycle: persistedClient.sessionStateByCycle as Parameters<typeof updateClientProfileAction>[1]["sessionStateByCycle"],
+        movementSelectionByCycle: persistedClient.movementSelectionByCycle,
+        movementProfilesByCycle: persistedClient.movementProfilesByCycle,
+      }),
     });
 
     if (!result.success) {
@@ -719,6 +842,24 @@ export function MobileDevShell({
     toast({ title: "Client Deleted", description: "Removed from roster." });
   };
 
+  const handleTransferClient = async (
+    targetClient: Client,
+    toGroupId: string,
+    placement: "current_program" | "week_1"
+  ) => {
+    const update = buildGroupTransferUpdate(targetClient, toGroupId, placement);
+    const result = await updateClientProfileAction(targetClient.id, update);
+    if (!result.success) {
+      toast({ variant: "destructive", title: "Transfer Failed", description: result.message });
+      return;
+    }
+    setClients((prev) => prev.map((c) => (c.id === targetClient.id ? { ...c, ...update } : c)));
+    if (selectedClientForProfile?.id === targetClient.id) {
+      setSelectedClientForProfile({ ...targetClient, ...update });
+    }
+    toast({ title: "Client Transferred", description: "Moved to the new group." });
+  };
+
   const handleUpdateCycleSettings = async (cycleNumber: number, newSettings: CycleSettings) => {
     const updated = { ...cycleSettingsByCycle, [cycleNumber]: newSettings };
     setCycleSettingsByCycle(updated);
@@ -729,6 +870,44 @@ export function MobileDevShell({
     const updated = { ...cycleSchedulesByCycle, [cycleNumber]: schedule };
     setCycleSchedulesByCycle(updated);
     await saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, updated, globalMovementOptions, globalMovementSettings).catch(console.error);
+  };
+
+  const handleUpdateTrainingGroups = async (nextGroups: TrainingGroup[]) => {
+    const result = await saveCycleSettingsAction(
+      cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings, nextGroups
+    );
+    if (!result.success) throw new Error(result.message);
+    setTrainingGroups(nextGroups);
+  };
+
+  const updateSelectedGroupProgram = async (
+    updates: Partial<TrainingGroup["program"]>
+  ) => {
+    if (!selectedTrainingGroup) return;
+    const nextGroups = trainingGroups.map((group) =>
+      group.id === selectedTrainingGroup.id
+        ? { ...group, program: { ...group.program, ...updates } }
+        : group
+    );
+    await handleUpdateTrainingGroups(nextGroups);
+  };
+
+  const handleUnassignClientsFromGroup = async (groupId: string) => {
+    const result = await unassignClientsFromGroupAction(groupId);
+    if (!result.success) throw new Error(result.message);
+
+    const unassignedAt = new Date().toISOString();
+    setClients((previous) => previous.map((client) =>
+      client.activeGroupId === groupId
+        ? {
+            ...client,
+            activeGroupId: undefined,
+            groupEnrollmentHistory: (client.groupEnrollmentHistory || []).map((entry) =>
+              entry.groupId === groupId && !entry.leftAt ? { ...entry, leftAt: unassignedAt } : entry
+            ),
+          }
+        : client
+    ));
   };
 
   // ── Copy text builder ──────────────────────────────────────────────────────────
@@ -827,14 +1006,17 @@ export function MobileDevShell({
         footerSelectors={true}
         topControls={sidebarTopControls}
         currentWeek={currentWeek}
-        onWeekChange={setCurrentWeek}
+        onWeekChange={handleWeekChange}
         cycleSettings={cycleSettings}
         clients={clients}
+        trainingGroups={trainingGroups}
+        selectedGroupId={selectedGroupId}
+        onGroupSelect={handleGroupSelect}
+        onGroupSettingsOpen={handleOpenGroupSettings}
         currentCycleNumber={currentCycleNumber}
         skipDeloadWeek={Boolean(currentCycleSchedule.skipDeloadWeek)}
         availableCycleNumbers={availableCycles.map((c) => c.cycleNumber)}
         onCycleChange={setCurrentCycleNumber}
-        onAddClient={() => setAddClientSheetOpen(true)}
         onClientProfile={(client) => {
           setSelectedClientForProfile(client);
           setClientProfileOpen(true);
@@ -843,13 +1025,10 @@ export function MobileDevShell({
           setSelectedClientForAi(client);
           setAiDialogOpen(true);
         }}
-        onReorderClient={() => {}}
         onLogAllReps={() => {}}
         isBulkLoggingActive={false}
         onDuplicateWeek={async (): Promise<void> => {}}
         onDeleteWeek={async (): Promise<boolean> => false}
-        onGraduateTeam={() => {}}
-        currentCycleSchedule={currentCycleSchedule}
       />
 
       {/* Column wrapper: sticky header + scrollable content + fixed bottom bar */}
@@ -933,20 +1112,44 @@ export function MobileDevShell({
       {isAdminMode && (
         <div className="fixed bottom-20 right-4 z-40">
           <ConfigSettingsDialog
-            cycleSettingsByCycle={cycleSettingsByCycle}
-            onUpdateCycleSettings={handleUpdateCycleSettings}
-            cycleSchedulesByCycle={cycleSchedulesByCycle}
-            onUpdateCycleSchedule={handleUpdateCycleSchedule}
+            open={isSettingsOpen}
+            onOpenChange={setIsSettingsOpen}
+            cycleSettingsByCycle={activeCycleSettingsByCycle}
+            onUpdateCycleSettings={async (cycleNumber, settings) => {
+              if (!selectedTrainingGroup) return handleUpdateCycleSettings(cycleNumber, settings);
+              await updateSelectedGroupProgram({
+                cycleSettingsByCycle: { ...activeCycleSettingsByCycle, [cycleNumber]: settings },
+              });
+            }}
+            cycleSchedulesByCycle={activeCycleSchedulesByCycle}
+            onUpdateCycleSchedule={async (cycleNumber, schedule) => {
+              if (!selectedTrainingGroup) return handleUpdateCycleSchedule(cycleNumber, schedule);
+              await updateSelectedGroupProgram({
+                cycleSchedulesByCycle: { ...activeCycleSchedulesByCycle, [cycleNumber]: schedule },
+              });
+            }}
             currentWeekKey={currentWeek}
             cycles={availableCycles}
             currentCycleNumber={currentCycleNumber}
             onRenameCycle={async (cycleNumber, newName) => {
+              if (selectedTrainingGroup) {
+                await updateSelectedGroupProgram({
+                  cycleNames: { ...activeCycleNames, [cycleNumber]: newName },
+                });
+                return;
+              }
               const updated = { ...cycleNames, [cycleNumber]: newName };
               setCycleNames(updated);
               await saveCycleSettingsAction(cycleSettingsByCycle, updated, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings).catch(console.error);
             }}
-            onDeleteCycle={async (): Promise<void> => {}}
+            onDeleteCycle={selectedTrainingGroup ? undefined : async (): Promise<void> => {}}
             onCycleChange={setCurrentCycleNumber}
+            clients={clients}
+            onAddClient={() => setAddClientSheetOpen(true)}
+            onClientProfile={(client) => {
+              setSelectedClientForProfile(client);
+              setClientProfileOpen(true);
+            }}
             globalMovementOptions={globalMovementOptions}
             onUpdateGlobalMovementOptions={async (movementOptions, initialSettings) => {
               const nextOptions = Array.from(new Set(["Deadlift", "Bench", "Squat", "Press", ...movementOptions].filter(Boolean)));
@@ -959,6 +1162,13 @@ export function MobileDevShell({
               await saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, nextOptions, nextSettings).catch(console.error);
             }}
             globalMovementSettings={globalMovementSettings}
+            trainingGroups={trainingGroups}
+            onUpdateTrainingGroups={handleUpdateTrainingGroups}
+            onUnassignClientsFromGroup={handleUnassignClientsFromGroup}
+            selectedGroupId={selectedGroupId}
+            onGroupSelect={handleGroupSelect}
+            onGraduateTeam={() => window.location.reload()}
+            canGraduate={true}
             onUpdateGlobalMovementSettings={async (nextMovementSettings) => {
               setGlobalMovementSettings(nextMovementSettings);
               await saveCycleSettingsAction(cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, nextMovementSettings).catch(console.error);
@@ -973,6 +1183,7 @@ export function MobileDevShell({
         onOpenChange={setAddClientSheetOpen}
         liftDisplayNames={currentCycleSchedule.liftDisplayNames}
         globalMovementOptions={globalMovementOptions}
+        trainingGroups={trainingGroups}
         onClientAdded={(newClient) => setClients((prev) => [...prev, newClient])}
       />
       <AiInsightsDialog
@@ -1008,6 +1219,8 @@ export function MobileDevShell({
         onUpdateClient={handleUpdateClient}
         onResetTrainingMax={handleResetClientTrainingMax}
         onDeleteClient={handleDeleteClient}
+        trainingGroups={trainingGroups}
+        onTransferClient={handleTransferClient}
       />
     </SidebarProvider>
   );

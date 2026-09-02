@@ -98,6 +98,10 @@ export interface Client {
   id: string;
   name: string;
   rosterOrder?: number;
+  status?: "active" | "inactive";
+  activeGroupId?: string;
+  groupEnrollmentHistory?: GroupEnrollment[];
+  programStateByGroup?: Record<string, GroupClientProgramState>;
   oneRepMaxes: TrainingMaxes;
   movementOneRepMaxes?: Record<string, number>;
   oneRepMaxesByCycle?: { [cycleNumber: number]: TrainingMaxes }; // Optional per-cycle 1RM snapshots
@@ -116,6 +120,26 @@ export interface Client {
   };
   movementProfilesByCycle?: MovementProfilesByCycle;
   notes?: string; // Client notes
+};
+
+export type GroupClientProgramState = {
+  oneRepMaxes?: TrainingMaxes;
+  movementOneRepMaxes?: Record<string, number>;
+  oneRepMaxesByCycle?: { [cycleNumber: number]: TrainingMaxes };
+  trainingMaxes?: TrainingMaxes;
+  trainingMaxesByCycle?: { [cycleNumber: number]: TrainingMaxes };
+  initialWeights?: TrainingMaxes;
+  actualWeights?: TrainingMaxes;
+  currentCycleNumber?: number;
+  cycleMembership?: number[];
+  weekAssignmentsByCycle?: { [cycleNumber: number]: { [weekKey: string]: string } };
+  sessionStateByCycle?: { [cycleNumber: number]: SessionStateForCycle };
+  loggedSetInputsByCycle?: LoggedSetInputsByCycle;
+  movementCalibrationsByCycle?: MovementCalibrationByCycle;
+  movementSelectionByCycle?: {
+    [cycleNumber: number]: Partial<Record<Lift, string>>;
+  };
+  movementProfilesByCycle?: MovementProfilesByCycle;
 };
 
 export type SessionMode = 'normal' | 'slide' | 'jack_shit' | 'pause_week' | 'recovery';
@@ -144,6 +168,36 @@ export interface CycleWeekSettings {
 
 export interface CycleSettings {
   [week: string]: CycleWeekSettings;
+};
+
+export type GroupSessionTimes = {
+  day1StartTime: string; // 24-hour local time (HH:mm)
+  day2StartTime: string; // 24-hour local time (HH:mm)
+};
+
+export type TrainingGroupProgram = {
+  cycleSettingsByCycle: Record<number, CycleSettings>;
+  cycleNames: Record<number, string>;
+  cycleSchedulesByCycle: Record<number, CycleScheduleSettings>;
+};
+
+export type TrainingGroup = {
+  id: string;
+  name: string;
+  sortOrder: number;
+  active: boolean;
+  isDefault?: boolean;
+  timeZone: string;
+  sessionTimes: GroupSessionTimes;
+  currentCycleNumber: number;
+  program: TrainingGroupProgram;
+};
+
+export type GroupEnrollment = {
+  groupId: string;
+  joinedAt: string;
+  leftAt?: string;
+  placement: "current_program" | "week_1";
 };
 
 export interface HistoricalRecord {

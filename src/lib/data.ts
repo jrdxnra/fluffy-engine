@@ -1,4 +1,4 @@
-import type { Client, CycleScheduleSettings, CycleSettings, GlobalMovementSettings, HistoricalRecord, Lift } from './types';
+import type { Client, CycleScheduleSettings, CycleSettings, GlobalMovementSettings, HistoricalRecord, Lift, TrainingGroup } from './types';
 import { accessoryMap } from './workout-content';
 import {
   addDoc,
@@ -22,7 +22,7 @@ import { inferCycleMembershipForBackfill } from './cycle-membership';
 const cycleSettings: CycleSettings = {
   week1: {
     name: 'Week 1',
-    percentages: { warmup1: 0.5, warmup2: 0.6, workset1: 0.65, workset2: 0.75, workset3: 0.85 },
+    percentages: { warmup1: 0.25, warmup2: 0.35, workset1: 0.65, workset2: 0.75, workset3: 0.85 },
     reps: { workset1: 5, workset2: 5, workset3: '5+' },
     accessories: {
       Squat: ['Front Squat', 'GM (Standing)', 'GM (Dead)', 'GM (Seated)', 'Dbell Lunges', 'Barbell Lunges', 'Leg Curl', 'Dips', 'DB Row', "Farmer's Carry"],
@@ -33,7 +33,7 @@ const cycleSettings: CycleSettings = {
   },
   week2: {
     name: 'Week 2',
-    percentages: { warmup1: 0.5, warmup2: 0.6, workset1: 0.7, workset2: 0.8, workset3: 0.9 },
+    percentages: { warmup1: 0.25, warmup2: 0.35, workset1: 0.7, workset2: 0.8, workset3: 0.9 },
     reps: { workset1: 3, workset2: 3, workset3: '3+' },
     accessories: {
       Squat: ['Front Squat', 'GM (Standing)', 'GM (Dead)', 'GM (Seated)', 'Dbell Lunges', 'Barbell Lunges', 'Leg Curl', 'Dips', 'DB Row', "Farmer's Carry"],
@@ -44,7 +44,7 @@ const cycleSettings: CycleSettings = {
   },
   week3: {
     name: 'Week 3',
-    percentages: { warmup1: 0.5, warmup2: 0.6, workset1: 0.75, workset2: 0.85, workset3: 0.95 },
+    percentages: { warmup1: 0.25, warmup2: 0.35, workset1: 0.75, workset2: 0.85, workset3: 0.95 },
     reps: { workset1: 5, workset2: 3, workset3: '1+' },
     accessories: {
       Squat: ['Front Squat', 'GM (Standing)', 'GM (Dead)', 'GM (Seated)', 'Dbell Lunges', 'Barbell Lunges', 'Leg Curl', 'Dips', 'DB Row', "Farmer's Carry"],
@@ -55,7 +55,7 @@ const cycleSettings: CycleSettings = {
   },
   week4: {
     name: 'Week 4',
-    percentages: { warmup1: 0.5, warmup2: 0.6, workset1: 0.4, workset2: 0.5, workset3: 0.6 },
+    percentages: { warmup1: 0.25, warmup2: 0.35, workset1: 0.4, workset2: 0.5, workset3: 0.6 },
     reps: { workset1: 5, workset2: 5, workset3: '5' },
     accessories: {
       Squat: ['Front Squat', 'GM (Standing)', 'GM (Dead)', 'GM (Seated)', 'Dbell Lunges', 'Barbell Lunges', 'Leg Curl', 'Dips', 'DB Row', "Farmer's Carry"],
@@ -72,6 +72,7 @@ type AppSettings = {
   cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>;
   globalMovementOptions?: string[];
   globalMovementSettings?: GlobalMovementSettings;
+  trainingGroups?: TrainingGroup[];
 };
 
 type AppSettingsDocument = {
@@ -80,6 +81,7 @@ type AppSettingsDocument = {
   cycleSchedulesByCycle?: Record<string, CycleScheduleSettings>;
   globalMovementOptions?: string[];
   globalMovementSettings?: GlobalMovementSettings;
+  trainingGroups?: TrainingGroup[];
   settingsUpdatedAt?: string;
 };
 
@@ -165,6 +167,35 @@ const normalizeNumberKeyRecord = <T>(
   return result;
 };
 
+const normalizeTrainingGroups = (groups?: TrainingGroup[]): TrainingGroup[] => {
+  const normalizedGroups = (groups || [])
+    .filter((group) => group && typeof group.id === 'string' && group.id.trim().length > 0)
+    .map((group, index) => ({
+      ...group,
+      id: group.id.trim(),
+      name: group.name?.trim() || `Group ${index + 1}`,
+      sortOrder: Number.isFinite(group.sortOrder) ? group.sortOrder : index,
+      active: group.active !== false,
+      currentCycleNumber:
+        Number.isFinite(group.currentCycleNumber) && group.currentCycleNumber > 0
+          ? group.currentCycleNumber
+          : 1,
+      program: {
+        cycleSettingsByCycle: normalizeNumberKeyRecord(group.program?.cycleSettingsByCycle),
+        cycleNames: normalizeNumberKeyRecord(group.program?.cycleNames),
+        cycleSchedulesByCycle: normalizeNumberKeyRecord(group.program?.cycleSchedulesByCycle),
+      },
+    }))
+    .sort((first, second) => first.sortOrder - second.sortOrder || first.name.localeCompare(second.name));
+
+  let foundDefault = false;
+  return normalizedGroups.map((group) => {
+    const isDefault = Boolean(group.active && group.isDefault && !foundDefault);
+    if (isDefault) foundDefault = true;
+    return { ...group, isDefault };
+  });
+};
+
 const normalizeWarmupPercentages = (
   cycleSettingsByCycle: Record<number, CycleSettings>
 ): Record<number, CycleSettings> => {
@@ -178,8 +209,8 @@ const normalizeWarmupPercentages = (
     for (const weekKey of Object.keys(normalizedSettings)) {
       const week = normalizedSettings[weekKey];
       if (!week?.percentages) continue;
-      week.percentages.warmup1 = 0.5;
-      week.percentages.warmup2 = 0.6;
+      week.percentages.warmup1 = 0.25;
+      week.percentages.warmup2 = 0.35;
     }
 
     normalized[cycleNumber] = normalizedSettings;
@@ -344,6 +375,7 @@ export const getAppSettings = async (): Promise<AppSettings> => {
       const cycleSchedulesByCycle = normalizeNumberKeyRecord<CycleScheduleSettings>(
         data.cycleSchedulesByCycle
       );
+      const trainingGroups = normalizeTrainingGroups(data.trainingGroups);
 
       if (Object.keys(cycleSettingsByCycle).length > 0) {
         if (Object.keys(cycleNames).length === 0) {
@@ -361,6 +393,7 @@ export const getAppSettings = async (): Promise<AppSettings> => {
             resolveGlobalMovementOptions(withDefaultSchedules(cycleSettingsByCycle, cycleSchedulesByCycle), data.globalMovementOptions),
             data.globalMovementSettings
           ),
+          trainingGroups,
         };
       }
     }
@@ -395,6 +428,7 @@ export const getAppSettings = async (): Promise<AppSettings> => {
           resolveGlobalMovementOptions(withDefaultSchedules(cycleSettingsByCycle, cycleSchedulesByCycle), clientWithSettings.globalMovementOptions || []),
           clientWithSettings.globalMovementSettings || {}
         ),
+        trainingGroups: [],
       };
     }
 
@@ -404,6 +438,7 @@ export const getAppSettings = async (): Promise<AppSettings> => {
       cycleSchedulesByCycle: { 1: { ...defaultCycleSchedule } },
       globalMovementOptions: [...defaultGlobalMovementOptions],
       globalMovementSettings: buildGlobalMovementSettings(defaultGlobalMovementOptions),
+      trainingGroups: [],
     };
   } catch (error) {
     console.error('Error getting app settings:', error);
@@ -413,6 +448,7 @@ export const getAppSettings = async (): Promise<AppSettings> => {
       cycleSchedulesByCycle: { 1: { ...defaultCycleSchedule } },
       globalMovementOptions: [...defaultGlobalMovementOptions],
       globalMovementSettings: buildGlobalMovementSettings(defaultGlobalMovementOptions),
+      trainingGroups: [],
     };
   }
 };
@@ -434,6 +470,9 @@ export const saveAppSettings = async (settings: AppSettings) => {
       globalMovementOptions,
       settings.globalMovementSettings || existingData.globalMovementSettings || {}
     );
+    const trainingGroups = normalizeTrainingGroups(
+      settings.trainingGroups ?? existingData.trainingGroups
+    );
 
     await setDoc(settingsRef, {
       cycleSettingsByCycle: normalizedCycleSettingsByCycle,
@@ -441,6 +480,7 @@ export const saveAppSettings = async (settings: AppSettings) => {
       cycleSchedulesByCycle,
       globalMovementOptions,
       globalMovementSettings,
+      trainingGroups,
       settingsUpdatedAt,
     });
     return { success: true, settingsUpdatedAt, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings };
@@ -636,7 +676,8 @@ export const graduateTeam = async (
   options?: {
     noIncrementLifts?: Lift[];
     calibrationLifts?: Lift[];
-  }
+  },
+  groupId?: string
 ) => {
   try {
     // Pre-graduation validation
@@ -649,11 +690,15 @@ export const graduateTeam = async (
     const noIncrementLiftSet = new Set(options?.noIncrementLifts || []);
     const calibrationLiftSet = new Set(options?.calibrationLifts || []);
     const appSettings = await getAppSettings();
+    const trainingGroup = groupId
+      ? appSettings.trainingGroups?.find((group) => group.id === groupId)
+      : undefined;
 
     const result = clients.map((client) => {
-      const currentCycle = client.currentCycleNumber || 1;
+      const currentCycle = (groupId ? client.programStateByGroup?.[groupId]?.currentCycleNumber : undefined) ?? client.currentCycleNumber ?? 1;
       const nextCycle = currentCycle + 1;
-      const currentCycleSchedule = appSettings.cycleSchedulesByCycle?.[currentCycle];
+      const currentCycleSchedule = trainingGroup?.program.cycleSchedulesByCycle[currentCycle]
+        ?? appSettings.cycleSchedulesByCycle?.[currentCycle];
 
       const heldLiftSet = new Set<Lift>();
       (['Squat', 'Deadlift', 'Bench', 'Press'] as Lift[]).forEach((lift) => {
@@ -729,10 +774,35 @@ export const graduateTeam = async (
         };
       }
 
+      const groupScopedProgress = groupId
+        ? {
+            programStateByGroup: {
+              ...(client.programStateByGroup || {}),
+              [groupId]: {
+                ...(client.programStateByGroup?.[groupId] || {}),
+                currentCycleNumber: nextCycle,
+                cycleMembership: Array.from(
+                  new Set([...(client.programStateByGroup?.[groupId]?.cycleMembership || []), nextCycle])
+                ).sort((a, b) => a - b),
+                weekAssignmentsByCycle: {
+                  ...(client.programStateByGroup?.[groupId]?.weekAssignmentsByCycle || {}),
+                  [nextCycle]: { week1: '5', week2: '3', week3: '1' },
+                },
+              },
+            },
+          }
+        : {
+            currentCycleNumber: nextCycle,
+            cycleMembership: withCycleAdded(client, nextCycle),
+            weekAssignmentsByCycle: {
+              ...(client.weekAssignmentsByCycle || {}),
+              [nextCycle]: { week1: '5', week2: '3', week3: '1' },
+            },
+          };
+
       const updatedClient = {
         ...client,
-        currentCycleNumber: nextCycle,
-        cycleMembership: withCycleAdded(client, nextCycle),
+        ...groupScopedProgress,
         oneRepMaxesByCycle: {
           ...(client.oneRepMaxesByCycle || {}),
           [nextCycle]: nextOneRepMaxes,
@@ -740,10 +810,6 @@ export const graduateTeam = async (
         oneRepMaxes: nextOneRepMaxes,
         trainingMaxes: newTrainingMaxes,
         trainingMaxesByCycle: updatedTrainingMaxesByCycle,
-        weekAssignmentsByCycle: {
-          ...(client.weekAssignmentsByCycle || {}),
-          [nextCycle]: { week1: '5', week2: '3', week3: '1' },
-        },
         movementCalibrationsByCycle: {
           ...(client.movementCalibrationsByCycle || {}),
           [nextCycle]: movementCalibrationsForNextCycle,
@@ -770,7 +836,7 @@ export const graduateTeam = async (
     }
 
     // Get the next cycle from the first client (they should all be the same)
-    const nextCycle = result[0]?.currentCycleNumber || 2;
+    const nextCycle = (groupId ? result[0]?.programStateByGroup?.[groupId]?.currentCycleNumber : result[0]?.currentCycleNumber) || 2;
     console.log(`✅ Team graduated successfully. ${clients.length} clients moved to cycle ${nextCycle}`);
     return result;
   } catch (error) {

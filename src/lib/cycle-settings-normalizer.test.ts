@@ -9,8 +9,8 @@ describe("normalizeCycleSettingsByCycle", () => {
         week4: {
           name: "Week 4",
           percentages: {
-            warmup1: 0.5,
-            warmup2: 0.6,
+            warmup1: 0.25,
+            warmup2: 0.35,
             workset1: 0.4,
             workset2: 0.5,
             workset3: 0.6,
@@ -40,8 +40,8 @@ describe("normalizeCycleSettingsByCycle", () => {
         week1: {
           name: "Week 1",
           percentages: {
-            warmup1: 0.5,
-            warmup2: 0.6,
+            warmup1: 0.25,
+            warmup2: 0.35,
             workset1: 0.4,
             workset2: 0.5,
             workset3: 0.6,
@@ -102,8 +102,8 @@ describe("normalizeCycleSettingsByCycle", () => {
         week5: {
           name: "Week 5",
           percentages: {
-            warmup1: 0.5,
-            warmup2: 0.6,
+            warmup1: 0.25,
+            warmup2: 0.35,
             workset1: 0.4,
             workset2: 0.5,
             workset3: 0.6,

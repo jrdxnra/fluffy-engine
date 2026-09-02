@@ -7,6 +7,7 @@ import type {
   CycleSettings,
   GlobalMovementSettings,
   HistoricalRecord,
+  TrainingGroup,
 } from "@/lib/types";
 
 const SbdohControl = nextDynamic(
@@ -26,6 +27,7 @@ type ControlShellClientProps = {
   initialCycleSchedulesByCycle: Record<number, CycleScheduleSettings>;
   initialGlobalMovementOptions: string[];
   initialGlobalMovementSettings: GlobalMovementSettings;
+  initialTrainingGroups: TrainingGroup[];
   initialHistoricalData: HistoricalRecord[];
 };
 

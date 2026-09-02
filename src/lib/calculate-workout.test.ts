@@ -49,4 +49,40 @@ describe("calculateWorkout", () => {
     // Expected TM: cycle1 deadlift 290 + 10 = 300; top set = 300 * 0.85 = 255.
     expect(cycle2Deadlift.sets[4].weight).toBe(255);
   });
+
+  it("ignores trainingMaxOverride on deload week settings", () => {
+    const client: Client = {
+      id: "c3",
+      name: "Deload Test",
+      oneRepMaxes: { Squat: 300, Bench: 200, Deadlift: 300, Press: 150 },
+      trainingMaxes: { Squat: 270, Bench: 180, Deadlift: 270, Press: 135 },
+      trainingMaxesByCycle: {
+        1: { Squat: 270, Bench: 180, Deadlift: 270, Press: 135 },
+      },
+    };
+
+    const deloadWeekSettings: CycleWeekSettings = {
+      name: "Week 4",
+      percentages: {
+        warmup1: 0.25,
+        warmup2: 0.35,
+        workset1: 0.4,
+        workset2: 0.5,
+        workset3: 0.6,
+      },
+      reps: { workset1: 5, workset2: 5, workset3: "5" },
+    };
+
+    const workout = calculateWorkout(
+      client,
+      "Squat",
+      deloadWeekSettings,
+      [],
+      1,
+      { trainingMaxOverride: 300 }
+    );
+
+    expect(workout.trainingMax).toBe(270);
+    expect(workout.sets.map((set) => set.weight)).toEqual([70, 95, 110, 135, 160]);
+  });
 });

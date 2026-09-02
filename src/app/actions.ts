@@ -10,6 +10,7 @@ import type {
   LoggedSetInputsByCycle,
   LoggedSetMap,
   TrainingMaxes,
+  TrainingGroup,
 } from "@/lib/types";
 import { calculateTrainingMaxes } from "@/lib/training-max";
 import { withCycleRemoved } from "@/lib/cycle-membership";
@@ -93,6 +94,7 @@ export async function addClientAction(clientData: {
   currentCycleNumber?: number;
   weekAssignmentsByCycle?: { [cycleNumber: number]: { [weekKey: string]: string } };
   movementCalibrationsByCycle?: Client["movementCalibrationsByCycle"];
+  activeGroupId?: string;
 }) {
   "use server";
   try {
@@ -117,6 +119,21 @@ export async function addClientAction(clientData: {
       movementOneRepMaxes: clientData.movementOneRepMaxes || {},
       trainingMaxes: computedTrainingMaxes,
       rosterOrder: existingClients.length,
+      ...(clientData.activeGroupId
+        ? {
+            activeGroupId: clientData.activeGroupId,
+            groupEnrollmentHistory: [
+              { groupId: clientData.activeGroupId, joinedAt: new Date().toISOString(), placement: "current_program" as const },
+            ],
+            programStateByGroup: {
+              [clientData.activeGroupId]: {
+                currentCycleNumber: 1,
+                cycleMembership: [1],
+                weekAssignmentsByCycle: { 1: { week1: "5", week2: "3", week3: "1" } },
+              },
+            },
+          }
+        : {}),
       ...(hasCurrentCycle ? { currentCycleNumber } : {}),
       ...(hasCurrentCycle
         ? {
@@ -213,7 +230,8 @@ export async function graduateTeamAction(
   options?: {
     noIncrementLifts?: Array<'Squat' | 'Bench' | 'Deadlift' | 'Press'>;
     calibrationLifts?: Array<'Squat' | 'Bench' | 'Deadlift' | 'Press'>;
-  }
+  },
+  groupId?: string
 ) {
   "use server";
   try {
@@ -227,9 +245,11 @@ export async function graduateTeamAction(
     const { graduateTeam } = await import("@/lib/data");
     console.log("Server Action: Graduating team");
     const nextCycleNumber = Math.max(
-      ...clients.map((client) => Number(client.currentCycleNumber) || 1)
+      ...clients.map((client) =>
+        Number((groupId ? client.programStateByGroup?.[groupId]?.currentCycleNumber : undefined) ?? client.currentCycleNumber) || 1
+      )
     ) + 1;
-    await graduateTeam(clients, options);
+    await graduateTeam(clients, options, groupId);
     revalidatePath("/");
 
     return { 
@@ -273,6 +293,32 @@ export async function updateClientProfileAction(
   } catch (error) {
     console.error("Error updating client profile:", error);
     return { success: false, message: "Failed to update client profile." };
+  }
+}
+
+export async function unassignClientsFromGroupAction(groupId: string) {
+  "use server";
+  try {
+    const { getClients, updateClient } = await import("@/lib/data");
+    const leftAt = new Date().toISOString();
+    const assignedClients = (await getClients()).filter((client) => client.activeGroupId === groupId);
+
+    await Promise.all(
+      assignedClients.map((client) =>
+        updateClient(client.id, {
+          activeGroupId: undefined,
+          groupEnrollmentHistory: (client.groupEnrollmentHistory || []).map((entry) =>
+            entry.groupId === groupId && !entry.leftAt ? { ...entry, leftAt } : entry
+          ),
+        })
+      )
+    );
+
+    revalidatePath("/");
+    return { success: true, message: `${assignedClients.length} client(s) unassigned.`, clientIds: assignedClients.map((client) => client.id) };
+  } catch (error) {
+    console.error("Error unassigning clients from group:", error);
+    return { success: false, message: "Failed to unassign clients from group." };
   }
 }
 
@@ -488,7 +534,8 @@ export async function saveCycleSettingsAction(
   cycleNames: Record<number, string>,
   cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>,
   globalMovementOptions?: string[],
-  globalMovementSettings?: GlobalMovementSettings
+  globalMovementSettings?: GlobalMovementSettings,
+  trainingGroups?: TrainingGroup[]
 ) {
   "use server";
   try {
@@ -500,6 +547,7 @@ export async function saveCycleSettingsAction(
       cycleSchedulesByCycle,
       globalMovementOptions,
       globalMovementSettings,
+      trainingGroups,
     });
 
     // Keep fallback/shared client-stored settings in sync.
@@ -559,23 +607,40 @@ export async function saveCycleSettingsAction(
 }
 
 export async function updateClientWeekAssignmentsAction(
-  updates: Array<{ id: string; weekAssignmentsByCycle: Record<number, Record<string, string>> }>
+  updates: Array<{ id: string; weekAssignmentsByCycle: Record<number, Record<string, string>> }>,
+  groupId?: string
 ) {
   "use server";
   try {
-    const { updateClient, getAppSettings } = await import("@/lib/data");
+    const { getClients, updateClient, getAppSettings } = await import("@/lib/data");
     const { cycleSettingsByCycle } = await getAppSettings();
+    const clientsById = groupId
+      ? new Map((await getClients()).map((client) => [client.id, client]))
+      : new Map();
     console.log("Server Action: Updating client week assignments", updates.length);
 
     for (const update of updates) {
-      const cleanedAssignmentsByCycle = normalizeAssignmentsByCycle(
-        update.weekAssignmentsByCycle,
-        cycleSettingsByCycle
-      );
+      const cleanedAssignmentsByCycle = groupId
+        ? update.weekAssignmentsByCycle
+        : normalizeAssignmentsByCycle(update.weekAssignmentsByCycle, cycleSettingsByCycle);
 
-      await updateClient(update.id, {
-        weekAssignmentsByCycle: cleanedAssignmentsByCycle,
-      });
+      if (groupId) {
+        const client = clientsById.get(update.id);
+        if (!client) continue;
+        await updateClient(update.id, {
+          programStateByGroup: {
+            ...(client.programStateByGroup || {}),
+            [groupId]: {
+              ...(client.programStateByGroup?.[groupId] || {}),
+              weekAssignmentsByCycle: cleanedAssignmentsByCycle,
+            },
+          },
+        });
+      } else {
+        await updateClient(update.id, {
+          weekAssignmentsByCycle: cleanedAssignmentsByCycle,
+        });
+      }
     }
 
     revalidatePath("/");
@@ -605,15 +670,33 @@ export async function updateClientLoggedSetInputsAction(
 }
 
 export async function updateClientLoggedSetInputsBulkAction(
-  updates: Array<{ id: string; loggedSetInputsByCycle: LoggedSetInputsByCycle }>
+  updates: Array<{ id: string; loggedSetInputsByCycle: LoggedSetInputsByCycle }>,
+  groupId?: string
 ) {
   "use server";
   try {
-    const { updateClient } = await import("@/lib/data");
+    const { getClients, updateClient } = await import("@/lib/data");
+    const clientsById = groupId
+      ? new Map((await getClients()).map((client) => [client.id, client]))
+      : new Map();
     for (const update of updates) {
-      await updateClient(update.id, {
-        loggedSetInputsByCycle: update.loggedSetInputsByCycle,
-      });
+      if (groupId) {
+        const client = clientsById.get(update.id);
+        if (!client) continue;
+        await updateClient(update.id, {
+          programStateByGroup: {
+            ...(client.programStateByGroup || {}),
+            [groupId]: {
+              ...(client.programStateByGroup?.[groupId] || {}),
+              loggedSetInputsByCycle: update.loggedSetInputsByCycle,
+            },
+          },
+        });
+      } else {
+        await updateClient(update.id, {
+          loggedSetInputsByCycle: update.loggedSetInputsByCycle,
+        });
+      }
     }
     revalidatePath("/");
     return { success: true, message: "Logged set inputs bulk-updated." };
@@ -625,6 +708,7 @@ export async function updateClientLoggedSetInputsBulkAction(
 
 export async function upsertClientLoggedSetEntriesAction(args: {
   clientId: string;
+  groupId?: string;
   cycleNumber: number;
   weekKey: string;
   lift: Lift;
@@ -639,7 +723,9 @@ export async function upsertClientLoggedSetEntriesAction(args: {
       return { success: false, message: "Client not found." };
     }
 
-    const existing = targetClient.loggedSetInputsByCycle || {};
+    const existing = args.groupId
+      ? targetClient.programStateByGroup?.[args.groupId]?.loggedSetInputsByCycle || {}
+      : targetClient.loggedSetInputsByCycle || {};
     const cycleData = existing[args.cycleNumber] || {};
     const weekData = cycleData[args.weekKey] || {};
     const liftData = weekData[args.lift] || {};
@@ -663,9 +749,17 @@ export async function upsertClientLoggedSetEntriesAction(args: {
       },
     };
 
-    await updateClient(args.clientId, {
-      loggedSetInputsByCycle: merged,
-    });
+    await updateClient(args.clientId, args.groupId
+      ? {
+          programStateByGroup: {
+            ...(targetClient.programStateByGroup || {}),
+            [args.groupId]: {
+              ...(targetClient.programStateByGroup?.[args.groupId] || {}),
+              loggedSetInputsByCycle: merged,
+            },
+          },
+        }
+      : { loggedSetInputsByCycle: merged });
 
     revalidatePath("/");
     revalidatePath("/admin/analytics");

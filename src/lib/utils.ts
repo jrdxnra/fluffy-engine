@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import type { CalculatedWorkout, Client, CycleWeekSettings, HistoricalRecord, Lift, WorkoutSet } from "./types";
+import { isDeloadWeekSettings } from "./workout-week-settings";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -106,7 +107,10 @@ export const calculateWorkout = (
   }
 ): CalculatedWorkout => {
   const effectiveOneRepMax = options?.oneRepMaxOverride ?? client.oneRepMaxes[lift];
-  const storedTm = options?.trainingMaxOverride ?? resolveTrainingMaxForCycle(client, lift, cycleNumber);
+  const useOverrideTrainingMax = options?.trainingMaxOverride !== undefined && !isDeloadWeekSettings(weekSettings);
+  const storedTm = useOverrideTrainingMax
+    ? options!.trainingMaxOverride!
+    : resolveTrainingMaxForCycle(client, lift, cycleNumber);
   const baseTmFromOneRepMax = mround(effectiveOneRepMax * 0.9);
   // Safety clamp: training max must not exceed client's actual 1RM (applies to all cycles, not just cycle 1)
   const tm = storedTm > effectiveOneRepMax

@@ -16,10 +16,18 @@ import {
 } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import type { Client, Lift } from "@/lib/types";
+import type { Client, Lift, TrainingGroup } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { mround } from "@/lib/utils";
+import { getActiveTrainingGroups } from "@/lib/training-groups";
 import { addClientAction } from "@/app/actions";
 
 const schema = z.object({
@@ -40,6 +48,7 @@ type AddClientSheetProps = {
   onClientAdded?: (client: Client) => void;
   liftDisplayNames?: Partial<Record<Lift, string>>;
   globalMovementOptions?: string[];
+  trainingGroups?: TrainingGroup[];
 };
 
 export function AddClientSheet({
@@ -48,10 +57,13 @@ export function AddClientSheet({
   onClientAdded,
   liftDisplayNames,
   globalMovementOptions = [],
+  trainingGroups = [],
 }: AddClientSheetProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [customMovementInputs, setCustomMovementInputs] = useState<Record<string, string>>({});
+  const activeGroups = getActiveTrainingGroups(trainingGroups);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>("");
   const {
     control,
     handleSubmit,
@@ -88,6 +100,7 @@ export function AddClientSheet({
     try {
       const addClientPayload = {
         name: data.name.trim(),
+        activeGroupId: selectedGroupId || undefined,
         oneRepMaxes: {
           Squat: Number(data.oneRepMaxes.Squat),
           Bench: Number(data.oneRepMaxes.Bench),
@@ -138,6 +151,7 @@ export function AddClientSheet({
         }
         reset();
         setCustomMovementInputs({});
+        setSelectedGroupId("");
         onOpenChange(false);
         return;
       }
@@ -187,6 +201,25 @@ export function AddClientSheet({
               />
               {errors.name && <p className="col-span-4 text-left text-destructive text-sm sm:text-right">{errors.name.message}</p>}
             </div>
+            {activeGroups.length > 0 ? (
+              <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+                <Label className="text-left sm:text-right">Group</Label>
+                <div className="col-span-3">
+                  <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Unassigned" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeGroups.map((group) => (
+                        <SelectItem key={group.id} value={group.id}>
+                          {group.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            ) : null}
             {Lifts.map((lift: Lift) => (
               <div key={lift} className="grid grid-cols-1 items-start gap-2 sm:grid-cols-4 sm:gap-4">
                 <Label htmlFor={lift} className="pt-0 text-left sm:pt-2 sm:text-right">

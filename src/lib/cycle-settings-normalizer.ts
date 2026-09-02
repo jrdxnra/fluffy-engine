@@ -34,8 +34,8 @@ const getRepTemplate = (scheme: Scheme) => {
 const getPercentageTemplate = (scheme: Scheme) => {
   if (scheme === "5") {
     return {
-      warmup1: 0.5,
-      warmup2: 0.6,
+      warmup1: 0.25,
+      warmup2: 0.35,
       workset1: 0.65,
       workset2: 0.75,
       workset3: 0.85,
@@ -43,20 +43,27 @@ const getPercentageTemplate = (scheme: Scheme) => {
   }
   if (scheme === "3") {
     return {
-      warmup1: 0.5,
-      warmup2: 0.6,
+      warmup1: 0.25,
+      warmup2: 0.35,
       workset1: 0.7,
       workset2: 0.8,
       workset3: 0.9,
     };
   }
   return {
-    warmup1: 0.5,
-    warmup2: 0.6,
+    warmup1: 0.25,
+    warmup2: 0.35,
     workset1: 0.75,
     workset2: 0.85,
     workset3: 0.95,
   };
+};
+
+const isSupportedWarmupPattern = (percentages: CycleSettings[string]['percentages']): boolean => {
+  return (
+    (percentages.warmup1 === 0.25 && percentages.warmup2 === 0.35) ||
+    (percentages.warmup1 === 0.5 && percentages.warmup2 === 0.6)
+  );
 };
 
 const isDeloadTemplate = (weekSettings: CycleSettings[string]): boolean => {
@@ -68,8 +75,7 @@ const isDeloadTemplate = (weekSettings: CycleSettings[string]): boolean => {
   return (
     !hasAmrap &&
     normalizedReps === "5" &&
-    percentages.warmup1 === 0.5 &&
-    percentages.warmup2 === 0.6 &&
+    isSupportedWarmupPattern(percentages) &&
     percentages.workset1 === 0.4 &&
     percentages.workset2 === 0.5 &&
     percentages.workset3 === 0.6
@@ -111,7 +117,7 @@ export const normalizeCycleSettingsByCycle = (
       if (isDeloadByNumber) {
         // Week 4 is always the deload week — enforce standard deload percentages and reps
         // to repair any corruption (e.g., from an accidental settings edit or bad migration)
-        const deloadPercentages = { warmup1: 0.5, warmup2: 0.6, workset1: 0.4, workset2: 0.5, workset3: 0.6 };
+        const deloadPercentages = { warmup1: 0.25, warmup2: 0.35, workset1: 0.4, workset2: 0.5, workset3: 0.6 };
         const deloadReps = { workset1: 5, workset2: 5, workset3: "5" };
         const p = updatedWeekSettings.percentages;
         if (

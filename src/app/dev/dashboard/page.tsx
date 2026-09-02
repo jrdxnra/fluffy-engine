@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 
 async function DevContent() {
   const clients = await getClients();
-  const { cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings } = await getAppSettings();
+  const { cycleSettingsByCycle, cycleNames, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings, trainingGroups } = await getAppSettings();
   const historicalData = await getHistoricalData();
 
   const sharedProps = {
@@ -28,6 +28,7 @@ async function DevContent() {
     initialCycleSchedulesByCycle: cycleSchedulesByCycle || {},
     initialGlobalMovementOptions: globalMovementOptions || [],
     initialGlobalMovementSettings: globalMovementSettings || {},
+    initialTrainingGroups: trainingGroups || [],
     initialHistoricalData: historicalData,
   };
 

@@ -12,8 +12,8 @@ const normalizeWarmups = (cycleSettings: CycleSettings): CycleSettings => {
   for (const weekKey of Object.keys(normalized)) {
     const week = normalized[weekKey];
     if (!week?.percentages) continue;
-    week.percentages.warmup1 = 0.5;
-    week.percentages.warmup2 = 0.6;
+    week.percentages.warmup1 = 0.25;
+    week.percentages.warmup2 = 0.35;
   }
 
   return normalized;
@@ -69,7 +69,7 @@ export async function POST() {
       success: true,
       cyclesUpdated: Object.keys(normalizedCycleSettingsByCycle).length,
       clientsUpdated,
-      message: 'Warm-up percentages normalized to 50% / 60% across cycle settings.',
+      message: 'Warm-up percentages normalized to 25% / 35% across cycle settings.',
     });
   } catch (error) {
     return Response.json(

@@ -31,11 +31,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Client, CycleScheduleSettings, CycleSettings, GlobalMovementSettings, HistoricalRecord, Lift, MovementProfile, SessionMode } from "@/lib/types";
+import type { Client, CycleScheduleSettings, CycleSettings, GlobalMovementSettings, HistoricalRecord, Lift, MovementProfile, SessionMode, TrainingGroup } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { getEffectiveCycleSchedule, getLiftDisplayName } from "@/lib/schedule";
 import { normalizeMovementName, resolveMovementClassType } from "@/lib/movement-profiles";
 import { getEffectiveCycleMembership } from "@/lib/cycle-membership";
+import { getActiveTrainingGroups, getTrainingGroupById } from "@/lib/training-groups";
 import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { ClientProgressChart } from "./ClientProgressChart";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
@@ -57,6 +58,8 @@ type ClientProfileModalProps = {
   onUpdateClient: (updatedClient: Client) => Promise<void> | void;
   onResetTrainingMax: (clientId: string, cycleNumber: number) => Promise<void>;
   onDeleteClient: (clientId: string) => Promise<void>;
+  trainingGroups?: TrainingGroup[];
+  onTransferClient?: (client: Client, toGroupId: string, placement: "current_program" | "week_1") => Promise<void> | void;
 };
 
 const getRepScheme = (workset3Reps: string | number): string => {
@@ -100,10 +103,15 @@ export function ClientProfileModal({
   historicalData,
   onUpdateClient,
   onDeleteClient,
+  trainingGroups = [],
+  onTransferClient,
 }: ClientProfileModalProps) {
   const [localClient, setLocalClient] = useState<Client | null>(client);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [transferGroupId, setTransferGroupId] = useState<string>("");
+  const [transferPlacement, setTransferPlacement] = useState<"current_program" | "week_1">("current_program");
   const [selectedCycle, setSelectedCycle] = useState<number>(currentCycleNumber);
   const { isAdminMode } = useAdminModeContext();
   void currentGlobalWeek;
@@ -298,6 +306,8 @@ export function ClientProfileModal({
   const mainLiftProfileSnapshots = useMemo(() => {
     const snapshots = {} as Record<Lift, { oneRepMax: number; trainingMax: number }>;
     const isCurrentCycleView = selectedCycle === currentCycleNumber;
+    const cycleOneRepMaxes = localClient?.oneRepMaxesByCycle?.[selectedCycle] || localClient?.oneRepMaxes;
+    const cycleTrainingMaxes = localClient?.trainingMaxesByCycle?.[selectedCycle] || localClient?.trainingMaxes;
 
     for (const lift of Lifts) {
       const normalizedLift = normalizeMovementName(lift);
@@ -314,8 +324,8 @@ export function ClientProfileModal({
       }
 
       snapshots[lift] = {
-        oneRepMax: chosenProfile?.profile.oneRepMax ?? localClient?.oneRepMaxesByCycle?.[selectedCycle]?.[lift] ?? localClient?.oneRepMaxes[lift] ?? 0,
-        trainingMax: chosenProfile?.profile.trainingMax ?? localClient?.trainingMaxesByCycle?.[selectedCycle]?.[lift] ?? localClient?.trainingMaxes[lift] ?? 0,
+        oneRepMax: cycleOneRepMaxes?.[lift] ?? chosenProfile?.profile.oneRepMax ?? 0,
+        trainingMax: cycleTrainingMaxes?.[lift] ?? chosenProfile?.profile.trainingMax ?? 0,
       };
     }
 
@@ -784,7 +794,22 @@ export function ClientProfileModal({
     setIsDeleting(false);
   };
 
+  const handleTransfer = async () => {
+    if (!localClient || !transferGroupId || !onTransferClient) return;
+    setIsTransferring(true);
+    try {
+      await onTransferClient(localClient, transferGroupId, transferPlacement);
+      setTransferGroupId("");
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
   if (!localClient) return null;
+
+  const activeGroups = getActiveTrainingGroups(trainingGroups);
+  const currentGroup = getTrainingGroupById(trainingGroups, localClient.activeGroupId);
+  const transferTargetGroups = activeGroups.filter((group) => group.id !== localClient.activeGroupId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -795,6 +820,86 @@ export function ClientProfileModal({
             View and manage client profile information, training maxes, and week assignments.
           </DialogDescription>
         </DialogHeader>
+
+        {trainingGroups.length > 0 ? (
+          <Card>
+            <CardContent className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-end sm:justify-between">
+              <div className="space-y-1">
+                <Label className="text-xs">Current Group</Label>
+                <p className="text-sm font-medium">{currentGroup?.name || "Unassigned"}</p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Client Status</Label>
+                <Select
+                  value={localClient.status || "active"}
+                  onValueChange={(value) => setLocalClient((current) => {
+                    if (!current) return current;
+                    if (value === "active") return { ...current, status: "active" };
+
+                    const leftAt = new Date().toISOString();
+                    return {
+                      ...current,
+                      status: "inactive",
+                      activeGroupId: undefined,
+                      groupEnrollmentHistory: (current.groupEnrollmentHistory || []).map((entry) =>
+                        entry.groupId === current.activeGroupId && !entry.leftAt
+                          ? { ...entry, leftAt }
+                          : entry
+                      ),
+                    };
+                  })}
+                >
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {onTransferClient && (localClient.status || "active") === "active" ? (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Move to Group</Label>
+                    <Select value={transferGroupId} onValueChange={setTransferGroupId}>
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue placeholder="Select group" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {transferTargetGroups.map((group) => (
+                          <SelectItem key={group.id} value={group.id}>
+                            {group.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Placement</Label>
+                    <Select value={transferPlacement} onValueChange={(value) => setTransferPlacement(value as "current_program" | "week_1")}>
+                      <SelectTrigger className="w-[220px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="current_program">Keep current progress</SelectItem>
+                        <SelectItem value="week_1">Start at week 1</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!transferGroupId || isTransferring}
+                    onClick={() => void handleTransfer()}
+                  >
+                    {isTransferring ? "Moving..." : "Transfer"}
+                  </Button>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Tabs defaultValue="1rm-progress" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
