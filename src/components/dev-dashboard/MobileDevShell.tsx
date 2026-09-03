@@ -787,8 +787,11 @@ export function MobileDevShell({
 
     const result = await updateClientProfileAction(persistedClient.id, {
       oneRepMaxes: persistedClient.oneRepMaxes,
+      oneRepMaxesByCycle: persistedClient.oneRepMaxesByCycle,
       trainingMaxes: persistedClient.trainingMaxes,
       trainingMaxesByCycle: persistedClient.trainingMaxesByCycle,
+      movementProfilesByCycle: persistedClient.movementProfilesByCycle,
+      movementCalibrationsByCycle: persistedClient.movementCalibrationsByCycle,
       status: persistedClient.status,
       activeGroupId: persistedClient.activeGroupId,
       groupEnrollmentHistory: persistedClient.groupEnrollmentHistory,
@@ -798,7 +801,6 @@ export function MobileDevShell({
         weekAssignmentsByCycle: persistedClient.weekAssignmentsByCycle,
         sessionStateByCycle: persistedClient.sessionStateByCycle as Parameters<typeof updateClientProfileAction>[1]["sessionStateByCycle"],
         movementSelectionByCycle: persistedClient.movementSelectionByCycle,
-        movementProfilesByCycle: persistedClient.movementProfilesByCycle,
       }),
     });
 

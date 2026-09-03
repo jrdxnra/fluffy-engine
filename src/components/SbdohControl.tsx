@@ -991,6 +991,8 @@ export function SbdohControl({
       oneRepMaxesByCycle: persistedClient.oneRepMaxesByCycle,
       trainingMaxes: persistedClient.trainingMaxes,
       trainingMaxesByCycle: persistedClient.trainingMaxesByCycle,
+      movementProfilesByCycle: persistedClient.movementProfilesByCycle,
+      movementCalibrationsByCycle: persistedClient.movementCalibrationsByCycle,
       initialWeights: persistedClient.initialWeights,
       status: persistedClient.status,
       activeGroupId: persistedClient.activeGroupId,
@@ -1001,7 +1003,6 @@ export function SbdohControl({
         weekAssignmentsByCycle: persistedClient.weekAssignmentsByCycle,
         sessionStateByCycle: persistedClient.sessionStateByCycle,
         movementSelectionByCycle: persistedClient.movementSelectionByCycle,
-        movementProfilesByCycle: persistedClient.movementProfilesByCycle,
       }),
     });
 
