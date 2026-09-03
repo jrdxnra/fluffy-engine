@@ -366,12 +366,6 @@ export function ConfigSettingsDialog({
   }, [settingsTab]);
 
   useEffect(() => {
-    if (!selectedGroupId) return;
-    setDialogCycleNumber(currentCycleNumber);
-    setLocalSettings(cycleSettingsByCycle[currentCycleNumber] || cycleSettingsByCycle[1] || {});
-  }, [currentCycleNumber, cycleSettingsByCycle, selectedGroupId]);
-
-  useEffect(() => {
     if (currentWeekKey) {
       setSelectedWeekKey(currentWeekKey);
     }

@@ -1570,6 +1570,92 @@ export function SbdohControl({
     }
   };
 
+  const handleDeleteGroupCycle = async (cycleNumber: number) => {
+    const group = selectedTrainingGroup;
+    if (!group) return;
+    if (!ensureMutableCycle("Deleting cycles")) return;
+
+    // Remove the cycle from the group's own program
+    const nextCycleSettingsByCycle = { ...group.program.cycleSettingsByCycle };
+    delete nextCycleSettingsByCycle[cycleNumber];
+    const nextCycleNames = { ...group.program.cycleNames };
+    delete nextCycleNames[cycleNumber];
+    const nextCycleSchedulesByCycle = { ...group.program.cycleSchedulesByCycle };
+    delete nextCycleSchedulesByCycle[cycleNumber];
+
+    const remainingCycleNumbers = Object.keys(nextCycleSettingsByCycle).map(Number).filter(Number.isFinite);
+    const nextCurrentCycleNumber = remainingCycleNumbers.length > 0
+      ? (remainingCycleNumbers.includes(group.currentCycleNumber)
+        ? group.currentCycleNumber
+        : Math.max(...remainingCycleNumbers))
+      : 1;
+
+    await updateSelectedGroupProgram({
+      cycleSettingsByCycle: nextCycleSettingsByCycle,
+      cycleNames: nextCycleNames,
+      cycleSchedulesByCycle: nextCycleSchedulesByCycle,
+    });
+    await handleUpdateTrainingGroups(
+      trainingGroups.map((entry) =>
+        entry.id === group.id ? { ...entry, currentCycleNumber: nextCurrentCycleNumber } : entry
+      )
+    );
+
+    // Clean up group members' group-scoped state for the deleted cycle
+    const members = getClientsInTrainingGroup(clients, group.id);
+    const updates: Array<{ client: Client; programStateByGroup: NonNullable<Client["programStateByGroup"]> }> = [];
+    for (const client of members) {
+      const state = client.programStateByGroup?.[group.id];
+      if (!state) continue;
+      const weekAssignmentsByCycle = { ...(state.weekAssignmentsByCycle || {}) };
+      delete weekAssignmentsByCycle[cycleNumber];
+      const sessionStateByCycle = { ...(state.sessionStateByCycle || {}) };
+      delete sessionStateByCycle[cycleNumber];
+      const loggedSetInputsByCycle = { ...(state.loggedSetInputsByCycle || {}) };
+      delete loggedSetInputsByCycle[cycleNumber];
+      const movementSelectionByCycle = { ...(state.movementSelectionByCycle || {}) };
+      delete movementSelectionByCycle[cycleNumber];
+      const cycleMembership = (state.cycleMembership || []).filter((cycle) => cycle !== cycleNumber);
+      const currentCycle = state.currentCycleNumber === cycleNumber
+        ? (cycleMembership.length > 0 ? Math.max(...cycleMembership) : nextCurrentCycleNumber)
+        : state.currentCycleNumber;
+      updates.push({
+        client,
+        programStateByGroup: {
+          ...(client.programStateByGroup || {}),
+          [group.id]: {
+            ...state,
+            currentCycleNumber: currentCycle,
+            cycleMembership,
+            weekAssignmentsByCycle,
+            sessionStateByCycle,
+            loggedSetInputsByCycle,
+            movementSelectionByCycle,
+          },
+        },
+      });
+    }
+
+    if (updates.length > 0) {
+      setClients((prev) =>
+        prev.map((client) => {
+          const update = updates.find((entry) => entry.client.id === client.id);
+          return update ? { ...client, programStateByGroup: update.programStateByGroup } : client;
+        })
+      );
+      await Promise.all(
+        updates.map((entry) =>
+          updateClientProfileAction(entry.client.id, { programStateByGroup: entry.programStateByGroup })
+        )
+      );
+    }
+
+    if (currentCycleNumber === cycleNumber) {
+      setCurrentCycleNumber(nextCurrentCycleNumber);
+    }
+    router.refresh();
+  };
+
   const handleDeleteCycle = async (cycleNumber: number) => {
     if (!ensureMutableCycle("Deleting cycles")) return;
 
@@ -2617,7 +2703,7 @@ export function SbdohControl({
                   cycleNames: { ...activeCycleNames, [cycleNumber]: name },
                 });
               }}
-              onDeleteCycle={selectedTrainingGroup ? undefined : handleDeleteCycle}
+              onDeleteCycle={selectedTrainingGroup ? handleDeleteGroupCycle : handleDeleteCycle}
               onCycleChange={setCurrentCycleNumber}
               clients={clients}
               onAddClient={() => setAddClientSheetOpen(true)}

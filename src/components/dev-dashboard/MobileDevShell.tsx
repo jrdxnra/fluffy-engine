@@ -894,6 +894,76 @@ export function MobileDevShell({
     await handleUpdateTrainingGroups(nextGroups);
   };
 
+  const handleDeleteGroupCycle = async (cycleNumber: number) => {
+    const group = selectedTrainingGroup;
+    if (!group) return;
+
+    const nextCycleSettingsByCycle = { ...group.program.cycleSettingsByCycle };
+    delete nextCycleSettingsByCycle[cycleNumber];
+    const nextCycleNames = { ...group.program.cycleNames };
+    delete nextCycleNames[cycleNumber];
+    const nextCycleSchedulesByCycle = { ...group.program.cycleSchedulesByCycle };
+    delete nextCycleSchedulesByCycle[cycleNumber];
+
+    const remainingCycleNumbers = Object.keys(nextCycleSettingsByCycle).map(Number).filter(Number.isFinite);
+    const nextCurrentCycleNumber = remainingCycleNumbers.length > 0
+      ? (remainingCycleNumbers.includes(group.currentCycleNumber)
+        ? group.currentCycleNumber
+        : Math.max(...remainingCycleNumbers))
+      : 1;
+
+    await updateSelectedGroupProgram({
+      cycleSettingsByCycle: nextCycleSettingsByCycle,
+      cycleNames: nextCycleNames,
+      cycleSchedulesByCycle: nextCycleSchedulesByCycle,
+    });
+    await handleUpdateTrainingGroups(
+      trainingGroups.map((entry) =>
+        entry.id === group.id ? { ...entry, currentCycleNumber: nextCurrentCycleNumber } : entry
+      )
+    );
+
+    const members = getClientsInTrainingGroup(clients, group.id);
+    await Promise.all(
+      members.map((client) => {
+        const state = client.programStateByGroup?.[group.id];
+        if (!state) return Promise.resolve();
+        const weekAssignmentsByCycle = { ...(state.weekAssignmentsByCycle || {}) };
+        delete weekAssignmentsByCycle[cycleNumber];
+        const sessionStateByCycle = { ...(state.sessionStateByCycle || {}) };
+        delete sessionStateByCycle[cycleNumber];
+        const loggedSetInputsByCycle = { ...(state.loggedSetInputsByCycle || {}) };
+        delete loggedSetInputsByCycle[cycleNumber];
+        const movementSelectionByCycle = { ...(state.movementSelectionByCycle || {}) };
+        delete movementSelectionByCycle[cycleNumber];
+        const cycleMembership = (state.cycleMembership || []).filter((cycle) => cycle !== cycleNumber);
+        const currentCycle = state.currentCycleNumber === cycleNumber
+          ? (cycleMembership.length > 0 ? Math.max(...cycleMembership) : nextCurrentCycleNumber)
+          : state.currentCycleNumber;
+        const programStateByGroup = {
+          ...(client.programStateByGroup || {}),
+          [group.id]: {
+            ...state,
+            currentCycleNumber: currentCycle,
+            cycleMembership,
+            weekAssignmentsByCycle,
+            sessionStateByCycle,
+            loggedSetInputsByCycle,
+            movementSelectionByCycle,
+          },
+        };
+        setClients((prev) =>
+          prev.map((entry) => (entry.id === client.id ? { ...entry, programStateByGroup } : entry))
+        );
+        return updateClientProfileAction(client.id, { programStateByGroup });
+      })
+    );
+
+    if (currentCycleNumber === cycleNumber) {
+      setCurrentCycleNumber(nextCurrentCycleNumber);
+    }
+  };
+
   const handleUnassignClientsFromGroup = async (groupId: string) => {
     const result = await unassignClientsFromGroupAction(groupId);
     if (!result.success) throw new Error(result.message);
@@ -1144,7 +1214,7 @@ export function MobileDevShell({
               setCycleNames(updated);
               await saveCycleSettingsAction(cycleSettingsByCycle, updated, cycleSchedulesByCycle, globalMovementOptions, globalMovementSettings).catch(console.error);
             }}
-            onDeleteCycle={selectedTrainingGroup ? undefined : async (): Promise<void> => {}}
+            onDeleteCycle={selectedTrainingGroup ? handleDeleteGroupCycle : async (): Promise<void> => {}}
             onCycleChange={setCurrentCycleNumber}
             clients={clients}
             onAddClient={() => setAddClientSheetOpen(true)}
