@@ -1590,16 +1590,26 @@ export function SbdohControl({
         : Math.max(...remainingCycleNumbers))
       : 1;
 
-    await updateSelectedGroupProgram({
-      cycleSettingsByCycle: nextCycleSettingsByCycle,
-      cycleNames: nextCycleNames,
-      cycleSchedulesByCycle: nextCycleSchedulesByCycle,
-    });
-    await handleUpdateTrainingGroups(
-      trainingGroups.map((entry) =>
-        entry.id === group.id ? { ...entry, currentCycleNumber: nextCurrentCycleNumber } : entry
-      )
-    );
+    try {
+      // Single save: program + corrected currentCycleNumber together
+      const nextGroups = trainingGroups.map((entry) =>
+        entry.id === group.id
+          ? {
+              ...entry,
+              currentCycleNumber: nextCurrentCycleNumber,
+              program: {
+                cycleSettingsByCycle: nextCycleSettingsByCycle,
+                cycleNames: nextCycleNames,
+                cycleSchedulesByCycle: nextCycleSchedulesByCycle,
+              },
+            }
+          : entry
+      );
+      await handleUpdateTrainingGroups(nextGroups);
+    } catch (error) {
+      console.error("Failed to delete cycle from group program:", error);
+      throw error;
+    }
 
     // Clean up group members' group-scoped state for the deleted cycle
     const members = getClientsInTrainingGroup(clients, group.id);
@@ -1643,11 +1653,15 @@ export function SbdohControl({
           return update ? { ...client, programStateByGroup: update.programStateByGroup } : client;
         })
       );
-      await Promise.all(
-        updates.map((entry) =>
-          updateClientProfileAction(entry.client.id, { programStateByGroup: entry.programStateByGroup })
-        )
-      );
+      try {
+        await Promise.all(
+          updates.map((entry) =>
+            updateClientProfileAction(entry.client.id, { programStateByGroup: entry.programStateByGroup })
+          )
+        );
+      } catch (error) {
+        console.error("Failed to clean up client group state after cycle delete:", error);
+      }
     }
 
     if (currentCycleNumber === cycleNumber) {
