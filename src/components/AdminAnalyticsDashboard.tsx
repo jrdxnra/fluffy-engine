@@ -22,7 +22,8 @@ import { buildAdminAnalyticsReport, type ClientAnalytics } from "@/lib/admin-ana
 import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { getMovementProfileForLift } from "@/lib/movement-profiles";
 import { getEffectiveCycleSchedule, resolveClientMovementName } from "@/lib/schedule";
-import type { Client, HistoricalRecord, Lift, CycleScheduleSettings } from "@/lib/types";
+import { getTrainingGroupById } from "@/lib/training-groups";
+import type { Client, HistoricalRecord, Lift, CycleScheduleSettings, TrainingGroup } from "@/lib/types";
 
 const statusBadgeClassNames: Record<string, string> = {
   "on-track": "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
@@ -54,6 +55,7 @@ type AdminAnalyticsDashboardProps = {
   clients: Client[];
   historicalData: HistoricalRecord[];
   cycleSchedulesByCycle: Record<number, CycleScheduleSettings>;
+  trainingGroups?: TrainingGroup[];
   initialSelectedClientIds?: string[] | null;
   initialActiveClientId?: string | null;
   initialHistoricalOpen?: boolean;
@@ -63,6 +65,7 @@ export function AdminAnalyticsDashboard({
   clients,
   historicalData,
   cycleSchedulesByCycle,
+  trainingGroups = [],
   initialActiveClientId = null,
   initialHistoricalOpen = false,
 }: AdminAnalyticsDashboardProps) {
@@ -156,9 +159,16 @@ export function AdminAnalyticsDashboard({
     });
   };
 
+  const getSchedulesForClient = useMemo(() => {
+    return (client: Client): Record<number, CycleScheduleSettings> => {
+      const group = client.activeGroupId ? getTrainingGroupById(trainingGroups, client.activeGroupId) : undefined;
+      return group?.program.cycleSchedulesByCycle ?? cycleSchedulesByCycle;
+    };
+  }, [trainingGroups, cycleSchedulesByCycle]);
+
   const report = useMemo(() => {
-    return buildAdminAnalyticsReport(clients, localHistoricalData, new Date(), cycleSchedulesByCycle);
-  }, [clients, localHistoricalData, cycleSchedulesByCycle]);
+    return buildAdminAnalyticsReport(clients, localHistoricalData, new Date(), cycleSchedulesByCycle, getSchedulesForClient);
+  }, [clients, localHistoricalData, cycleSchedulesByCycle, getSchedulesForClient]);
 
   const selectableClients = useMemo(() => {
     const reportByClientId = new Map(report.clients.map((client) => [client.clientId, client] as const));
@@ -216,7 +226,7 @@ export function AdminAnalyticsDashboard({
     const sourceClient = clientById.get(client.clientId);
     if (!sourceClient) return lift;
     const currentCycleNumber = cycleOverride || client.currentCycleNumber || 1;
-    const cycleSchedule = getEffectiveCycleSchedule(cycleSchedulesByCycle[currentCycleNumber]);
+    const cycleSchedule = getEffectiveCycleSchedule(getSchedulesForClient(sourceClient)[currentCycleNumber]);
     return resolveClientMovementName(sourceClient, currentCycleNumber, lift, cycleSchedule);
   };
 
@@ -234,7 +244,7 @@ export function AdminAnalyticsDashboard({
     }
 
     const cycleNumber = getEffectiveCycleForDetail();
-    const profile = getMovementProfileForLift(activeSourceClient, cycleNumber, lift, cycleSchedulesByCycle[cycleNumber]);
+    const profile = getMovementProfileForLift(activeSourceClient, cycleNumber, lift, getSchedulesForClient(activeSourceClient)[cycleNumber]);
     const calibrationEntry = activeSourceClient.movementCalibrationsByCycle?.[cycleNumber]?.[lift];
     const calibrationRequired = isLiftCalibrationRequired(
       activeSourceClient,
@@ -374,13 +384,14 @@ export function AdminAnalyticsDashboard({
         localHistoricalData,
         new Date(),
         cycleSchedulesByCycle,
+        getSchedulesForClient,
       );
       const cycleAnalytics = reportForCycle.clients[0];
       if (cycleAnalytics) map.set(cycleNumber, cycleAnalytics);
     }
 
     return map;
-  }, [activeSourceClient, availableCycles, cycleSchedulesByCycle, localHistoricalData]);
+  }, [activeSourceClient, availableCycles, cycleSchedulesByCycle, getSchedulesForClient, localHistoricalData]);
 
   const detailClient = useMemo(() => {
     if (!activeClient) return null;

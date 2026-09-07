@@ -665,9 +665,11 @@ export const buildAdminAnalyticsReport = (
   historicalData: HistoricalRecord[],
   now: Date = new Date(),
   cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>,
+  getSchedulesForClient?: (client: Client) => Record<number, CycleScheduleSettings> | undefined,
 ): AdminAnalyticsReport => {
   const clientAnalytics = clients.map((client) => {
     const currentCycleNumber = client.currentCycleNumber || 1;
+    const schedulesForClient = getSchedulesForClient?.(client) ?? cycleSchedulesByCycle;
     const activityTimestamps = getActivityTimestamps(client.loggedSetInputsByCycle);
     const latestActivityDate = activityTimestamps
       .map(parseDate)
@@ -693,7 +695,7 @@ export const buildAdminAnalyticsReport = (
 
     // Determine which lifts to analyze for this client based on their current cycle's schedule
     const liftsToAnalyze = (() => {
-      const schedule = cycleSchedulesByCycle?.[currentCycleNumber];
+      const schedule = schedulesForClient?.[currentCycleNumber];
       if (schedule?.liftDayAssignments) {
         // Use only the lifts assigned in the schedule
         return (Object.keys(schedule.liftDayAssignments) as Lift[]).filter(
@@ -704,7 +706,7 @@ export const buildAdminAnalyticsReport = (
       return Lifts;
     })();
 
-    const liftAnalytics = liftsToAnalyze.map((lift) => summarizeLift(client, lift, historicalData, now, cycleSchedulesByCycle));
+    const liftAnalytics = liftsToAnalyze.map((lift) => summarizeLift(client, lift, historicalData, now, schedulesForClient));
     const improvingLifts = liftAnalytics.filter((item) => item.trend === "up").map((item) => item.lift);
     const plateauLifts = liftAnalytics.filter((item) => item.plateauRisk).map((item) => item.lift);
     const downtrendLifts = liftAnalytics.filter((item) => item.trend === "down").map((item) => item.lift);

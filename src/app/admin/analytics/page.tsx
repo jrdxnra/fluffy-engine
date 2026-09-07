@@ -31,6 +31,7 @@ export default async function AdminAnalyticsPage({ searchParams }: AdminAnalytic
       clients={clients}
       historicalData={historicalData}
       cycleSchedulesByCycle={appSettings.cycleSchedulesByCycle || {}}
+      trainingGroups={appSettings.trainingGroups || []}
       initialSelectedClientIds={initialSelectedClientIds}
       initialActiveClientId={initialActiveClientId}
       initialHistoricalOpen={initialHistoricalOpen}
