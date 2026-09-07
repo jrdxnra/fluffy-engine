@@ -1961,8 +1961,8 @@ export function SbdohControl({
     const createDefaultWeek = (name: string): CycleWeekSettings => ({
       name,
       percentages: {
-        warmup1: 0.25,
-        warmup2: 0.35,
+        warmup1: 0.5,
+        warmup2: 0.6,
         workset1: 0.65,
         workset2: 0.75,
         workset3: 0.85,

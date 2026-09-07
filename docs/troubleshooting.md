@@ -121,6 +121,18 @@ These are leftover data from earlier bugs. They're separate from any code fix an
 - **What:** every client document carries a copy of the old shared program (`cycleNames`, `cycleSchedulesByCycle`, `cycleSettingsByCycle`). It's stale baggage and a place screens can read the wrong movement name from.
 - **Status:** **Optional / later.** Not required for correctness now that screens read the group program. Removing it is a careful, separate change.
 
+### 4. Warm-ups are not matching the expected weights
+- **Plain version:** the saved warm-up percentages are correct (normal weeks use 25% and 35% of the training max), but the weights shown on the workout screen do not always match the client's current movement profile. For example, Powerlift 2.0 Cycle 7 Devon has a stored Incline Press training max of 100, so Week 1 should calculate to 25/35 warm-ups and 65/75/85 work sets. The reported screen showed 45/55/65, which cannot come from that stored Cycle 7 profile and template.
+- **What the code does:** `calculateWorkout` calculates every set from the selected movement profile's training max, rounds to the nearest 5, and then calculates plates. The live group templates themselves have the expected 25%/35% warm-up percentages.
+- **Likely issue:** the old warm-up normalization work covered the shared program but did not clearly cover nested group programs. That is a coverage gap, but the live group percentages are currently correct. The immediate mismatch points to the render path using a different effective week or training max than the group-scoped Cycle 7 values inspected in Firestore.
+- **Status:** **Under investigation; no data or code change yet.** Next step is to capture the exact active cycle/week, projected client, movement profile, and workout calculation together in dev before changing anything. This must be fixed for every group, not by changing Powerlift 2.0 data only.
+
+### 5. Deprecated top-level trainingMaxes are stale on a few clients
+- **Plain version:** Several clients still have older top-level `trainingMaxes` values that do not match their current-cycle `trainingMaxesByCycle` values. This is a data-sync issue, not a workout-calculation bug. The app is intentionally reading the cycle-scoped values for math, so workouts stay correct even while the legacy field remains stale.
+- **What is being tracked:** Devon, Michael, Mick, Hunter, Mel, Kristina, and Radek are still showing this mismatch. The warning is staying visible as a tracked reminder until their Firestore docs are cleaned up to match the authoritative per-cycle data.
+- **Source of truth:** `trainingMaxesByCycle[currentCycle]` is the value the app uses. `trainingMaxes` is legacy compatibility data, and the validation log specifically calls out when it is stale.
+- **Status:** **Tracked; not a runtime logic failure.** The remaining action is a Firestore cleanup/sync, not a code fix in the calculation path. This item should stay in the troubleshooting log until the DB is fully consistent.
+
 ---
 
 ## Intended new-client / calibration flow (target behavior for issue B)
@@ -130,6 +142,25 @@ These are leftover data from earlier bugs. They're separate from any code fix an
 3. Their **first cycle with a movement is a calibration cycle**: the app uses what they *actually* lifted to recalibrate the real numbers, since the initial estimates can be wrong or the client may be deconditioned.
 
 This matches the intended design (new lifts start in calibration — see `isLiftCalibrationRequired`, which keeps a lift in calibration until it has logged history). Issue B is the bug that breaks step 2 by zeroing the estimate on save.
+
+---
+
+## Route disposition decisions (final)
+
+### Keep as maintenance-only: `backfill-movement-profiles`
+- **Use case:** only for clients who are missing `movementProfilesByCycle` entries even though there is historical logged-set data that can reconstruct a reasonable 1RM/training max.
+- **Why it still matters:** this is the only route that can rebuild missing movement profile state from actual logged sets, instead of guessing from the current top-level values.
+- **Not a normal workflow:** it is not a routine app operation and should not be run as a blanket fix. It is an edge-case recovery tool for data repair only.
+
+### Delete / do not use: `fix-current-cycle-main-lift-maxes`
+- **Why it is unsafe:** it rebuilds the current cycle training maxes from `oneRepMaxes` using `oneRepMaxes * 0.9`. Several active clients have valid real values in the current cycle while their `oneRepMaxes` fields are blank or partial (Bench present, Squat/Deadlift/Press = 0), so a blanket run can overwrite correct training maxes with zeros.
+- **Current rule:** do not run it again until there is an explicit, safer repair path for partial/blank 1RM data.
+- **Disposition:** this route is treated as a legacy, speculative repair and should be removed from the codebase rather than kept as an active admin action.
+
+### Delete / do not use: `reset-weeks`
+- **Why it is legacy:** this is a broad default-reset hammer for the whole cycle template system. It was useful in the app's early days, but the current product does not have a supported workflow that intentionally resets all week templates going forward.
+- **Current rule:** do not use this as a standing admin action. If a reset is needed, it should be a targeted, reviewed data fix for a specific cycle/group, not a generic reset-all hammer.
+- **Disposition:** remove from the repo as a stale one-off route.
 
 ---
 

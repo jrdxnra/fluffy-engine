@@ -59,8 +59,8 @@ const getPercentageTemplateForScheme = (
 ): CycleWeekSettings['percentages'] => {
   if (repScheme === '5') {
     return {
-      warmup1: 0.25,
-      warmup2: 0.35,
+      warmup1: 0.5,
+      warmup2: 0.6,
       workset1: 0.65,
       workset2: 0.75,
       workset3: 0.85,
@@ -68,8 +68,8 @@ const getPercentageTemplateForScheme = (
   }
   if (repScheme === '3') {
     return {
-      warmup1: 0.25,
-      warmup2: 0.35,
+      warmup1: 0.5,
+      warmup2: 0.6,
       workset1: 0.7,
       workset2: 0.8,
       workset3: 0.9,
@@ -77,8 +77,8 @@ const getPercentageTemplateForScheme = (
   }
   if (repScheme === '1') {
     return {
-      warmup1: 0.25,
-      warmup2: 0.35,
+      warmup1: 0.5,
+      warmup2: 0.6,
       workset1: 0.75,
       workset2: 0.85,
       workset3: 0.95,

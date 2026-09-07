@@ -78,8 +78,8 @@ describe("resolveWorkoutWeekSettings", () => {
 
     const resolved = resolveWorkoutWeekSettings(cycleSettings, "week1", "3");
 
-    expect(resolved?.percentages.warmup1).toBe(0.25);
-    expect(resolved?.percentages.warmup2).toBe(0.35);
+    expect(resolved?.percentages.warmup1).toBe(0.5);
+    expect(resolved?.percentages.warmup2).toBe(0.6);
     expect(resolved?.percentages.workset1).toBe(0.7);
     expect(resolved?.percentages.workset2).toBe(0.8);
     expect(resolved?.percentages.workset3).toBe(0.9);

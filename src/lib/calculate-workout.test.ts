@@ -64,8 +64,8 @@ describe("calculateWorkout", () => {
     const deloadWeekSettings: CycleWeekSettings = {
       name: "Week 4",
       percentages: {
-        warmup1: 0.25,
-        warmup2: 0.35,
+        warmup1: 0.5,
+        warmup2: 0.6,
         workset1: 0.4,
         workset2: 0.5,
         workset3: 0.6,
@@ -83,6 +83,6 @@ describe("calculateWorkout", () => {
     );
 
     expect(workout.trainingMax).toBe(270);
-    expect(workout.sets.map((set) => set.weight)).toEqual([70, 95, 110, 135, 160]);
+    expect(workout.sets.map((set) => set.weight)).toEqual([135, 160, 110, 135, 160]);
   });
 });

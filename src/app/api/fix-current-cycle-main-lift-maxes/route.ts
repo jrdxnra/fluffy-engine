@@ -1,6 +1,14 @@
 import { getAppSettings, getClients, updateClient } from '@/lib/data';
-import { isMaintenanceRouteEnabled, maintenanceRouteDisabledResponse } from '@/lib/maintenance-routes';
+import {
+  deleteMaintenanceRouteAfterConfirmation,
+  isMaintenanceRouteEnabled,
+  maintenanceRouteDisabledResponse,
+} from '@/lib/maintenance-routes';
 import { calculateTrainingMaxes } from '@/lib/training-max';
+
+// ONE-TIME FIX: once you've verified the results below are correct, re-run this
+// route with body {"confirmCleanup": true} to delete this route directory.
+const ROUTE_DIR_NAME = 'fix-current-cycle-main-lift-maxes';
 import { getLiftDisplayName } from '@/lib/schedule';
 import {
   getDefaultMovementProgressionIncrement,
@@ -30,9 +38,15 @@ const uniqueNames = (names: string[]): string[] => {
   return result;
 };
 
-export async function POST() {
+export async function POST(req: Request) {
   if (!isMaintenanceRouteEnabled()) {
     return maintenanceRouteDisabledResponse();
+  }
+
+  const { confirmCleanup } = await req.json().catch(() => ({ confirmCleanup: false }));
+  if (confirmCleanup) {
+    const cleanup = await deleteMaintenanceRouteAfterConfirmation(ROUTE_DIR_NAME);
+    return Response.json(cleanup, { status: cleanup.deleted ? 200 : 500 });
   }
 
   try {

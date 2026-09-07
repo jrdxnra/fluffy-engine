@@ -22,7 +22,7 @@ import { inferCycleMembershipForBackfill } from './cycle-membership';
 const cycleSettings: CycleSettings = {
   week1: {
     name: 'Week 1',
-    percentages: { warmup1: 0.25, warmup2: 0.35, workset1: 0.65, workset2: 0.75, workset3: 0.85 },
+    percentages: { warmup1: 0.5, warmup2: 0.6, workset1: 0.65, workset2: 0.75, workset3: 0.85 },
     reps: { workset1: 5, workset2: 5, workset3: '5+' },
     accessories: {
       Squat: ['Front Squat', 'GM (Standing)', 'GM (Dead)', 'GM (Seated)', 'Dbell Lunges', 'Barbell Lunges', 'Leg Curl', 'Dips', 'DB Row', "Farmer's Carry"],
@@ -33,7 +33,7 @@ const cycleSettings: CycleSettings = {
   },
   week2: {
     name: 'Week 2',
-    percentages: { warmup1: 0.25, warmup2: 0.35, workset1: 0.7, workset2: 0.8, workset3: 0.9 },
+    percentages: { warmup1: 0.5, warmup2: 0.6, workset1: 0.7, workset2: 0.8, workset3: 0.9 },
     reps: { workset1: 3, workset2: 3, workset3: '3+' },
     accessories: {
       Squat: ['Front Squat', 'GM (Standing)', 'GM (Dead)', 'GM (Seated)', 'Dbell Lunges', 'Barbell Lunges', 'Leg Curl', 'Dips', 'DB Row', "Farmer's Carry"],
@@ -44,7 +44,7 @@ const cycleSettings: CycleSettings = {
   },
   week3: {
     name: 'Week 3',
-    percentages: { warmup1: 0.25, warmup2: 0.35, workset1: 0.75, workset2: 0.85, workset3: 0.95 },
+    percentages: { warmup1: 0.5, warmup2: 0.6, workset1: 0.75, workset2: 0.85, workset3: 0.95 },
     reps: { workset1: 5, workset2: 3, workset3: '1+' },
     accessories: {
       Squat: ['Front Squat', 'GM (Standing)', 'GM (Dead)', 'GM (Seated)', 'Dbell Lunges', 'Barbell Lunges', 'Leg Curl', 'Dips', 'DB Row', "Farmer's Carry"],
@@ -55,7 +55,7 @@ const cycleSettings: CycleSettings = {
   },
   week4: {
     name: 'Week 4',
-    percentages: { warmup1: 0.25, warmup2: 0.35, workset1: 0.4, workset2: 0.5, workset3: 0.6 },
+    percentages: { warmup1: 0.5, warmup2: 0.6, workset1: 0.4, workset2: 0.5, workset3: 0.6 },
     reps: { workset1: 5, workset2: 5, workset3: '5' },
     accessories: {
       Squat: ['Front Squat', 'GM (Standing)', 'GM (Dead)', 'GM (Seated)', 'Dbell Lunges', 'Barbell Lunges', 'Leg Curl', 'Dips', 'DB Row', "Farmer's Carry"],
@@ -209,8 +209,8 @@ const normalizeWarmupPercentages = (
     for (const weekKey of Object.keys(normalizedSettings)) {
       const week = normalizedSettings[weekKey];
       if (!week?.percentages) continue;
-      week.percentages.warmup1 = 0.25;
-      week.percentages.warmup2 = 0.35;
+      week.percentages.warmup1 = 0.5;
+      week.percentages.warmup2 = 0.6;
     }
 
     normalized[cycleNumber] = normalizedSettings;
@@ -295,7 +295,9 @@ export const getClients = async (): Promise<Client[]> => {
     const backfillUpdates: Promise<unknown>[] = [];
     querySnapshot.forEach((docSnapshot) => {
       const rawClient = { id: docSnapshot.id, ...docSnapshot.data() } as Client;
-      const currentCycle = rawClient.currentCycleNumber;
+      // currentCycleNumber defaults to 1 (see Client type); match that here so cycle-1
+      // clients without an explicit currentCycleNumber still get backfilled in-memory.
+      const currentCycle = rawClient.currentCycleNumber || 1;
       const trainingMaxesByCycle = {
         ...(rawClient.trainingMaxesByCycle || {}),
       };
@@ -722,11 +724,14 @@ export const graduateTeam = async (
         Press: noIncrementLiftSet.has('Press') || recentlyCalibratedLiftSet.has('Press') || heldLiftSet.has('Press') ? 0 : 5,
       };
 
+      // Increment from trainingMaxesByCycle[currentCycle] (the value workouts actually use),
+      // not the deprecated client.trainingMaxes field, so stale top-level data can't leak into cycle math.
+      const currentCycleTrainingMaxes = client.trainingMaxesByCycle?.[currentCycle] ?? client.trainingMaxes;
       const newTrainingMaxes = {
-        Squat: calibrationLiftSet.has('Squat') ? 0 : client.trainingMaxes.Squat + incrementByLift.Squat,
-        Deadlift: calibrationLiftSet.has('Deadlift') ? 0 : client.trainingMaxes.Deadlift + incrementByLift.Deadlift,
-        Bench: calibrationLiftSet.has('Bench') ? 0 : client.trainingMaxes.Bench + incrementByLift.Bench,
-        Press: calibrationLiftSet.has('Press') ? 0 : client.trainingMaxes.Press + incrementByLift.Press,
+        Squat: calibrationLiftSet.has('Squat') ? 0 : currentCycleTrainingMaxes.Squat + incrementByLift.Squat,
+        Deadlift: calibrationLiftSet.has('Deadlift') ? 0 : currentCycleTrainingMaxes.Deadlift + incrementByLift.Deadlift,
+        Bench: calibrationLiftSet.has('Bench') ? 0 : currentCycleTrainingMaxes.Bench + incrementByLift.Bench,
+        Press: calibrationLiftSet.has('Press') ? 0 : currentCycleTrainingMaxes.Press + incrementByLift.Press,
       };
 
       const updatedTrainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
