@@ -3017,7 +3017,7 @@ export function SbdohControl({
         client={selectedClientForProfile}
         cycleSettings={cycleSettings}
         currentCycleSchedule={currentCycleSchedule}
-        cycleSchedulesByCycle={cycleSchedulesByCycle}
+        cycleSchedulesByCycle={activeCycleSchedulesByCycle}
         globalMovementOptions={globalMovementOptions}
         globalMovementSettings={globalMovementSettings}
         currentGlobalWeek={currentWeek}

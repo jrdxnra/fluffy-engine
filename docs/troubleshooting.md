@@ -2,6 +2,8 @@
 
 > **How to read this file:** Each issue is explained in plain language first, then (in a *Technical detail* line) the exact cause/fix for the developer. The goal is that a non-engineer can understand what went wrong and what we did about it. When a new bug shows up, check here first — many new issues are side effects of an earlier fix meeting data that was created while that bug was still live.
 
+> **Workflow rule — batch before deploying:** Don't deploy one fix at a time. When several fixes are in flight, test them together in **dev first**, confirm the whole cluster is good, **then** do a single deploy. This cuts down deploy time and adds a layer of protection so we don't push a bug to the live site. Default to: fix → verify in dev → batch → deploy once.
+
 ---
 
 ## How the data is organized (plain version)
@@ -60,10 +62,11 @@ A client's **strength numbers (1RMs, training maxes, history, movement profiles)
 ### C. Powerlift 2.0 shows "OH Press" instead of "Incline Press," and graphs look off
 - **Plain version:** The numbers weren't lost. Powerlift 2.0's *own* program correctly says the Day 2 press is **Incline Press**, and clients' real data is stored under "Incline Press." But the **old shared program** still says **OH Press**, and some screens still ask the old program for the movement name. They look up "OH Press," find no data under that name, assume it's a brand-new un-calibrated lift, and show blanks/zeros. The graph looks wrong because the screen looked up the wrong movement name.
 - **The right fix (one rule, not more data patches):** whenever a group is selected, **every screen must ask that group's program for the movement name — never the old shared program.** That's a change to *which program each screen reads from*, not a change to anyone's data. Before changing code, do a read-only audit listing every screen that still reads the old shared program, so the scope is exact and small. One known suspect: the analytics/graph view reads only the old shared program.
-- **Status:** **Fixed (code) and deployed.** The analytics view now reads each client's *own* group program. See "fix applied" below.
+- **Status:** Analytics portion **fixed and deployed**. The Client Profile follow-up is **fixed in the current dev worktree and tested, but intentionally not deployed yet** so it can ship with the next verified fix batch.
 
 ### C — fix applied (2026-09-07)
 - **Plain version:** The analytics/graph screen now asks **each client's own group** "what's the press movement?" instead of asking the old shared program. So a Powerlift 2.0 client resolves to **Incline Press** (their group's name) and finds their real data again. No one's numbers were changed — only which program the screen reads from.
+- **Follow-up found:** The Client Profile screen had the same old/shared-schedule wiring. The main workout view correctly used the selected group, but opening a profile still used the legacy schedule, which is why Powerlift 2.0 showed OH Press while the workout view showed Incline Press. The TS abbreviation means this troubleshooting log.
 - **What changed (one-direction rule, no data touched):**
   - The analytics screen now receives the list of groups and, **per client**, uses that client's own group's program (`activeGroupId`) to resolve movement names and profiles. Ungrouped clients still use the old shared program, so nothing changes for them.
   - Files: `src/lib/admin-analytics.ts` (accepts an optional per-client schedule lookup), `src/components/AdminAnalyticsDashboard.tsx` (supplies that lookup from the client's group), and `src/app/admin/analytics/page.tsx` (passes the groups in).
@@ -105,9 +108,9 @@ These are real examples pulled from the live database that confirm the mechanism
 These are leftover data from earlier bugs. They're separate from any code fix and should each be reviewed before running.
 
 ### 1. Zeroed Cycle 8 snapshots on 8 Powerlift 2.0 clients
-- **What:** Mel, Michael, Kristina, Mick, Devon, Hunter, Michelle, and Radek each have a `oneRepMaxesByCycle[8]` (and related profile/calibration entries) where Squat/Deadlift/Press were wiped to 0 but Bench kept its value — residue from the test Cycle 8 created while the cycle-bleed bug (issue 5) was live.
-- **Action (when ready):** for each, delete the Cycle 8 entries from `oneRepMaxesByCycle`, `trainingMaxesByCycle`, `movementProfilesByCycle`, and `movementCalibrationsByCycle`; remove `8` from `cycleMembership`; and delete the group's Cycle 8 program. Review the exact list before running.
-- **Status:** **Not started.** Awaiting go-ahead.
+- **What:** Mel, Michael, Kristina, Mick, Devon, Hunter, Michelle, and Radek each had a `oneRepMaxesByCycle[8]` (and related profile/calibration entries) where Squat/Deadlift/Press were wiped to 0 but Bench kept its value — residue from the test Cycle 8 created while the cycle-bleed bug (issue 5) was live.
+- **What was done (2026-09-07):** Ran a read-only preview first, which showed the group's Cycle 8 *program* was already gone (the atomic-delete fix removed it) and only the 8 clients had residue, in just four shared maps. Deleted the Cycle 8 key from `oneRepMaxesByCycle`, `trainingMaxesByCycle`, `movementProfilesByCycle`, and `movementCalibrationsByCycle` on those 8 clients. Nothing else was touched (no group-scoped Cycle 8 state existed, and `cycleMembership` didn't include 8).
+- **Status:** **Done and verified** — a follow-up scan confirmed no Cycle 8 data remains on any client.
 
 ### 2. Re-enter estimated 1RMs for zeroed Strategies & Squats clients
 - **What:** Vijay, Meg, Ting, Chloe, Yingyin, and Frederick still have all-zero 1RMs from issue B.

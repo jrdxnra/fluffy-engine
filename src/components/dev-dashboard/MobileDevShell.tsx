@@ -1282,7 +1282,7 @@ export function MobileDevShell({
         client={selectedClientForProfile}
         cycleSettings={cycleSettings}
         currentCycleSchedule={currentCycleSchedule}
-        cycleSchedulesByCycle={cycleSchedulesByCycle}
+        cycleSchedulesByCycle={activeCycleSchedulesByCycle}
         globalMovementOptions={globalMovementOptions}
         globalMovementSettings={globalMovementSettings}
         currentGlobalWeek={currentWeek}
