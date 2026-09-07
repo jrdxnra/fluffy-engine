@@ -846,6 +846,9 @@ export function ConfigSettingsDialog({
   const selectedGroupClients = selectedLocalGroup
     ? getClientsInTrainingGroup(clients, selectedLocalGroup.id)
     : activeClients;
+  const unassignedClients = selectedLocalGroup
+    ? activeClients.filter((client) => !client.activeGroupId)
+    : [];
   const inactiveClients = clients.filter((client) => client.status === "inactive");
 
   const handleClose = () => {
@@ -1184,6 +1187,27 @@ export function ConfigSettingsDialog({
                     </div>
                   )}
                 </div>
+                {unassignedClients.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Unassigned ({unassignedClients.length})</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {unassignedClients.map((client) => (
+                        <button
+                          key={client.id}
+                          type="button"
+                          className="flex items-center justify-between rounded-md border border-dashed px-3 py-2 text-left text-sm hover:bg-muted"
+                          onClick={() => onClientProfile?.(client)}
+                        >
+                          <span className="font-medium">{client.name}</span>
+                          <span className="text-xs text-muted-foreground">Profile</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Not in any group. Open a profile to transfer them into one.
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Inactive Clients ({inactiveClients.length})</p>
                   {inactiveClients.length === 0 ? (
