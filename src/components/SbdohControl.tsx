@@ -921,10 +921,11 @@ export function SbdohControl({
   
   const handleUpdateClient = async (updatedClient: Client) => {
     const normalizedCycleMembership = getEffectiveCycleMembership(updatedClient);
+    const effectiveMembership = normalizedCycleMembership.length > 0 ? normalizedCycleMembership : [1];
     const normalizedCurrentCycleNumber =
-      normalizedCycleMembership.includes(updatedClient.currentCycleNumber || 0)
+      effectiveMembership.includes(updatedClient.currentCycleNumber || 0)
         ? (updatedClient.currentCycleNumber || 1)
-        : Math.max(...normalizedCycleMembership);
+        : Math.max(...effectiveMembership);
 
     const currentCycleForClient = normalizedCurrentCycleNumber || currentCycleNumber || 1;
     const cycleOneRepMaxes =
@@ -967,7 +968,7 @@ export function SbdohControl({
     const normalizedClient: Client = {
       ...updatedClient,
       currentCycleNumber: normalizedCurrentCycleNumber,
-      cycleMembership: normalizedCycleMembership,
+      cycleMembership: effectiveMembership,
       oneRepMaxes: cycleOneRepMaxes,
       oneRepMaxesByCycle: existingOneRepMaxesByCycle,
       trainingMaxes: recalculatedTrainingMaxes,
