@@ -1,5 +1,6 @@
 import type { Client, CycleScheduleSettings, CycleSettings, GlobalMovementSettings, HistoricalRecord, Lift, TrainingGroup } from './types';
 import { accessoryMap } from './workout-content';
+import { normalizeCycleSettingsByCycle } from './cycle-settings-normalizer';
 import {
   addDoc,
   collection,
@@ -181,11 +182,11 @@ const normalizeTrainingGroups = (groups?: TrainingGroup[]): TrainingGroup[] => {
           ? group.currentCycleNumber
           : 1,
       program: {
-        // Group programs weren't covered by the legacy shared-program warmup fix; normalize
-        // them here too so per-group cycles don't keep showing stale 25%/35% warmups.
-        cycleSettingsByCycle: normalizeAccessoryVisibility(normalizeWarmupPercentages(
+        // Group programs weren't covered by the legacy shared-program warmup/deload fixes;
+        // normalize them here too so per-group cycles don't keep stale percentages or names.
+        cycleSettingsByCycle: normalizeCycleSettingsByCycle(normalizeAccessoryVisibility(normalizeWarmupPercentages(
           normalizeNumberKeyRecord(group.program?.cycleSettingsByCycle)
-        )),
+        ))).normalized,
         cycleNames: normalizeNumberKeyRecord(group.program?.cycleNames),
         cycleSchedulesByCycle: normalizeNumberKeyRecord(group.program?.cycleSchedulesByCycle),
       },
