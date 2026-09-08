@@ -181,7 +181,11 @@ const normalizeTrainingGroups = (groups?: TrainingGroup[]): TrainingGroup[] => {
           ? group.currentCycleNumber
           : 1,
       program: {
-        cycleSettingsByCycle: normalizeNumberKeyRecord(group.program?.cycleSettingsByCycle),
+        // Group programs weren't covered by the legacy shared-program warmup fix; normalize
+        // them here too so per-group cycles don't keep showing stale 25%/35% warmups.
+        cycleSettingsByCycle: normalizeAccessoryVisibility(normalizeWarmupPercentages(
+          normalizeNumberKeyRecord(group.program?.cycleSettingsByCycle)
+        )),
         cycleNames: normalizeNumberKeyRecord(group.program?.cycleNames),
         cycleSchedulesByCycle: normalizeNumberKeyRecord(group.program?.cycleSchedulesByCycle),
       },
