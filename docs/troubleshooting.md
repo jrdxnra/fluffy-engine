@@ -164,8 +164,19 @@ This matches the intended design (new lifts start in calibration — see `isLift
 
 ---
 
+### 6. Group programs kept showing stale 25%/35% warmups after the warmup fix shipped
+- **Plain version:** after the earlier warmup fix (item 4 above) was believed complete, Powerlift 2.0's own Cycle 7 still displayed 25%/35% warmups in Settings, even after that fix was committed, tested, and deployed to prod.
+- **Root cause:** the training-groups feature stores each group's own week templates in `trainingGroup.program.cycleSettingsByCycle`, separate from the legacy shared `appSettings.cycleSettingsByCycle` and separate from the per-client mirrored settings. The original warmup fix (`normalizeWarmupPercentages`) was only wired into the two legacy read/write paths in `getAppSettings`/`saveAppSettings`. `normalizeTrainingGroups`, which reads and writes every group's own program, never called it — so any group's stored cycle template kept whatever warmup values it already had.
+- **Why this was missed:** the fix was verified by auditing/normalizing the legacy shared program and confirming `audit-warmup-percentages` reported clean. That audit and the manual live-data check both only inspected the old shared program shape, not each training group's nested `program.cycleSettingsByCycle`. Once groups shipped, they became a second, parallel place the same stale data could live, and the verification step wasn't updated to cover it.
+- **Fix:** `normalizeTrainingGroups` in `src/lib/data.ts` now runs each group's `program.cycleSettingsByCycle` through the same `normalizeWarmupPercentages`/`normalizeAccessoryVisibility` normalization used for the legacy program, on both the read (`getAppSettings`) and write (`saveAppSettings`) paths. No Firestore write was needed — normalization happens on every read, so existing group documents self-correct immediately.
+- **Verified:** typecheck and full test suite pass (45/45); confirmed live via `getAppSettings()` that Powerlift 2.0 Cycle 7 Week 1 now resolves to `warmup1: 0.5`, `warmup2: 0.6`.
+- **Lesson for next time — catch this earlier:** whenever a data-shape fix touches something that exists in more than one place (legacy shared program, per-client mirrored settings, and now per-group programs), the checklist must explicitly enumerate every storage location before declaring the fix or its audit complete. Grep for all places a given field (e.g. `cycleSettingsByCycle`) is read/written before closing out a "fixed" data bug, not just the location where the bug was originally reported.
+
+---
+
 ## Ongoing notes for the developer
 - Firestore rules are `allow read, write: if true` (intentional for now; security is out of scope per user, but flagged).
 - Maintenance/debug API routes run under the same open rules.
 - The old shared `cycleSchedulesByCycle` still differs from group programs. Any screen that reads the old shared schedule for a grouped client will disagree with the group view. Prefer the group's schedule whenever a group is selected.
+- **Multi-location data check:** several fields exist in three parallel places — the legacy shared `appSettings` document, per-client mirrored settings, and per-group `trainingGroup.program`. Any normalization/repair fix must be applied (and verified) in all three before being marked done.
 
