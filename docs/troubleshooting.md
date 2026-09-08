@@ -176,9 +176,32 @@ This matches the intended design (new lifts start in calibration — see `isLift
 
 ---
 
+## Open / under-investigation (2026-09-08)
+
+### 7. Client profile saves appear to silently do nothing, for every client (not just one)
+- **Plain version:** the user tried to update a client's profile (started with Akshat, but reports this is happening broadly) and nothing saves — no visible error, no toast, no console output in the browser.
+- **What's been checked so far, with no root cause found yet:**
+  - Cloud Function logs (`firebase functions:log --only ssrpowerliftb7ea1`) show normal deploy/infra activity around the time in question, but **no application-level error logs** (no `"Error updating client profile"`, no thrown exceptions) — meaning either the save requests aren't reaching the server at all, or they succeeded server-side but something client-side isn't reflecting it, or the failing window wasn't captured by the log query used.
+  - `getAppSettings()` was run directly against the live database and completed successfully (no thrown errors), so the two recent group-program normalization fixes (warmup + deload) are not currently causing a hard failure there.
+  - `handleUpdateClient` (the desktop save path in `SbdohControl.tsx`) calls `updateClientProfileAction`, which only calls `updateClient(clientId, updates)` directly — it does not touch `cycleSettingsByCycle`/`trainingGroups` normalization at all, so it should be unaffected by the two recent fixes in principle.
+- **Not yet root-caused.** This is being tracked here rather than guessed at. Before another fix attempt, the next debugging step needs: which environment (local dev vs. the deployed `power-lift-b7ea1.web.app` prod site), which exact client/action was attempted, and whether the browser Network tab shows the save request firing at all (vs. never leaving the browser).
+- **Why this note exists:** per the working rule below, every fix in this log must state plainly whether it was actually confirmed to resolve the reported symptom, or whether it's still open. This one is **still open** — do not treat the two recent group-normalization commits as "the fix" for this until it's confirmed against the actual reported symptom.
+
+---
+
+## Working rule: track fixes that didn't fully work, not just fixes that did
+Some entries above only tell half the story on a first pass — they get marked "fixed" after fixing what was *found*, without confirming that was the *entire* issue. Going forward, every entry must show its full history:
+1. What was reported.
+2. What was fixed, and what evidence was checked to confirm it (not just "code was changed").
+3. If the symptom recurred or a related gap was found later, add a **follow-up** entry to the same numbered issue instead of a new disconnected one — state clearly that the earlier fix was incomplete, what was missed, and what closed the gap the second time.
+4. Never close an issue as "done" purely because a code change was deployed — close it only once the originally reported symptom has been reproduced-and-confirmed-fixed, or explicitly state it remains open/unverified.
+
+---
+
 ## Ongoing notes for the developer
 - Firestore rules are `allow read, write: if true` (intentional for now; security is out of scope per user, but flagged).
 - Maintenance/debug API routes run under the same open rules.
 - The old shared `cycleSchedulesByCycle` still differs from group programs. Any screen that reads the old shared schedule for a grouped client will disagree with the group view. Prefer the group's schedule whenever a group is selected.
 - **Multi-location data check:** several fields exist in three parallel places — the legacy shared `appSettings` document, per-client mirrored settings, and per-group `trainingGroup.program`. Any normalization/repair fix must be applied (and verified) in all three before being marked done.
+
 
