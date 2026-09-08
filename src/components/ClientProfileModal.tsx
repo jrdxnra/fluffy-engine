@@ -323,9 +323,11 @@ export function ClientProfileModal({
         continue;
       }
 
+      // The movement profile reflects live edits from the 1RM/TM inputs above; it must win
+      // over the top-level cycle snapshot, or edited values get silently discarded on save.
       snapshots[lift] = {
-        oneRepMax: cycleOneRepMaxes?.[lift] ?? chosenProfile?.profile.oneRepMax ?? 0,
-        trainingMax: cycleTrainingMaxes?.[lift] ?? chosenProfile?.profile.trainingMax ?? 0,
+        oneRepMax: chosenProfile?.profile.oneRepMax ?? cycleOneRepMaxes?.[lift] ?? 0,
+        trainingMax: chosenProfile?.profile.trainingMax ?? cycleTrainingMaxes?.[lift] ?? 0,
       };
     }
 
