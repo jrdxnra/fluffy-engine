@@ -238,3 +238,45 @@ export const buildGraduatedClient = (client: Client, params: GraduationParams = 
     },
   };
 };
+
+export type GraduationPreviewRow = {
+  lift: Lift;
+  movementName: string;
+  before: number;
+  after: number;
+  /** Why the number does or doesn't move. */
+  outcome: "up" | "hold" | "calibrating" | "new-movement" | "no-numbers";
+};
+
+/**
+ * What graduation will do to each of a client's four lifts, without saving anything.
+ * Built from buildGraduatedClient, so the preview and the real graduation cannot disagree.
+ */
+export const getGraduationPreview = (client: Client, params: GraduationParams = {}): GraduationPreviewRow[] => {
+  const { groupId, currentCycleSchedule } = params;
+  const sourceCycle = getGraduationSourceCycle(client, groupId, params.groupCurrentCycle);
+  const nextCycle = params.targetCycle ?? sourceCycle + 1;
+  const view = groupId ? getClientForTrainingGroup(client, groupId) : client;
+  const graduated = buildGraduatedClient(client, params);
+  const calibrationLiftSet = new Set(params.options?.calibrationLifts || []);
+  const sourceProfiles = client.movementProfilesByCycle?.[sourceCycle] || {};
+
+  return (["Deadlift", "Bench", "Squat", "Press"] as Lift[]).map((lift) => {
+    const movementName = resolveClientMovementName(view, sourceCycle, lift, currentCycleSchedule);
+    const profileKey = [movementName, getLiftDisplayName(lift, currentCycleSchedule), lift]
+      .map((candidate) => Object.keys(sourceProfiles).find((key) => normalizeMovementName(key) === normalizeMovementName(candidate)))
+      .find(Boolean);
+    const profile = profileKey ? sourceProfiles[profileKey] : undefined;
+    const before = profile?.trainingMax ?? (client.trainingMaxesByCycle?.[sourceCycle] ?? client.trainingMaxes)?.[lift] ?? 0;
+    const after = graduated.trainingMaxesByCycle?.[nextCycle]?.[lift] ?? 0;
+    const status = getLiftProgressStatus(view, sourceCycle, lift, profile);
+
+    let outcome: GraduationPreviewRow["outcome"] = "up";
+    if (calibrationLiftSet.has(lift)) outcome = "new-movement";
+    else if (!(before > 0)) outcome = "no-numbers";
+    else if (status.calibrating) outcome = "calibrating";
+    else if (status.hold || after === before) outcome = "hold";
+
+    return { lift, movementName, before, after, outcome };
+  });
+};

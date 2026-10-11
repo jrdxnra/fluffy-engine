@@ -35,8 +35,17 @@ import { getEffectiveCycleSchedule } from "@/lib/schedule";
 import { buildGlobalMovementSettings, coerceMovementProgressionIncrement } from "@/lib/movement-profiles";
 import { getActiveClients, getClientForTrainingGroup, getClientsInTrainingGroup } from "@/lib/training-groups";
 import { graduateTeamAction } from "@/app/actions";
+import { GraduationPreview } from "@/components/GraduationPreview";
+import { RosterStatus } from "@/components/RosterStatus";
 
 const percentageDisplayOrder = ["warmup1", "warmup2", "workset1", "workset2", "workset3"] as const;
+const percentageLabels: Record<string, string> = {
+  warmup1: "Warm-up 1",
+  warmup2: "Warm-up 2",
+  workset1: "Work set 1",
+  workset2: "Work set 2",
+  workset3: "Top set",
+};
 
 const normalizeMovementKey = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
 
@@ -155,6 +164,7 @@ export function ConfigSettingsDialog({
   ];
   const [isGraduateFormOpen, setGraduateFormOpen] = useState(false);
   const [isGraduating, setIsGraduating] = useState(false);
+  const [showOlderCycles, setShowOlderCycles] = useState(false);
   const [nextCycleStartDate, setNextCycleStartDate] = useState("");
   const [nextDay1Weekday, setNextDay1Weekday] = useState<GraduationOverrides["day1Weekday"]>("Tuesday");
   const [nextDay2Weekday, setNextDay2Weekday] = useState<GraduationOverrides["day2Weekday"]>("Thursday");
@@ -1138,7 +1148,7 @@ export function ConfigSettingsDialog({
                   </Select>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">{selectedLocalGroup.active ? "Active" : "Archived"}{selectedLocalGroup.isDefault ? " · Default" : ""} · Cycle {selectedLocalGroup.currentCycleNumber} · ID: {selectedLocalGroup.id}</p>
+              <p className="text-xs text-muted-foreground">{selectedLocalGroup.active ? "Active" : "Archived"}{selectedLocalGroup.isDefault ? " · Default" : ""} · Cycle {selectedLocalGroup.currentCycleNumber}</p>
             </CardContent> : null}
           </Card>
         ) : null}
@@ -1181,7 +1191,10 @@ export function ConfigSettingsDialog({
                           className="flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted"
                           onClick={() => onClientProfile?.(client)}
                         >
-                          <span className="font-medium">{client.name}</span>
+                          <span className="min-w-0">
+                            <span className="font-medium">{client.name}</span>
+                            <RosterStatus client={client} groupId={selectedLocalGroup?.id} groupCurrentCycle={selectedLocalGroup?.currentCycleNumber} />
+                          </span>
                           <span className="text-xs text-muted-foreground">Profile</span>
                         </button>
                       ))}
@@ -1293,23 +1306,24 @@ export function ConfigSettingsDialog({
                           if (percentage === undefined) return null;
                           return (
                             <div key={setType} className="flex items-center gap-4">
-                              <Label className="w-32 capitalize">
-                                {setType.replace(/([A-Z])/g, " $1").trim()}:
+                              <Label className="w-32">
+                                {percentageLabels[setType] || setType}
                               </Label>
                               <div className="flex items-center gap-2 flex-1">
                                 <Input
                                   type="number"
                                   min="0"
-                                  max="1"
-                                  step="0.05"
-                                  value={percentage}
+                                  max="100"
+                                  step="5"
+                                  value={Math.round(percentage * 100)}
+                                  disabled={setType.startsWith("warmup")}
                                   onChange={(e) =>
-                                    handlePercentageChange(weekKey, setType, e.target.value)
+                                    handlePercentageChange(weekKey, setType, String(Number(e.target.value) / 100))
                                   }
-                                  className="w-24"
+                                  className="w-24 font-code"
                                 />
                                 <span className="text-sm text-muted-foreground">
-                                  ({Math.round(percentage * 100)}%)
+                                  %{setType.startsWith("warmup") ? " · fixed for every week" : ""}
                                 </span>
                               </div>
                             </div>
@@ -1522,8 +1536,8 @@ export function ConfigSettingsDialog({
                   <div className="space-y-2">
                     <Label>Movement Day Assignments</Label>
                     <p className="text-xs text-muted-foreground">
-                      Movement label is display-only. Progression math follows the tracked slot:
-                      Deadlift/Squat = 10 lbs, Bench/Press = 5 lbs.
+                      Changing a movement here starts that lift fresh next cycle, so it calibrates from the first
+                      logged sets. Each movement goes up by its own step (set in Movements or the client profile).
                     </p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {Lifts.map((movement) => (
@@ -1587,6 +1601,24 @@ export function ConfigSettingsDialog({
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <Label>What Will Change</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Training max now → next cycle, for each selected client. Nothing is saved until you confirm.
+                    </p>
+                    <GraduationPreview
+                      clients={graduationCandidates.filter((client) => selectedGraduateClientIds.includes(client.id))}
+                      groupId={selectedGroupId || undefined}
+                      groupCurrentCycle={graduationCycleNumber}
+                      currentCycleSchedule={graduationCycleSchedule}
+                      globalMovementSettings={normalizedMovementSettings}
+                      changedLifts={Lifts.filter((trackedLift) =>
+                        (defaultLiftDisplayNames[trackedLift] || trackedLift).trim().toLowerCase()
+                        !== (nextLiftDisplayNames[trackedLift] || trackedLift).trim().toLowerCase()
+                      )}
+                    />
+                  </div>
+
                   <div className="flex justify-end gap-2 pt-2">
                     <Button type="button" variant="outline" onClick={() => setGraduateFormOpen(false)} disabled={isGraduating}>
                       Cancel
@@ -1607,7 +1639,10 @@ export function ConfigSettingsDialog({
                   <p className="text-sm text-muted-foreground">No cycles yet. Graduate your team to create new cycles.</p>
                 ) : (
                   <div className="space-y-2">
-                    {cycles.map((cycle) => (
+                    {[...cycles]
+                      .sort((a, b) => b.cycleNumber - a.cycleNumber)
+                      .filter((cycle, index) => showOlderCycles || index < 3 || cycle.cycleNumber === dialogCycleNumber)
+                      .map((cycle) => (
                       <div
                         key={cycle.cycleNumber}
                         className={`flex items-center justify-between p-3 border rounded-md cursor-pointer transition-colors hover:bg-accent ${cycle.cycleNumber === dialogCycleNumber ? 'border-primary bg-primary/10 font-medium' : 'hover:border-accent-foreground'}`}
@@ -1646,9 +1681,14 @@ export function ConfigSettingsDialog({
                           <>
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                               <span className="font-medium">{cycle.name}</span>
-                              {cycle.cycleNumber === dialogCycleNumber && (
+                              {cycle.cycleNumber === graduationCycleNumber && (
                                 <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded">
                                   Current
+                                </span>
+                              )}
+                              {cycle.cycleNumber === dialogCycleNumber && (
+                                <span className="text-xs border border-primary/50 text-primary px-2 py-0.5 rounded">
+                                  Editing
                                 </span>
                               )}
                             </div>
@@ -1677,16 +1717,22 @@ export function ConfigSettingsDialog({
                         )}
                       </div>
                     ))}
+                    {cycles.length > 3 ? (
+                      <Button type="button" variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={() => setShowOlderCycles((prev) => !prev)}>
+                        {showOlderCycles ? "Hide older cycles" : `Show ${cycles.length - 3} older cycles`}
+                      </Button>
+                    ) : null}
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Cycle Client List</CardTitle>
+            <details className="rounded-lg border bg-card">
+              <summary className="cursor-pointer px-6 py-3 text-sm font-medium text-muted-foreground">Advanced: who belongs to Cycle {dialogCycleNumber}</summary>
+            <Card className="border-0 shadow-none">
+              <CardHeader className="pt-0">
                 <p className="text-xs text-muted-foreground">
-                  Choose which clients belong to Cycle {dialogCycleNumber}. This is a manual override for cycle membership.
+                  A manual override for cycle membership. Graduation manages this for you; removing a client here can leave them behind the group.
                 </p>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -1899,6 +1945,7 @@ export function ConfigSettingsDialog({
                 </div>
               </CardContent>
             </Card>
+            </details>
           </TabsContent>
 
           <TabsContent value="movements" className="space-y-4">
@@ -1947,7 +1994,12 @@ export function ConfigSettingsDialog({
                     Add
                   </Button>
                 </div>
-                <div className="space-y-2">
+                <div className="overflow-hidden rounded-md border">
+                  <div className="grid grid-cols-[minmax(0,1fr)_130px_36px] items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <span>Movement</span>
+                    <span>Step per cycle</span>
+                    <span />
+                  </div>
                   {dedupedMovementState.options.map((movementName) => {
                     const isProtected = protectedMovementNames.has(movementName);
                     const isUsed = usedMovementNames.has(movementName);
@@ -1955,22 +2007,24 @@ export function ConfigSettingsDialog({
                     const movementClass = coerceMovementProgressionIncrement(movementSetting.classType as number, 5);
                     const movementDisplayName = (movementSetting.displayName || movementName).trim();
                     return (
-                      <div key={movementName} className="relative rounded-md border p-3 pr-11">
+                      <div key={movementName} className="flex items-center gap-2 border-b px-3 py-1.5 last:border-b-0">
                         <Button
                           type="button"
                           size="sm"
                           variant="ghost"
-                          className="absolute right-2 top-2 text-destructive hover:text-destructive"
+                          className="order-last h-9 w-9 shrink-0 p-0 text-destructive hover:text-destructive"
+                          title={isProtected || isUsed ? "In use, so it can't be removed" : "Remove movement"}
                           disabled={isProtected || isUsed}
                           onClick={() => void handleRemoveMovementOption(movementName)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
 
-                        <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_160px] lg:items-end">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Movement Name</Label>
+                        <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_130px] items-center gap-2">
+                          <div>
                             <Input
+                              className="h-9"
+                              aria-label="Movement name"
                               value={movementDisplayName}
                               onChange={(event) => {
                                 const nextDisplayName = event.target.value;
@@ -1986,13 +2040,12 @@ export function ConfigSettingsDialog({
                           </div>
 
                           {movementSetting ? (
-                            <div className="space-y-1">
-                              <Label className="text-xs">Progression Class</Label>
+                            <div>
                               <Select
                                 value={movementClass.toString()}
                                 onValueChange={(value) => handleMovementClassTypeChange(movementName, Number(value) as MovementProgressionIncrement)}
                               >
-                                <SelectTrigger>
+                                <SelectTrigger className="h-9" aria-label="Step per cycle">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -2054,65 +2107,6 @@ export function ConfigSettingsDialog({
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Recent Feature Updates</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>
-                    <span className="font-medium text-foreground">Unified settings save:</span> Settings now use one
-                    dirty-aware <span className="font-mono">Save Changes</span> action that only writes what changed.
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">Global movement library upgrade:</span> Add a movement
-                    with progression class up front, edit display names, and prevent duplicate movement naming collisions.
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">Client tracked movement selection:</span> Each tracked
-                    lift can now be switched per client and per cycle (for example Deadlift to Hex Bar Deadlift).
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">Calibration safeguards:</span> Switching to a custom
-                    movement now forces calibration-required by default unless that exact movement already has validated data.
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">Auto TM from 1RM:</span> In client profiles, updating
-                    movement 1RM now auto-calculates TM at 90% (rounded to nearest 5).
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">Copy + workout alignment:</span> Day/lift copy text,
-                    calibration updates, and workout profile lookups now follow each client&apos;s selected movement mapping.
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">SBDOH App Protocols</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>
-                    <span className="font-medium text-foreground">Stall / Reset TM:</span> Use the client profile
-                    Reset TM control to recalculate training maxes from recent performance.
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">Mobility + Conditioning:</span> Follow the in-app
-                    warm-up checklist and off-day conditioning checklist.
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">Mandatory pulling assistance:</span> Press/chest
-                    work is paired with back work; day-specific accessory pairings are enforced in the display.
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">2-Day split focus:</span> Tuesday (Deadlift + Bench),
-                    Thursday (Squat + OH Press), with required assistance and core rotation.
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
           </TabsContent>
         </Tabs>
 

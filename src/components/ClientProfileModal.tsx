@@ -37,6 +37,8 @@ import { getEffectiveCycleSchedule, getLiftDisplayName } from "@/lib/schedule";
 import { normalizeMovementName, resolveMovementClassType } from "@/lib/movement-profiles";
 import { getEffectiveCycleMembership } from "@/lib/cycle-membership";
 import { hasCycleStrengthData } from "@/lib/client-profile-save";
+import { getLiftProgressStatus } from "@/lib/graduation";
+import { formatPreviousTopSet, getPreviousTopSet } from "@/lib/previous-top-set";
 import { getActiveTrainingGroups, getTrainingGroupById } from "@/lib/training-groups";
 import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { ClientProgressChart } from "./ClientProgressChart";
@@ -932,10 +934,7 @@ export function ClientProfileModal({
                 <div>
                   <CardTitle className="text-base">Core Lift Movement Profiles</CardTitle>
                   <p className="text-xs text-muted-foreground mt-1">
-                    This screen shows the four tracked lifts for this client in the selected cycle.
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    To change cycle day assignments (Day 1/Day 2 movement slots), use Settings {"->"} Cycle Schedule.
+                    Numbers the weights are calculated from. Typing a 1RM sets the training max to 90% of it.
                   </p>
                 </div>
                 <div className="space-y-1 sm:min-w-[220px]">
@@ -956,98 +955,123 @@ export function ClientProfileModal({
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  {trackedMovementEntries.map(({ name, profile, trackedLift }) => (
-                    <div key={trackedLift ? `tracked-${trackedLift}` : name} className="rounded-md border bg-background/80 p-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
-                          <div className="space-y-1 sm:col-span-2">
-                            <Label className="text-xs">Movement</Label>
-                            <Select
-                              value={name}
-                              onValueChange={(value) => handleTrackedMovementSelectionChange(trackedLift, value)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {Array.from(new Set([name, ...globalMovementOptions]))
-                                  .filter(Boolean)
-                                  .sort((a, b) => a.localeCompare(b))
-                                  .map((option) => (
-                                    <SelectItem key={`movement-option-${trackedLift}-${option}`} value={option}>
-                                      {option}
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">1RM</Label>
-                            <Input
-                              type="number"
-                              min={1}
-                              value={profile.oneRepMax}
-                              onChange={(e) => handleMovementProfileChange(name, "oneRepMax", e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">TM</Label>
-                            <Input
-                              type="number"
-                              min={1}
-                              value={profile.trainingMax}
-                              onChange={(e) => handleMovementProfileChange(name, "trainingMax", e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Progression</Label>
-                            <Select
-                              value={String(profile.progressionIncrement || 5)}
-                              onValueChange={(value) => handleMovementProfileChange(name, "progressionIncrement", value)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="2.5">2.5 lbs</SelectItem>
-                                <SelectItem value="5">5 lbs</SelectItem>
-                                <SelectItem value="7.5">7.5 lbs</SelectItem>
-                                <SelectItem value="10">10 lbs</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
+                <div className="overflow-hidden rounded-md border">
+                  <div className="hidden grid-cols-[84px_minmax(0,1.6fr)_84px_84px_100px_minmax(0,1.2fr)] items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+                    <span>Lift</span>
+                    <span>Movement</span>
+                    <span>1RM</span>
+                    <span>TM</span>
+                    <span>Step</span>
+                    <span>At graduation</span>
+                  </div>
+                  {trackedMovementEntries.map(({ name, profile, trackedLift }) => {
+                    const status = getLiftProgressStatus(localClient, selectedCycle, trackedLift, profile);
+                    const lastTopSet = getPreviousTopSet({
+                      client: localClient,
+                      cycleNumber: selectedCycle,
+                      weekKey: "week99",
+                      lift: trackedLift,
+                      cycleSettingsByCycle: { [selectedCycle]: cycleSettings },
+                      currentSchedule: selectedCycleSchedule,
+                    });
+                    const holdLocked = !profile.sourceWeekKey && Boolean(profile.progressionHoldActive);
+                    return (
+                    <div
+                      key={trackedLift ? `tracked-${trackedLift}` : name}
+                      className="grid grid-cols-2 items-center gap-2 border-b px-3 py-2 last:border-b-0 sm:grid-cols-[84px_minmax(0,1.6fr)_84px_84px_100px_minmax(0,1.2fr)]"
+                    >
+                      <div className="leading-tight">
+                        <div className="text-sm font-semibold">{trackedLift}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {(selectedCycleSchedule?.liftDayAssignments?.[trackedLift] || "day1") === "day2" ? "Day 2" : "Day 1"}
                         </div>
-                        <div className="mt-2 flex items-center justify-between">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[11px] rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
-                              {trackedLift} · {(selectedCycleSchedule?.liftDayAssignments?.[trackedLift] || "day1") === "day2" ? "Day 2" : "Day 1"}
-                            </span>
-                            <button
-                              type="button"
-                              className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-60 ${
-                                profile.progressionHoldActive
-                                  ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                                  : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                              }`}
-                              onClick={() => handleMovementHoldToggle(name, !profile.progressionHoldActive)}
-                              disabled={!profile.sourceWeekKey && profile.progressionHoldActive}
-                            >
-                              {profile.progressionHoldActive ? "Hold" : "Progress"}
-                            </button>
-                            {profile.calibrationPhaseActive || !profile.sourceWeekKey ? (
-                              <span className="text-[11px] rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-indigo-700 dark:text-indigo-300">
-                                Calibration required
-                              </span>
-                            ) : (
-                              <span className="text-[11px] rounded-full border border-slate-500/30 bg-slate-500/10 px-2 py-0.5 text-slate-700 dark:text-slate-300">
-                                Stable
-                              </span>
-                            )}
+                      </div>
+                      <div className="min-w-0">
+                        <Select
+                          value={name}
+                          onValueChange={(value) => handleTrackedMovementSelectionChange(trackedLift, value)}
+                        >
+                          <SelectTrigger className="h-9" aria-label={`${trackedLift} movement`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from(new Set([name, ...globalMovementOptions]))
+                              .filter(Boolean)
+                              .sort((a, b) => a.localeCompare(b))
+                              .map((option) => (
+                                <SelectItem key={`movement-option-${trackedLift}-${option}`} value={option}>
+                                  {option}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        {lastTopSet ? (
+                          <div className="mt-1 font-code text-[11px] text-muted-foreground" title={formatPreviousTopSet(lastTopSet, selectedCycle).title}>
+                            {formatPreviousTopSet(lastTopSet, selectedCycle).text}
                           </div>
-                          <span className="text-xs text-muted-foreground">Cycle #{selectedCycle}</span>
+                        ) : null}
+                      </div>
+                      <Input
+                        type="number"
+                        min={1}
+                        className="h-9 font-code"
+                        aria-label={`${trackedLift} 1RM`}
+                        value={profile.oneRepMax}
+                        onChange={(e) => handleMovementProfileChange(name, "oneRepMax", e.target.value)}
+                      />
+                      <Input
+                        type="number"
+                        min={1}
+                        className="h-9 font-code"
+                        aria-label={`${trackedLift} training max`}
+                        value={profile.trainingMax}
+                        onChange={(e) => handleMovementProfileChange(name, "trainingMax", e.target.value)}
+                      />
+                      <Select
+                        value={String(profile.progressionIncrement || 5)}
+                        onValueChange={(value) => handleMovementProfileChange(name, "progressionIncrement", value)}
+                      >
+                        <SelectTrigger className="h-9" aria-label={`${trackedLift} progression step`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2.5">+2.5 lbs</SelectItem>
+                          <SelectItem value="5">+5 lbs</SelectItem>
+                          <SelectItem value="7.5">+7.5 lbs</SelectItem>
+                          <SelectItem value="10">+10 lbs</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="inline-flex overflow-hidden rounded-md border text-xs font-medium" role="group" aria-label={`${trackedLift} at graduation`}>
+                          <button
+                            type="button"
+                            aria-pressed={!profile.progressionHoldActive}
+                            disabled={holdLocked}
+                            title={holdLocked ? "Log a set for this movement before releasing the hold" : "Goes up by its step at graduation"}
+                            className={`px-2.5 py-1.5 transition-colors disabled:opacity-50 ${!profile.progressionHoldActive ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                            onClick={() => handleMovementHoldToggle(name, false)}
+                          >
+                            Go up
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={Boolean(profile.progressionHoldActive)}
+                            title="Stays at this training max at graduation"
+                            className={`border-l px-2.5 py-1.5 transition-colors ${profile.progressionHoldActive ? "bg-amber-500 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                            onClick={() => handleMovementHoldToggle(name, true)}
+                          >
+                            Hold
+                          </button>
                         </div>
+                        {status.calibrating ? (
+                          <span className="text-[11px] font-semibold text-sky-600 dark:text-sky-400" title="No full cycle of logged history yet; held at graduation until it has one">
+                            Calibrating
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {Lifts.map((lift) => {
@@ -1130,9 +1154,11 @@ export function ClientProfileModal({
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2 rounded-md border p-3">
-                  <Label className="text-sm font-medium">Client Cycle Membership</Label>
-                  <p className="text-xs text-muted-foreground">Checked cycles are where this client appears.</p>
+                <details className="rounded-md border p-3">
+                  <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Advanced: cycle membership</summary>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Which cycles this client belongs to. Graduation manages this for you; unticking a cycle can leave a client behind the group.
+                  </p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {cycleMembershipOptions.map((cycleNumber) => {
                       const checked = (localClient.cycleMembership || []).includes(cycleNumber);
@@ -1149,7 +1175,7 @@ export function ClientProfileModal({
                       );
                     })}
                   </div>
-                </div>
+                </details>
 
                 <p className="text-sm text-muted-foreground">
                   Assign the rep scheme for each week. Select N/A if the client skips that week.

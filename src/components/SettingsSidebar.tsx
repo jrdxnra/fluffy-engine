@@ -25,11 +25,13 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Settings,
 } from "lucide-react";
 import type { Client, CycleSettings, Lift, TrainingGroup } from "@/lib/types";
 import { Lifts } from "@/lib/types";
 import { getActiveTrainingGroups, getClientsInTrainingGroup } from "@/lib/training-groups";
 import { OneRmCalcModal } from "@/components/OneRmCalcModal";
+import { HowToDialog } from "@/components/HowToDialog";
 import { useEffect, useState } from "react";
 import { WeekOptionsModal } from "@/components/WeekOptionsModal";
 import { isDeloadWeekSettings } from "@/lib/workout-week-settings";
@@ -231,12 +233,18 @@ export function SettingsSidebar({
           ) : null}
           {!footerSelectors ? (
             <div className="space-y-1">
-              <div className={`mb-2 text-xs font-semibold text-primary ${currentWeekIsSkippedDeload ? "line-through opacity-70" : ""}`}>
-                {currentWeekName}
-                {currentWeekIsSkippedDeload ? " (Skipped)" : ""}
-              </div>
-              <div className="mb-2 text-[10px] text-muted-foreground">
-                Click to open week, double-click for options.
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className={`text-xs font-semibold text-primary ${currentWeekIsSkippedDeload ? "line-through opacity-70" : ""}`}>
+                  {currentWeekName}
+                  {currentWeekIsSkippedDeload ? " (Skipped)" : ""}
+                </span>
+                <button
+                  type="button"
+                  className="rounded border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => handleWeekClick(currentWeek)}
+                >
+                  Week options
+                </button>
               </div>
               <div
                 className={`grid w-full ${
@@ -313,6 +321,19 @@ export function SettingsSidebar({
                         <span>{group.name}</span>
                         <span className="ml-auto text-xs text-muted-foreground">{groupClients.length}</span>
                       </SidebarMenuButton>
+                      {onGroupSettingsOpen ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0 text-muted-foreground"
+                          onClick={() => onGroupSettingsOpen(group.id)}
+                          aria-label={`${group.name} settings`}
+                          title={`${group.name} settings`}
+                        >
+                          <Settings className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : null}
                     </div>
                     {areMembersOpen ? (
                       <SidebarMenu className="ml-7 border-l pl-2">
@@ -412,12 +433,7 @@ export function SettingsSidebar({
           <SidebarMenuItem>
             <div className="flex w-full items-center">
               <div className="flex flex-1 justify-center">
-                <a
-                  href="/how-to.html"
-                  className="px-2 py-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                >
-                  How To
-                </a>
+                <HowToDialog />
               </div>
               <div className="flex flex-1 justify-center">
                 <OneRmCalcModal />
