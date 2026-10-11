@@ -10,10 +10,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { OneRepMaxSuggestionButton } from "@/components/OneRepMaxSuggestionButton";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import type { CalculatedWorkout, CycleSettings, HistoricalRecord, Lift, WorkoutSet, LoggedSetMap } from "@/lib/types";
+import type { CalculatedWorkout, CycleSettings, HistoricalRecord, Lift, OneRepMaxSuggestion, WorkoutSet, LoggedSetMap } from "@/lib/types";
 import { Check, Copy, MoreVertical, FileText, User } from "lucide-react";
 import { logRepRecordAction } from "@/app/actions";
 import { ClientNotesDialog } from "./ClientNotesDialog";
@@ -63,6 +64,7 @@ type WorkoutTableProps = {
   onBulkLogToggle?: () => void;
   showWarmups?: boolean;
   onOpenProfile?: (client: Client) => void;
+  onAcceptOneRepMaxSuggestion?: (clientId: string, lift: Lift, suggestion: OneRepMaxSuggestion) => Promise<void> | void;
   initialFocusedClientId?: string;
 };
 
@@ -236,7 +238,7 @@ const SetCell = ({
     </div>
   );
 };
-export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, workoutDateIso, resolveWorkoutDateIso, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false, onOpenProfile, initialFocusedClientId }: WorkoutTableProps) {
+export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, workoutDateIso, resolveWorkoutDateIso, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false, onOpenProfile, onAcceptOneRepMaxSuggestion, initialFocusedClientId }: WorkoutTableProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const navFocusAppliedRef = useRef<string | null>(null);
   const [, setClientNotes] = useState<{ [key: string]: string }>({});
@@ -833,6 +835,13 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
                           {effectiveWeekKey}
                         </Badge>
                       )}
+                      {workout.oneRepMaxSuggestion && onAcceptOneRepMaxSuggestion ? (
+                        <OneRepMaxSuggestionButton
+                          clientName={client.name}
+                          suggestion={workout.oneRepMaxSuggestion}
+                          onAccept={() => onAcceptOneRepMaxSuggestion(client.id, lift, workout.oneRepMaxSuggestion!)}
+                        />
+                      ) : null}
                     </div>
                     <ClientNotesDialog
                       clientId={client.id}
@@ -987,6 +996,13 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
                           {effectiveWeekKey}
                         </Badge>
                       )}
+                      {workout.oneRepMaxSuggestion && onAcceptOneRepMaxSuggestion ? (
+                        <OneRepMaxSuggestionButton
+                          clientName={client.name}
+                          suggestion={workout.oneRepMaxSuggestion}
+                          onAccept={() => onAcceptOneRepMaxSuggestion(client.id, lift, workout.oneRepMaxSuggestion!)}
+                        />
+                      ) : null}
                     </div>
                   </div>
                 </TableHead>

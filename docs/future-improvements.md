@@ -14,6 +14,8 @@ Ideas that are agreed in principle but parked. Nothing here is being worked on u
 
 ## Smaller parked items
 
+- **"Reset training max from recent performance" button** only updates the old lift-slot number, which movement profiles override, and it mixes history from different movements in the same slot. Replace it with the per-lift "update from a logged set" flag (added 2026-10-11) or remove it.
+
 - **"Jack Shit" mode** hides the warm-up sets as well as the accessories; the book means main lift only, warm-ups included. Decide which is wanted.
 - **Mobile view** skips the deload and week-name repair for ungrouped clients (see troubleshooting log, issue 6).
 - **Old shared program copied onto every client record** — stale baggage; stop writing it (troubleshooting log, cleanup 3).

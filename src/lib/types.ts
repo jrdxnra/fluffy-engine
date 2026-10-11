@@ -68,6 +68,8 @@ export type MovementProfile = {
   calibrationPhaseActive: boolean;
   lastUpdatedAt?: string;
   sourceWeekKey?: string;
+  /** Logged session (e.g. "9:week1") the numbers were last raised from. */
+  lastPerformanceUpdateKey?: string;
 };
 
 export type MovementProfilesByCycle = {
@@ -226,10 +228,26 @@ export type WorkoutSet = {
   actualWeight?: number; // Actual weight lifted (if different from recommended)
 };
 
+export type OneRepMaxSuggestion = {
+  movementName: string;
+  /** Which logged session this came from, e.g. "9:week1". One update per session. */
+  sourceKey: string;
+  weight: number;
+  reps: number;
+  estimatedOneRepMax: number;
+  currentOneRepMax: number;
+  currentTrainingMax: number;
+  suggestedOneRepMax: number;
+  suggestedTrainingMax: number;
+  /** True when the cap reduced the suggestion below the full estimate. */
+  capped: boolean;
+};
+
 export type CalculatedWorkout = {
   client: Client;
   sets: WorkoutSet[];
   trainingMax?: number;
+  oneRepMaxSuggestion?: OneRepMaxSuggestion;
   prTarget?: {
     reps: number;
     lastMonth1RM: number;

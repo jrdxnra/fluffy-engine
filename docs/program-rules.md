@@ -27,11 +27,19 @@ This is the site's own rulebook. It is **based on** Wendler's 5/3/1 (2nd edition
 - A lift slot's training max always equals its movement's.
 - A member who fell behind the group lands on the group's next cycle at graduation.
 
+### Raising a 1RM from a logged set
+- The stored 1RM does not change on its own during normal cycles.
+- When a logged set estimates a 1RM at least 5% above the stored one, the lifter's row shows a flag with a proposed training max. Nothing changes unless the coach accepts it.
+- Accepting sets the 1RM to the estimate (weight × (1 + reps / 30), rounded to 5 lb) and the training max to 90% of it.
+- One update can raise a training max by at most 10%, because high-rep sets overestimate a true max. Only one update is offered per logged session.
+- No flag on deload weeks or modified sessions (recovery, slide, pause, Jack Shit). Holds and graduation are unaffected.
+
 ## Deliberate differences from the book
 
 | Topic | The book | This site | Why |
 |---|---|---|---|
 | Warm-ups | Three sets: 40% × 5, 50% × 5, 60% × 3 | Two sets: 50% × 5, 60% × 5 | Sessions must fit in 60 minutes (decided 2026-10-11). |
+| Raising a 1RM mid-programme | Only by re-testing or resetting after a stall | Coach can accept a capped update from any logged set | Lifters who start too light would otherwise take months to catch up. |
 | Lowering a training max | Only when a lifter stalls, to 90% of a recent max | Automatically, whenever the training max is above the stored 1RM | Existing behaviour; planned to change — see `future-improvements.md`. |
 | Deload on a two-day week | Probably not needed | Every fourth week | Existing programme design. |
 

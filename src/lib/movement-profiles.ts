@@ -129,3 +129,26 @@ export const getMovementProfileForLift = (
 
   return null;
 };
+
+/** The key a lift's movement profile is stored under for the cycle, if it has one. */
+export const getMovementProfileKeyForLift = (
+  client: Client,
+  cycleNumber: number,
+  lift: Lift,
+  schedule?: CycleScheduleSettings
+): string | null => {
+  const profilesForCycle = client.movementProfilesByCycle?.[cycleNumber];
+  if (!profilesForCycle) return null;
+  const candidates = [
+    resolveClientMovementName(client, cycleNumber, lift, schedule),
+    getLiftDisplayName(lift, schedule),
+    lift,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const normalized = normalizeMovementName(candidate);
+    const key = Object.keys(profilesForCycle).find((name) => normalizeMovementName(name) === normalized);
+    if (key) return key;
+  }
+  return null;
+};
