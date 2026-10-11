@@ -30,7 +30,7 @@ import { ConfigSettingsDialog } from "@/components/ConfigSettingsDialog";
 import { ClientProfileModal } from "@/components/ClientProfileModal";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
-import { calculateTrainingMaxes } from "@/lib/training-max";
+import { normalizeClientForProfileSave } from "@/lib/client-profile-save";
 import { normalizeCycleSettingsByCycle } from "@/lib/cycle-settings-normalizer";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
 import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForLift, resolveMovementClassType } from "@/lib/movement-profiles";
@@ -920,60 +920,7 @@ export function SbdohControl({
   };
   
   const handleUpdateClient = async (updatedClient: Client) => {
-    const normalizedCycleMembership = getEffectiveCycleMembership(updatedClient);
-    const effectiveMembership = normalizedCycleMembership.length > 0 ? normalizedCycleMembership : [1];
-    const normalizedCurrentCycleNumber =
-      effectiveMembership.includes(updatedClient.currentCycleNumber || 0)
-        ? (updatedClient.currentCycleNumber || 1)
-        : Math.max(...effectiveMembership);
-
-    const currentCycleForClient = normalizedCurrentCycleNumber || currentCycleNumber || 1;
-    const cycleOneRepMaxes =
-      updatedClient.oneRepMaxesByCycle?.[currentCycleForClient] ||
-      updatedClient.oneRepMaxes;
-    const recalculatedTrainingMaxes = calculateTrainingMaxes(cycleOneRepMaxes);
-    const existingTrainingMaxesByCycle = {
-      ...(updatedClient.trainingMaxesByCycle || {}),
-    };
-
-    const existingOneRepMaxesByCycle = {
-      ...(updatedClient.oneRepMaxesByCycle || {}),
-      [currentCycleForClient]: cycleOneRepMaxes,
-    };
-
-    const rebuiltTrainingMaxesByCycle = {
-      ...existingTrainingMaxesByCycle,
-      [currentCycleForClient]: recalculatedTrainingMaxes,
-    };
-
-    const cycleNumbers = Object.keys(existingTrainingMaxesByCycle)
-      .map((cycleKey) => Number(cycleKey))
-      .filter((cycle) => !Number.isNaN(cycle))
-      .sort((a, b) => a - b);
-
-    for (const cycleNumber of cycleNumbers) {
-      if (cycleNumber <= currentCycleForClient) continue;
-      const previousCycle = cycleNumber - 1;
-      const previousCycleMaxes = rebuiltTrainingMaxesByCycle[previousCycle];
-      if (!previousCycleMaxes) continue;
-
-      rebuiltTrainingMaxesByCycle[cycleNumber] = {
-        Squat: previousCycleMaxes.Squat + 10,
-        Deadlift: previousCycleMaxes.Deadlift + 10,
-        Bench: previousCycleMaxes.Bench + 5,
-        Press: previousCycleMaxes.Press + 5,
-      };
-    }
-
-    const normalizedClient: Client = {
-      ...updatedClient,
-      currentCycleNumber: normalizedCurrentCycleNumber,
-      cycleMembership: effectiveMembership,
-      oneRepMaxes: cycleOneRepMaxes,
-      oneRepMaxesByCycle: existingOneRepMaxesByCycle,
-      trainingMaxes: recalculatedTrainingMaxes,
-      trainingMaxesByCycle: rebuiltTrainingMaxesByCycle,
-    };
+    const normalizedClient = normalizeClientForProfileSave(updatedClient, currentCycleNumber);
 
     const persistedClient = selectedTrainingGroup
       ? {

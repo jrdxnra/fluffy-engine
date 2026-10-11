@@ -36,6 +36,7 @@ import { Lifts } from "@/lib/types";
 import { getEffectiveCycleSchedule, getLiftDisplayName } from "@/lib/schedule";
 import { normalizeMovementName, resolveMovementClassType } from "@/lib/movement-profiles";
 import { getEffectiveCycleMembership } from "@/lib/cycle-membership";
+import { hasCycleStrengthData } from "@/lib/client-profile-save";
 import { getActiveTrainingGroups, getTrainingGroupById } from "@/lib/training-groups";
 import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { ClientProgressChart } from "./ClientProgressChart";
@@ -319,7 +320,12 @@ export function ClientProfileModal({
       const chosenProfile = exactProfile || fallbackLiftProfile;
 
       if (!chosenProfile && !isCurrentCycleView) {
-        snapshots[lift] = { oneRepMax: 0, trainingMax: 0 };
+        // Another cycle with no profile for this lift: keep what that cycle already has
+        // stored, so saving from this view can't overwrite real numbers with zeros.
+        snapshots[lift] = {
+          oneRepMax: localClient?.oneRepMaxesByCycle?.[selectedCycle]?.[lift] ?? 0,
+          trainingMax: localClient?.trainingMaxesByCycle?.[selectedCycle]?.[lift] ?? 0,
+        };
         continue;
       }
 
@@ -745,24 +751,33 @@ export function ClientProfileModal({
         }
       }
 
+      // Viewing a cycle the client has no strength data in must not create an all-zero
+      // cycle for them on save.
+      const shouldSaveSelectedCycleStrength =
+        selectedCycle === currentCycleNumber || hasCycleStrengthData(localClient, selectedCycle);
+
       const clientToSave: Client = {
         ...localClient,
         currentCycleNumber: activeCycleNumber,
         cycleMembership: effectiveMembership,
-        oneRepMaxesByCycle: cycleOneRepMaxes,
         oneRepMaxes: activeCycleOneRepMaxes,
         trainingMaxes: activeCycleTrainingMaxes,
-        trainingMaxesByCycle: {
-          ...(localClient.trainingMaxesByCycle || {}),
-          [selectedCycle]: mainLiftTrainingMaxes,
-        },
         weekAssignmentsByCycle: cleanedAssignmentsByCycle,
         sessionStateByCycle: localClient.sessionStateByCycle,
         movementSelectionByCycle: localClient.movementSelectionByCycle,
-        movementProfilesByCycle: {
-          ...(localClient.movementProfilesByCycle || {}),
-          [selectedCycle]: mergedMovementProfilesForCycle,
-        },
+        ...(shouldSaveSelectedCycleStrength
+          ? {
+              oneRepMaxesByCycle: cycleOneRepMaxes,
+              trainingMaxesByCycle: {
+                ...(localClient.trainingMaxesByCycle || {}),
+                [selectedCycle]: mainLiftTrainingMaxes,
+              },
+              movementProfilesByCycle: {
+                ...(localClient.movementProfilesByCycle || {}),
+                [selectedCycle]: mergedMovementProfilesForCycle,
+              },
+            }
+          : {}),
       };
 
       setIsSaving(true);
