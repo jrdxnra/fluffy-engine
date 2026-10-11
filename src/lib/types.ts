@@ -243,10 +243,26 @@ export type OneRepMaxSuggestion = {
   capped: boolean;
 };
 
+export type LiftProgressStatus = {
+  /** Will not go up at graduation because the coach put it on hold. */
+  hold: boolean;
+  /** Still calibrating: held at graduation until it has logged history. */
+  calibrating: boolean;
+};
+
+export type PreviousTopSet = {
+  weight: number;
+  reps: number;
+  cycleNumber: number;
+  weekKey: string;
+};
+
 export type CalculatedWorkout = {
   client: Client;
   sets: WorkoutSet[];
   trainingMax?: number;
+  status?: LiftProgressStatus;
+  previousTopSet?: PreviousTopSet;
   oneRepMaxSuggestion?: OneRepMaxSuggestion;
   prTarget?: {
     reps: number;

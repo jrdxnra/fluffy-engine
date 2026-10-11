@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { OneRepMaxSuggestionButton } from "@/components/OneRepMaxSuggestionButton";
+import { LifterStatusLine } from "@/components/LifterStatusLine";
+import { formatPreviousTopSet } from "@/lib/previous-top-set";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -86,6 +88,8 @@ type SetCellProps = {
   platePosition?: "below" | "inline";
   showPlates?: boolean;
   showActualSummary?: boolean;
+  /** Most recent logged top set, shown under the prescribed top set. */
+  previousResult?: { text: string; title: string };
 };
 
 const SetCell = ({ 
@@ -106,6 +110,7 @@ const SetCell = ({
   platePosition = "below",
   showPlates = true,
   showActualSummary = false,
+  previousResult,
 }: SetCellProps) => {
   void clientId;
   void lift;
@@ -115,7 +120,8 @@ const SetCell = ({
   const setKey = `${setIndex}`;
   const input = setInputs[setKey] || { weight: "", reps: "" };
   const hasRecommendedWeight = Number.isFinite(set.weight) && set.weight > 0;
-  const recommendedWeightLabel = hasRecommendedWeight ? `${set.weight} lbs` : "--";
+  // Units live in the column header ("Set · lbs"), so cells stay narrow enough for the plates.
+  const recommendedWeightLabel = hasRecommendedWeight ? `${set.weight}` : "--";
 
   const plateTokens = set.plates
     ? set.plates.split(",").map((token) => token.trim()).filter(Boolean)
@@ -196,7 +202,7 @@ const SetCell = ({
       {showPlates && !showInlinePlates ? (
         <div className="text-xs text-muted-foreground font-code min-h-4">
           {plateTokens.length > 0 ? (
-            <div className="flex flex-nowrap items-center gap-0.5">
+            <div className="flex flex-wrap items-center gap-0.5">
               {plateTokens.map((plate, idx) => (
                 <span
                   key={`${plate}-${idx}`}
@@ -210,6 +216,11 @@ const SetCell = ({
           ) : (
             "Bar only"
           )}
+        </div>
+      ) : null}
+      {previousResult ? (
+        <div className="whitespace-nowrap font-code text-[10px] leading-none text-muted-foreground" title={previousResult.title}>
+          {previousResult.text}
         </div>
       ) : null}
       {isExpanded && !showInlineEditor && (
@@ -825,6 +836,11 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
                       ) : null}
                     </div>
                     <div className="col-start-1 min-w-0 flex items-center gap-1 flex-wrap">
+                      <LifterStatusLine
+                        trainingMax={workout.trainingMax}
+                        status={workout.status}
+                        logged={Object.keys(persistedSetMap).length > 0}
+                      />
                       {sessionMode && sessionMode !== "normal" && (
                         <Badge variant="outline" className="text-[10px]">
                           {sessionModeLabel[sessionMode] || sessionMode}
@@ -932,10 +948,13 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
         <Table className="table-fixed w-full">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[96px] text-left bg-gradient-to-r from-muted/80 to-accent/45">Set</TableHead>
+              <TableHead className="w-[96px] text-left bg-gradient-to-r from-muted/80 to-accent/45">Set <span className="font-normal text-muted-foreground">· lbs</span></TableHead>
               {workouts.map((workout, columnIndex) => {
                 const { client, sessionMode, effectiveWeekKey } = workout;
                 const isFocusedClient = client.id === focusedClientId;
+                const hasLoggedSets = Object.keys(
+                  client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey || currentWeek]?.[lift] || {}
+                ).length > 0;
                 return (
                 <TableHead
                   key={client.id}
@@ -947,6 +966,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
                       <button
                         type="button"
                         onClick={() => handleClientNameClick(client.id)}
+                        title={client.name}
                         className={`min-w-0 overflow-hidden whitespace-nowrap rounded-md py-1 text-left font-bold text-foreground transition-[background-color,color] duration-200 dark:text-white ${isFocusedClient ? "w-full px-2 bg-primary text-primary-foreground shadow-md text-base" : "pl-0 pr-0 hover:bg-muted/70 text-sm"}`}
                       >
                         {client.name}
@@ -954,7 +974,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
                       <div className="flex items-center gap-0.5 shrink-0">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0">
+                            <Button size="sm" variant="ghost" className="h-7 w-5 p-0">
                               <MoreVertical className="h-3.5 w-3.5" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -986,6 +1006,11 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
                       </div>
                     </div>
                     <div className="flex items-center gap-1 flex-wrap">
+                      <LifterStatusLine
+                        trainingMax={workout.trainingMax}
+                        status={workout.status}
+                        logged={hasLoggedSets}
+                      />
                       {sessionMode && sessionMode !== "normal" && (
                         <Badge variant="outline" className="text-[10px]">
                           {sessionModeLabel[sessionMode] || sessionMode}
@@ -1020,7 +1045,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
                       <div className="text-[10px] text-muted-foreground mt-0.5 whitespace-nowrap">{headerSet.reps} reps</div>
                     </div>
                   </TableCell>
-                  {workouts.map(({ client, sets, effectiveWeekKey, sessionMode }, columnIndex) => {
+                  {workouts.map(({ client, sets, effectiveWeekKey, sessionMode, previousTopSet }, columnIndex) => {
                     const isExpanded = expandedRows[client.id] || false;
                     const isSaving = savingRows[client.id] || false;
                     const isFocusedClient = client.id === focusedClientId;
@@ -1055,6 +1080,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
                             lift={lift}
                             workoutDateIso={workoutDateIso}
                             isTopSet={isTopSet}
+                            previousResult={isTopSet && previousTopSet ? formatPreviousTopSet(previousTopSet, currentCycleNumber) : undefined}
                             isExpanded={isExpanded}
                             sizeMode={isFocusedClient ? "focused" : "default"}
                             setInputs={{
