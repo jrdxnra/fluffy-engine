@@ -16,8 +16,9 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { logDataConsistencyValidation, validateAllClientsDataConsistency } from './data-validation';
-import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForLift } from './movement-profiles';
-import { getEffectiveCycleMembership, withCycleAdded } from './cycle-membership';
+import { buildGlobalMovementSettings } from './movement-profiles';
+import { getEffectiveCycleMembership } from './cycle-membership';
+import { buildGraduatedClient, getGraduationSourceCycle } from './graduation';
 import { inferCycleMembershipForBackfill } from './cycle-membership';
 
 const cycleSettings: CycleSettings = {
@@ -694,143 +695,25 @@ export const graduateTeam = async (
       throw new Error('Cannot graduate team: data consistency errors detected');
     }
 
-    const noIncrementLiftSet = new Set(options?.noIncrementLifts || []);
-    const calibrationLiftSet = new Set(options?.calibrationLifts || []);
     const appSettings = await getAppSettings();
     const trainingGroup = groupId
       ? appSettings.trainingGroups?.find((group) => group.id === groupId)
       : undefined;
 
     const result = clients.map((client) => {
-      const currentCycle = (groupId ? client.programStateByGroup?.[groupId]?.currentCycleNumber : undefined) ?? client.currentCycleNumber ?? 1;
-      const nextCycle = currentCycle + 1;
+      const currentCycle = getGraduationSourceCycle(client, groupId, trainingGroup?.currentCycleNumber);
       const currentCycleSchedule = trainingGroup?.program.cycleSchedulesByCycle[currentCycle]
         ?? appSettings.cycleSchedulesByCycle?.[currentCycle];
 
-      const heldLiftSet = new Set<Lift>();
-      (['Squat', 'Deadlift', 'Bench', 'Press'] as Lift[]).forEach((lift) => {
-        const profile = getMovementProfileForLift(client, currentCycle, lift, currentCycleSchedule);
-        if (profile?.progressionHoldActive || profile?.calibrationPhaseActive) {
-          heldLiftSet.add(lift);
-        }
+      return buildGraduatedClient(client, {
+        groupId,
+        // Everyone lands on the group's next cycle, so a member who fell behind catches up.
+        targetCycle: trainingGroup ? Math.max(trainingGroup.currentCycleNumber, currentCycle) + 1 : undefined,
+        groupCurrentCycle: trainingGroup?.currentCycleNumber,
+        currentCycleSchedule,
+        globalMovementSettings: appSettings.globalMovementSettings,
+        options,
       });
-
-      const currentCycleCalibration = client.movementCalibrationsByCycle?.[currentCycle] || {};
-      const recentlyCalibratedLiftSet = new Set(
-        (Object.keys(currentCycleCalibration) as Lift[]).filter(
-          (lift) => currentCycleCalibration[lift]?.needsCalibration
-        )
-      );
-
-      const incrementByLift: Record<Lift, number> = {
-        Squat: noIncrementLiftSet.has('Squat') || recentlyCalibratedLiftSet.has('Squat') || heldLiftSet.has('Squat') ? 0 : 10,
-        Deadlift: noIncrementLiftSet.has('Deadlift') || recentlyCalibratedLiftSet.has('Deadlift') || heldLiftSet.has('Deadlift') ? 0 : 10,
-        Bench: noIncrementLiftSet.has('Bench') || recentlyCalibratedLiftSet.has('Bench') || heldLiftSet.has('Bench') ? 0 : 5,
-        Press: noIncrementLiftSet.has('Press') || recentlyCalibratedLiftSet.has('Press') || heldLiftSet.has('Press') ? 0 : 5,
-      };
-
-      // Increment from trainingMaxesByCycle[currentCycle] (the value workouts actually use),
-      // not the deprecated client.trainingMaxes field, so stale top-level data can't leak into cycle math.
-      const currentCycleTrainingMaxes = client.trainingMaxesByCycle?.[currentCycle] ?? client.trainingMaxes;
-      const newTrainingMaxes = {
-        Squat: calibrationLiftSet.has('Squat') ? 0 : currentCycleTrainingMaxes.Squat + incrementByLift.Squat,
-        Deadlift: calibrationLiftSet.has('Deadlift') ? 0 : currentCycleTrainingMaxes.Deadlift + incrementByLift.Deadlift,
-        Bench: calibrationLiftSet.has('Bench') ? 0 : currentCycleTrainingMaxes.Bench + incrementByLift.Bench,
-        Press: calibrationLiftSet.has('Press') ? 0 : currentCycleTrainingMaxes.Press + incrementByLift.Press,
-      };
-
-      const updatedTrainingMaxesByCycle = { ...(client.trainingMaxesByCycle || {}) };
-      for (const cycleKey of Object.keys(updatedTrainingMaxesByCycle)) {
-        const cycle = Number(cycleKey);
-        if (!Number.isNaN(cycle) && cycle >= nextCycle) {
-          updatedTrainingMaxesByCycle[cycle] = { ...newTrainingMaxes };
-        }
-      }
-      updatedTrainingMaxesByCycle[nextCycle] = { ...newTrainingMaxes };
-
-      const previousOneRepMaxes = client.oneRepMaxesByCycle?.[currentCycle] || client.oneRepMaxes;
-      const nextOneRepMaxes = {
-        ...previousOneRepMaxes,
-      };
-
-      for (const lift of calibrationLiftSet) {
-        nextOneRepMaxes[lift] = 0;
-      }
-
-      const movementCalibrationsForNextCycle = {
-        ...(client.movementCalibrationsByCycle?.[nextCycle] || {}),
-      };
-
-      const currentCycleMovementProfiles = client.movementProfilesByCycle?.[currentCycle] || {};
-      const movementProfilesForNextCycle = {
-        ...(client.movementProfilesByCycle?.[nextCycle] || {}),
-      };
-
-      for (const [movementName, profile] of Object.entries(currentCycleMovementProfiles)) {
-        const shouldHold = Boolean(profile.progressionHoldActive || profile.calibrationPhaseActive);
-        const increment = shouldHold ? 0 : (profile.progressionIncrement || getDefaultMovementProgressionIncrement(movementName, undefined));
-        movementProfilesForNextCycle[movementName] = {
-          ...profile,
-          oneRepMax: profile.oneRepMax,
-          trainingMax: shouldHold ? profile.trainingMax : profile.trainingMax + increment,
-          movementCycleNumber: (profile.movementCycleNumber || 1) + 1,
-          lastUpdatedAt: new Date().toISOString(),
-        };
-      }
-
-      for (const lift of calibrationLiftSet) {
-        movementCalibrationsForNextCycle[lift] = {
-          needsCalibration: true,
-        };
-      }
-
-      const groupScopedProgress = groupId
-        ? {
-            programStateByGroup: {
-              ...(client.programStateByGroup || {}),
-              [groupId]: {
-                ...(client.programStateByGroup?.[groupId] || {}),
-                currentCycleNumber: nextCycle,
-                cycleMembership: Array.from(
-                  new Set([...(client.programStateByGroup?.[groupId]?.cycleMembership || []), nextCycle])
-                ).sort((a, b) => a - b),
-                weekAssignmentsByCycle: {
-                  ...(client.programStateByGroup?.[groupId]?.weekAssignmentsByCycle || {}),
-                  [nextCycle]: { week1: '5', week2: '3', week3: '1' },
-                },
-              },
-            },
-          }
-        : {
-            currentCycleNumber: nextCycle,
-            cycleMembership: withCycleAdded(client, nextCycle),
-            weekAssignmentsByCycle: {
-              ...(client.weekAssignmentsByCycle || {}),
-              [nextCycle]: { week1: '5', week2: '3', week3: '1' },
-            },
-          };
-
-      const updatedClient = {
-        ...client,
-        ...groupScopedProgress,
-        oneRepMaxesByCycle: {
-          ...(client.oneRepMaxesByCycle || {}),
-          [nextCycle]: nextOneRepMaxes,
-        },
-        oneRepMaxes: nextOneRepMaxes,
-        trainingMaxes: newTrainingMaxes,
-        trainingMaxesByCycle: updatedTrainingMaxesByCycle,
-        movementCalibrationsByCycle: {
-          ...(client.movementCalibrationsByCycle || {}),
-          [nextCycle]: movementCalibrationsForNextCycle,
-        },
-        movementProfilesByCycle: {
-          ...(client.movementProfilesByCycle || {}),
-          [nextCycle]: movementProfilesForNextCycle,
-        },
-      };
-
-      return updatedClient;
     });
 
     // Update all clients in the database

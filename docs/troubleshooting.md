@@ -210,6 +210,20 @@ This matches the intended design (new lifts start in calibration — see `isLift
 - **Status:** **fixed in code on branch `fix/training-max-single-source`; not committed, not deployed.** The app starts and loads live data on this branch (2026-10-10), but no save has been tried in it. Still required before closing: (a) edit a real client's training max, save, reload, confirm it stuck and the 1RM did not reset it; (b) open a deload week for a Powerlift 2.0 client and confirm the weights come from the movement's training max; (c) confirm the Devon explanation against the live data.
 - **Route removed:** `fix-current-cycle-main-lift-maxes` was deleted from the codebase on 2026-10-10. `ENABLE_MAINTENANCE_ROUTES` is still `"true"` in `apphosting.yaml` for the remaining maintenance routes.
 
+### 9. Graduation review: stranded members, lifts stuck in calibration, untrained movements creeping up (2026-10-11)
+- **Plain version:** a review of graduation found three problems.
+  1. **Members who fell behind could never graduate again.** The graduation list only offered members whose own cycle matched the group's. Anyone left behind dropped off the list for good, yet still appeared on the workout screen with numbers guessed from an older cycle.
+  2. **Lifts stuck in "calibration" never went up.** A lift whose numbers were typed in (rather than calibrated from a logged set) kept its calibration flag forever, and graduation holds any lift in calibration.
+  3. **Movements that weren't trained still went up every cycle.** Graduation raised every stored movement, including ones the group had swapped out.
+- **Also:** the lift-slot training max and the movement training max were raised separately at graduation, which is how they drifted apart.
+- **Fix:** all graduation maths now lives in one tested function, `buildGraduatedClient` in `src/lib/graduation.ts`, used by both the server and the desktop screen (previously two hand-kept copies).
+  - Only movements trained that cycle go up; others carry forward unchanged.
+  - A leftover calibration flag no longer holds a lift that has a full cycle of logged history, and the flag is cleared.
+  - Each lift slot's training max follows its movement's.
+  - Members behind the group's cycle are offered in the graduation list and land on the group's next cycle, graduating from their most recent numbers.
+- **Verified:** typecheck clean, 80/80 tests pass, including 10 new tests that run the real graduation code (the older graduation tests only simulated it).
+- **Status:** **fixed in code, not deployed.** Not yet exercised in the running app: the next real graduation is the live check.
+
 ---
 
 ## Working rule: track fixes that didn't fully work, not just fixes that did

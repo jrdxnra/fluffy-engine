@@ -22,7 +22,10 @@ This is the site's own rulebook. It is **based on** Wendler's 5/3/1 (2nd edition
 
 ### Graduation
 - After a cycle: +5 lb for Bench and Press, +10 lb for Squat and Deadlift (custom movements use their own increment).
-- A lift on hold or in calibration does not go up.
+- A lift on hold or in calibration does not go up. A lift counts as calibrating only until it has a full cycle of logged history.
+- Only movements trained that cycle go up; a swapped-out movement keeps its number.
+- A lift slot's training max always equals its movement's.
+- A member who fell behind the group lands on the group's next cycle at graduation.
 
 ## Deliberate differences from the book
 
