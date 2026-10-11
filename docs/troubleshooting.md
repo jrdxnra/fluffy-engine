@@ -6,6 +6,53 @@
 
 ---
 
+## Handover — where things stand (2026-10-11)
+
+**Read this first.** It is the turnover from the 2026-10-10 / 2026-10-11 work sessions. Details are in issues 8–13 below.
+
+### What is live right now
+Everything below is merged to `main` and deployed to https://power-lift-b7ea1.web.app (last deploy 2026-10-11). `main` and the live site match.
+
+| Area | What changed | Issue |
+|---|---|---|
+| Training max maths | Saves keep the number you type; deload weeks use the movement's number; a blank 1RM no longer zeroes a workout | 8 |
+| Graduation | Members who fall behind can graduate again; lifts no longer stick in calibration; unused movements stop creeping up; one shared, tested graduation function | 9 |
+| 1RM updates | A flag on the lifter's row when a logged set beats the stored 1RM; coach accepts or ignores; capped at 10% per update | 10 |
+| Coaching screen | Status line under each name (TM, Hold, Calibrating, Logged), last top set, current-week and today dots, single title row | 11 |
+| Settings and profile | Graduation preview table, compact profile table with Go up / Hold switch, Advanced folds, whole-number percentages, newest-first cycle list, in-page How To | 12 |
+| Live data | Numbers corrected for five Powerlift 2.0 lifters; three stranded lifters moved onto the group's cycle | 13 |
+| Safety net | 99 automated tests; typecheck and tests run on every pull request (`.github/workflows/checks.yml`) | — |
+
+### What still needs checking in real use
+None of these have been exercised with a real save by the coach yet. Do them during normal sessions and note the result here.
+
+1. **Profile save:** change one training max in a profile, save, reload, confirm it stuck (closes issues 7 and 8).
+2. **Go up / Hold switch:** flip one lift, save, confirm the "Hold" marker follows on the coaching grid and the Roster tab.
+3. **Logging:** after logging a session, "Logged" should show under the name; next week that set should show as "Last …" under the top set.
+4. **1RM update flag:** when someone clearly beats their numbers, a small "TM …" flag should appear by their name; accept one and confirm the weights change (issue 10).
+5. **Deload week:** weights should come from the movement's training max (issue 8).
+6. **Next graduation:** read the "What Will Change" table before confirming. Held lifts should stay put; lifts that were stuck in calibration should go up (issue 9).
+
+### Open questions for the coach
+- **Strategies & Squats setup:** no numbers entered for any lifter; week 2 repeats week 1 (no 5/3/1 week); bench, deadlift and pause bench are all on day 1 with only squat on day 2; still on cycle 1 since 2026-09-01. Intentional or not?
+- **Week on screen vs calendar:** the coaching screen opened on Week 2 while the calendar dot marks Week 1 (cycle start 2026-10-06). Either the selection or the cycle start date is a week off.
+- **AI insights:** the live build has no AI key, so that button may not work. Add the key if the feature is used.
+- **Repository visibility:** the GitHub repository is public and this log names clients. Consider making it private.
+
+### How work gets shipped now
+1. Change on a branch, run `npm run typecheck` and `npm test`.
+2. Preview locally with `npm run dev` (http://localhost:9002). **The local copy uses the live database** — there is no practice copy, so anything saved locally is real.
+3. Pull request → the automatic checks must pass → merge.
+4. Deploy from the coach's machine: `npm run build`, load the production build once locally, then `firebase deploy --only hosting --project power-lift-b7ea1`. The site is **not** deployed by GitHub.
+5. Look at the live site afterwards.
+
+### Where things are written down
+- `docs/program-rules.md` — what the site is meant to do, and where it deliberately differs from the 5/3/1 book.
+- `docs/future-improvements.md` — parked ideas (stall and reset, phone lifter jump, analytics feeding the status line, and more).
+- `~/fluffy-engine-backups/` on the coach's machine (not in the repository) — a full copy of the live data from before the 2026-10-11 corrections, plus the before/after record of those corrections.
+
+---
+
 ## How the data is organized (plain version)
 
 The app now keeps **two kinds of programs**:
@@ -134,6 +181,7 @@ These are leftover data from earlier bugs. They're separate from any code fix an
 - **What is being tracked:** Devon, Michael, Mick, Hunter, Mel, Kristina, and Radek are still showing this mismatch. The warning is staying visible as a tracked reminder until their Firestore docs are cleaned up to match the authoritative per-cycle data.
 - **Source of truth:** `trainingMaxesByCycle[currentCycle]` is the value the app uses. `trainingMaxes` is legacy compatibility data, and the validation log specifically calls out when it is stale.
 - **Status:** **Tracked; not a runtime logic failure.** The remaining action is a Firestore cleanup/sync, not a code fix in the calculation path. This item should stay in the troubleshooting log until the DB is fully consistent.
+- **Follow-up (2026-10-11):** this was not only stale data. Every profile save was re-writing the old values into the top-level field (issue 8), so it kept going stale. That is fixed, graduation now keeps the lift-slot and movement numbers equal (issue 9), and the lifters corrected in issue 13 had the top-level field brought into line. Any remaining mismatch on other lifters will clear the next time their profile is saved or they graduate.
 
 ---
 
@@ -192,6 +240,7 @@ This matches the intended design (new lifts start in calibration — see `isLift
 - **Fix:** swapped the priority so the live-edited profile value wins first, falling back to the top-level cycle snapshot only when no profile entry exists yet: `chosenProfile?.profile.oneRepMax ?? cycleOneRepMaxes?.[lift] ?? 0` (same swap for `trainingMax`). Safe because `movementProfileEntries` already seeds a new profile's `oneRepMax`/`trainingMax` from `cycleOneRepMaxes` when no profile exists yet, so the fallback value is identical in the untouched case — only the edited case changes behavior.
 - **Verified:** typecheck and full test suite pass (45/45). `ClientProfileModal.tsx` is shared by both `SbdohControl.tsx` (desktop) and `MobileDevShell.tsx` (mobile), so one fix covers both surfaces.
 - **Status:** fix committed; **not yet deployed to prod as of this entry** — deploy and a live re-test (edit a real client's 1RM, reload, confirm it stuck) are still required before this is closed out.
+- **Follow-up (2026-10-11):** the fix is deployed (it is part of every deploy since). A deeper cause of numbers not sticking was found afterwards — see issue 8. **Still not closed:** the live re-test by the coach has not been done.
 - **Lesson for next time:** when a "save" reports success but the value doesn't change, don't assume the write path is broken — check whether the *value being sent* is actually the edited one. A `??` where `||` (or a reversed priority order) was needed will silently prefer a stale falsy-but-defined value (like `0`) over a real edit, and nothing about that failure mode throws, logs, or fails a toast.
 
 ### 8. Training maxes were being overwritten or ignored in three places (2026-10-10)
@@ -207,7 +256,7 @@ This matches the intended design (new lifts start in calibration — see `isLift
   - `ClientProfileModal.tsx` keeps a non-current cycle's stored numbers and skips writing strength data for a cycle the client has nothing in.
 - **Deliberately not changed:** the safety check still lowers a training max that is higher than a real, entered 1RM (to 90% of that 1RM). Graduation raises the training max each cycle without touching the 1RM, so long-running clients can still hit this until their 1RM is updated. Needs a decision.
 - **Verified so far:** typecheck clean, full test suite passes (53/53), including 8 new tests for the cases above (`src/lib/client-profile-save.test.ts`). Tests and typecheck now also run automatically on GitHub for every pull request (`.github/workflows/checks.yml`).
-- **Status:** **fixed in code on branch `fix/training-max-single-source`; not committed, not deployed.** The app starts and loads live data on this branch (2026-10-10), but no save has been tried in it. Still required before closing: (a) edit a real client's training max, save, reload, confirm it stuck and the 1RM did not reset it; (b) open a deload week for a Powerlift 2.0 client and confirm the weights come from the movement's training max; (c) confirm the Devon explanation against the live data.
+- **Status:** **merged (pull request 2) and deployed 2026-10-10.** Checked so far: tests, and a read-only look at the live numbers. **Not closed:** the coach's live checks are still to do — a real profile save that sticks, and a deload week on screen.
 - **Route removed:** `fix-current-cycle-main-lift-maxes` was deleted from the codebase on 2026-10-10. `ENABLE_MAINTENANCE_ROUTES` is still `"true"` in `apphosting.yaml` for the remaining maintenance routes.
 
 ### 9. Graduation review: stranded members, lifts stuck in calibration, untrained movements creeping up (2026-10-11)
@@ -222,7 +271,46 @@ This matches the intended design (new lifts start in calibration — see `isLift
   - Each lift slot's training max follows its movement's.
   - Members behind the group's cycle are offered in the graduation list and land on the group's next cycle, graduating from their most recent numbers.
 - **Verified:** typecheck clean, 80/80 tests pass, including 10 new tests that run the real graduation code (the older graduation tests only simulated it).
-- **Status:** **fixed in code, not deployed.** Not yet exercised in the running app: the next real graduation is the live check.
+- **Status:** **merged (pull request 3) and deployed 2026-10-11.** The graduation preview (issue 12) shows the expected results on live data. **Not closed:** the next real graduation is the live check.
+
+### 10. The stored 1RM never updates, so strong lifters were held back (2026-10-11)
+- **Plain version:** the stored 1RM stays fixed during normal cycles while the training max rises every cycle. Lifters hitting 10+ reps on their top sets had no way to catch up except typing new numbers by hand, and the old "reset training max from recent performance" button only changed the lift-slot number that movement profiles override.
+- **What was built:** when a logged set estimates a 1RM at least 5% above the stored one, a small flag ("TM 210") appears by the lifter's name on the desktop grid and phone cards. Tapping it shows the set, the estimate, and the 1RM and training max before and after. Nothing changes unless the coach presses "Update numbers".
+- **Guard rails:** one update can raise a training max by at most 10% (high-rep sets overestimate a true max); only one update per logged session; no flag on deload weeks or modified sessions; holds and graduation are unaffected.
+- *Technical detail:* `src/lib/one-rep-max-suggestion.ts` (pure logic and tests), `OneRepMaxSuggestionButton.tsx`, wired into `WorkoutTable.tsx`, `MobileWorkoutCard.tsx` and both shells.
+- **Status:** merged (pull request 4) and deployed 2026-10-11. **Not yet seen on live data** — nobody's logged sets for the week on screen were big enough to trigger it. First real flag and accept is the live check.
+- **Left alone on purpose:** the old reset button still exists and still only changes the lift-slot number (noted in `future-improvements.md`).
+
+### 11. Coaching screen: the grid hid why a weight was what it was (2026-10-11)
+- **Plain version:** the grid showed weights and plates but nothing about holds, calibration, training maxes or who had logged — which is how a lifter being shown weights above their held numbers went unnoticed.
+- **What changed:**
+  - A status line under each name: training max, plus "Hold", "Calibrating" and "Logged" as plain words.
+  - The most recent logged top set under each prescribed top set ("Last 270 × 7"). It checks earlier weeks of the cycle, then the previous cycle, skips deloads, and won't borrow from a different movement.
+  - A dot on the week today falls in by the calendar, and on today's session button.
+  - Fixes for cut-off names and day buttons; plate chips wrap inside their column; "lbs" moved to the column header; Week 4 tab reads "Deload"; logo and title merged into one row.
+- *Technical detail:* `LifterStatusLine.tsx`, `src/lib/previous-top-set.ts`, `getCalendarWeekKey` in `src/lib/schedule.ts`, `getLiftProgressStatus` in `src/lib/graduation.ts` (the same rule graduation uses, so the screen and graduation cannot disagree).
+- **Status:** merged (pull request 5) and deployed 2026-10-11. Seen on the live site: training max, Hold, last top set, current-week dot. **Not yet seen:** "Calibrating", "Logged", and the today dot (nobody was in those states; it was not a training day).
+
+### 12. Settings and profile windows reorganised (2026-10-11)
+- **Plain version:** the settings were laid out the way the data is stored rather than the way they are used, and a few controls exposed internal bookkeeping.
+- **What changed:**
+  - **Graduation preview:** the form ends with a "What Will Change" table — each selected lifter's training max now and after, per lift, with holds marked. It is built from the same function that does the real graduation.
+  - **Profile:** the four lift cards became one table (lift and day, movement, 1RM, TM, step, at graduation) with a clear "Go up / Hold" switch and the last logged top set.
+  - **Advanced folds:** "Client Cycle Membership" (profile) and "Cycle Client List" (settings) are folded away with a warning; unticking a cycle there is one way a lifter gets left behind the group.
+  - **Program Weeks:** percentages are typed as whole numbers (70, not 0.7) with plain labels. Warm-ups are shown greyed out because the site fixes them at 50% and 60% on every week.
+  - **Program Cycles:** newest first, three shown, the rest folded. "Current" now means the cycle the group is on; "Editing" marks the cycle Settings is changing (previously the editing cycle was mislabelled "Current").
+  - **Also:** compact Movements table; How To opens in a window instead of leaving the site; visible "Week options" button and a gear on each group replace double-click-only actions; Roster rows show cycle, holds, "Behind group" and "No numbers yet"; the internal group ID and an out-of-date feature list were removed.
+- *Technical detail:* `GraduationPreview.tsx`, `getGraduationPreview` in `src/lib/graduation.ts`, `RosterStatus.tsx`, `HowToDialog.tsx`, plus edits in `ConfigSettingsDialog.tsx`, `ClientProfileModal.tsx`, `SettingsSidebar.tsx`.
+- **Status:** merged (pull request 6) and deployed 2026-10-11. Seen on the live site: Roster status line, Week options window, graduation preview (on the local preview against live data). **Not exercised:** saving from the new profile table, and the Advanced folds.
+
+### 13. Live data corrections for Powerlift 2.0 (2026-10-11)
+- **Plain version:** a read-only review of the live data, compared against each lifter's logged sets, found two kinds of problem and both were corrected with one reviewed, one-off script run by the coach.
+  1. **Numbers that no longer matched reality.** Some training maxes were above what the lifter had actually lifted, so the safety check was quietly lowering them; in one case the stored 1RMs were also out of date, so the lowered weights were too light. Those lifters' 1RMs and training maxes were set from their recent logged sets.
+  2. **Three lifters stranded behind the group.** Their schedule position was stuck on older cycles while the group moved on, so they had no entry for the current cycle and were shown numbers guessed from an older one — for one of them, above the numbers the coach had put on hold. They were moved onto the group's current cycle with proper entries, and the holds were restored.
+- **How it was done safely:** full backup of the live data first; a dry run that printed every before and after value; then the same script with writes switched on; then a read-back confirming every lifter is on the group's cycle with a stored number for every lift and nobody being lowered by the safety check. The script was deleted afterwards.
+- **Where the detail is:** client names and numbers are deliberately not in this file (the repository is public). The backup and the before/after record are in `~/fluffy-engine-backups/` on the coach's machine.
+- **Decision recorded:** the safety check that lowers a training max above a real 1RM stays for now. The longer-term replacement (flag a stall, suggest a reset, coach decides) is in `future-improvements.md`.
+- **Status:** done and read back. Nothing further needed unless a lifter's numbers look wrong in use.
 
 ---
 
@@ -238,6 +326,9 @@ Some entries above only tell half the story on a first pass — they get marked 
 ## Ongoing notes for the developer
 - Firestore rules are `allow read, write: if true` (intentional for now; security is out of scope per user, but flagged).
 - Maintenance/debug API routes run under the same open rules.
+- **One database, no practice copy:** local development, previews and the live site all use the same live data. A separate test project or the Firebase emulator would make it possible to test saves and graduation safely; until then, test with read-only looks and dry runs.
+- **Shared logic lives in `src/lib/`:** profile-save normalisation, graduation, lift status, the 1RM suggestion and the last-top-set lookup are each one tested function used by both the desktop and phone screens. Workout calculation and set logging are still duplicated between `SbdohControl.tsx` and `MobileDevShell.tsx`; change both or, better, move them into `src/lib/` first.
+- **`apphosting.yaml` is not what deploys the site.** The live site is built by `firebase deploy` on the deploying machine, which bakes in that machine's `.env.local`. Settings in `apphosting.yaml` (including the maintenance-route switch) may not reflect what is live.
 - The old shared `cycleSchedulesByCycle` still differs from group programs. Any screen that reads the old shared schedule for a grouped client will disagree with the group view. Prefer the group's schedule whenever a group is selected.
 - **Multi-location data check:** several fields exist in three parallel places — the legacy shared `appSettings` document, per-client mirrored settings, and per-group `trainingGroup.program`. Any normalization/repair fix must be applied (and verified) in all three before being marked done.
 
