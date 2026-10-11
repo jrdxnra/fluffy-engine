@@ -1,0 +1,95 @@
+import { describe, expect, it } from "vitest";
+import { formatPreviousTopSet, getPreviousTopSet } from "@/lib/previous-top-set";
+import { getCalendarWeekKey } from "@/lib/schedule";
+import type { Client, CycleScheduleSettings, CycleSettings, CycleWeekSettings, LoggedSetMap } from "@/lib/types";
+
+const at = "2026-10-06T00:00:00.000Z";
+const sets = (...pairs: Array<[number, number]>): LoggedSetMap =>
+  Object.fromEntries(pairs.map(([weight, reps], index) => [String(index + 2), { weight, reps, updatedAt: at }]));
+const week = (name: string, work: [number, number, number], top: string): CycleWeekSettings => ({
+  name,
+  percentages: { warmup1: 0.5, warmup2: 0.6, workset1: work[0], workset2: work[1], workset3: work[2] },
+  reps: { workset1: 5, workset2: 5, workset3: top },
+});
+const cycle: CycleSettings = {
+  week1: week("Week 1", [0.65, 0.75, 0.85], "5+"),
+  week2: week("Week 2", [0.7, 0.8, 0.9], "3+"),
+  week3: week("Week 3", [0.75, 0.85, 0.95], "1+"),
+  week4: week("Week 4", [0.4, 0.5, 0.6], "5"),
+};
+const schedule = (press: string, start = "2026-10-06") => ({
+  cycleStartDate: start,
+  day1Weekday: "Tuesday",
+  day2Weekday: "Thursday",
+  liftDayAssignments: { Squat: "day2", Deadlift: "day1", Bench: "day1", Press: "day2" },
+  liftDisplayNames: { Squat: "Squat", Deadlift: "Deadlift", Bench: "Bench", Press: press },
+}) as CycleScheduleSettings;
+
+const client: Client = {
+  id: "c1",
+  name: "Lifter",
+  oneRepMaxes: { Squat: 0, Bench: 0, Deadlift: 0, Press: 0 },
+  trainingMaxes: { Squat: 0, Bench: 0, Deadlift: 0, Press: 0 },
+  loggedSetInputsByCycle: {
+    8: {
+      week3: { Squat: sets([190, 3], [215, 3], [230, 2]), Press: sets([100, 5]) },
+      week4: { Squat: sets([95, 5], [120, 5], [145, 9]) },
+    },
+    9: { week1: { Squat: sets([155, 5], [175, 5], [200, 8]) } },
+  },
+};
+const lookup = (overrides: Partial<Parameters<typeof getPreviousTopSet>[0]> = {}) =>
+  getPreviousTopSet({
+    client,
+    cycleNumber: 9,
+    weekKey: "week2",
+    lift: "Squat",
+    cycleSettingsByCycle: { 8: cycle, 9: cycle },
+    currentSchedule: schedule("1ct Pause Bench"),
+    previousCycleSchedule: schedule("1ct Pause Bench"),
+    ...overrides,
+  });
+
+describe("getPreviousTopSet", () => {
+  it("uses the heaviest set from the most recent earlier week of this cycle", () => {
+    expect(lookup()).toEqual({ weight: 200, reps: 8, cycleNumber: 9, weekKey: "week1" });
+  });
+
+  it("falls back to the previous cycle and skips its deload week", () => {
+    expect(lookup({ weekKey: "week1" })).toEqual({ weight: 230, reps: 2, cycleNumber: 8, weekKey: "week3" });
+  });
+
+  it("does not reach into the previous cycle when the lift slot trained a different movement", () => {
+    expect(lookup({ weekKey: "week1", lift: "Press", previousCycleSchedule: schedule("Incline Press") })).toBeNull();
+    expect(lookup({ weekKey: "week1", lift: "Press" })).toMatchObject({ weight: 100, reps: 5 });
+  });
+
+  it("returns nothing when there is no earlier log", () => {
+    expect(lookup({ weekKey: "week1", lift: "Deadlift" })).toBeNull();
+  });
+
+  it("labels where the result came from", () => {
+    expect(formatPreviousTopSet({ weight: 200, reps: 8, cycleNumber: 9, weekKey: "week1" }, 9)).toEqual({
+      text: "Last 200 × 8",
+      title: "Most recent logged top set (week 1)",
+    });
+    expect(formatPreviousTopSet({ weight: 230, reps: 2, cycleNumber: 8, weekKey: "week3" }, 9).title).toContain("cycle 8, week 3");
+  });
+});
+
+describe("getCalendarWeekKey", () => {
+  const weekKeys = ["week3", "week1", "week4", "week2"];
+
+  it("finds the week today falls in, counting 7-day blocks from the cycle start", () => {
+    expect(getCalendarWeekKey(schedule("x"), weekKeys, new Date(2026, 9, 6))).toBe("week1");
+    expect(getCalendarWeekKey(schedule("x"), weekKeys, new Date(2026, 9, 12))).toBe("week1");
+    expect(getCalendarWeekKey(schedule("x"), weekKeys, new Date(2026, 9, 13))).toBe("week2");
+    expect(getCalendarWeekKey(schedule("x"), weekKeys, new Date(2026, 9, 29))).toBe("week4");
+  });
+
+  it("returns nothing before the cycle starts, after it ends, or without a start date", () => {
+    expect(getCalendarWeekKey(schedule("x"), weekKeys, new Date(2026, 9, 5))).toBeNull();
+    expect(getCalendarWeekKey(schedule("x"), weekKeys, new Date(2026, 10, 3))).toBeNull();
+    expect(getCalendarWeekKey(schedule("x", ""), weekKeys, new Date(2026, 9, 6))).toBeNull();
+  });
+});

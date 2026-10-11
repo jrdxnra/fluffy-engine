@@ -39,6 +39,8 @@ import {
   resolveClientMovementName,
 } from "@/lib/schedule";
 import { normalizeClientForProfileSave } from "@/lib/client-profile-save";
+import { getLiftProgressStatus } from "@/lib/graduation";
+import { getPreviousTopSet } from "@/lib/previous-top-set";
 import { buildOneRepMaxUpdate, getWorkoutOneRepMaxSuggestion } from "@/lib/one-rep-max-suggestion";
 import { formatBasicWorkoutCopyText, formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
@@ -448,6 +450,16 @@ export function MobileDevShell({
         workout.sets = workout.sets.filter((s) => s.type === "Work Set");
       }
 
+      workout.status = getLiftProgressStatus(client, currentCycleNumber, targetLift, movementProfile);
+      workout.previousTopSet = getPreviousTopSet({
+        client,
+        cycleNumber: currentCycleNumber,
+        weekKey: effectiveWeekKey,
+        lift: targetLift,
+        cycleSettingsByCycle: activeCycleSettingsByCycle,
+        currentSchedule: currentCycleSchedule,
+        previousCycleSchedule: activeCycleSchedulesByCycle[currentCycleNumber - 1],
+      }) || undefined;
       workout.oneRepMaxSuggestion = getWorkoutOneRepMaxSuggestion({
         client,
         cycleNumber: currentCycleNumber,

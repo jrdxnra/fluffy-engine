@@ -32,6 +32,7 @@ import { getActiveTrainingGroups, getClientsInTrainingGroup } from "@/lib/traini
 import { OneRmCalcModal } from "@/components/OneRmCalcModal";
 import { useEffect, useState } from "react";
 import { WeekOptionsModal } from "@/components/WeekOptionsModal";
+import { isDeloadWeekSettings } from "@/lib/workout-week-settings";
 import { useAdminModeContext } from "@/contexts/AdminModeContext";
 
 // Helper function to extract rep scheme from week settings
@@ -60,6 +61,8 @@ type SettingsSidebarProps = {
   onGroupSettingsOpen?: (groupId: string) => void;
   currentCycleNumber?: number;
   skipDeloadWeek?: boolean;
+  /** The week today falls in by the calendar; marked with a dot. */
+  calendarWeekKey?: string | null;
   availableCycleNumbers?: number[];
   onCycleChange?: (cycleNumber: number) => void;
   onClientProfile: (client: Client) => void;
@@ -88,6 +91,7 @@ export function SettingsSidebar({
   onGroupSettingsOpen,
   currentCycleNumber = 1,
   skipDeloadWeek = false,
+  calendarWeekKey = null,
   availableCycleNumbers = [],
   onCycleChange,
   onClientProfile,
@@ -144,7 +148,8 @@ export function SettingsSidebar({
     };
 
     const isDeloadWeek = (weekKey: string, weekName: string) => {
-      return weekName.toLowerCase().includes("deload");
+      const weekSettings = cycleSettings[weekKey];
+      return weekSettings ? isDeloadWeekSettings(weekSettings, weekKey) : weekName.toLowerCase().includes("deload");
     };
 
     const currentWeekName = cycleSettings[currentWeek]?.name || currentWeek;
@@ -259,11 +264,14 @@ export function SettingsSidebar({
                           title="Click to open week. Double-click for week options."
                         >
                           <div className="flex flex-col items-center leading-tight">
-                            <span className={`font-medium ${shouldStrikeDeload ? "line-through opacity-70" : ""}`}>
+                            <span className={`relative font-medium ${shouldStrikeDeload ? "line-through opacity-70" : ""}`}>
                               {weekName}
+                              {calendarWeekKey === weekKey ? (
+                                <span className="absolute -right-2 top-0 h-1.5 w-1.5 rounded-full bg-primary" title="This week by the calendar" />
+                              ) : null}
                             </span>
                             <span className="text-xxs text-muted-foreground">
-                              ({getRepScheme(cycleSettings[weekKey].reps.workset3)})
+                              {isDeloadWeek(weekKey, cycleSettings[weekKey].name) ? "Deload" : `(${getRepScheme(cycleSettings[weekKey].reps.workset3)})`}
                             </span>
                           </div>
                         </button>
@@ -362,11 +370,14 @@ export function SettingsSidebar({
                             title="Click to open week. Double-click for week options."
                           >
                             <div className="flex flex-col items-center leading-tight">
-                              <span className={`font-medium ${shouldStrikeDeload ? "line-through opacity-70" : ""}`}>
+                              <span className={`relative font-medium ${shouldStrikeDeload ? "line-through opacity-70" : ""}`}>
                                 {weekName}
+                                {calendarWeekKey === weekKey ? (
+                                  <span className="absolute -right-2 top-0 h-1.5 w-1.5 rounded-full bg-primary" title="This week by the calendar" />
+                                ) : null}
                               </span>
                               <span className="text-xxs text-muted-foreground">
-                                ({getRepScheme(cycleSettings[weekKey].reps.workset3)})
+                                {isDeloadWeek(weekKey, cycleSettings[weekKey].name) ? "Deload" : `(${getRepScheme(cycleSettings[weekKey].reps.workset3)})`}
                               </span>
                             </div>
                           </button>

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { OneRepMaxSuggestionButton } from "@/components/OneRepMaxSuggestionButton";
+import { LifterStatusLine } from "@/components/LifterStatusLine";
+import { formatPreviousTopSet } from "@/lib/previous-top-set";
 import { useToast } from "@/hooks/use-toast";
 import { ClientNotesDialog } from "@/components/ClientNotesDialog";
 import {
@@ -106,6 +108,9 @@ export function MobileWorkoutCard({
   onAcceptOneRepMaxSuggestion,
 }: MobileWorkoutCardProps) {
   const { client, sets, prTarget, sessionMode, effectiveWeekKey } = workout;
+  const hasLoggedSets = Object.keys(
+    client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey || currentWeek]?.[lift] || {}
+  ).length > 0;
   void prTarget;
 
   const topSet = sets.find((s) => s.type === "Work Set" && s.set === 3);
@@ -300,6 +305,7 @@ export function MobileWorkoutCard({
             onClick={onToggle}
           >
             <span className="truncate text-base font-bold text-foreground">{client.name}</span>
+            <LifterStatusLine trainingMax={workout.trainingMax} status={workout.status} logged={hasLoggedSets} className="shrink-0" />
             {sessionMode && sessionMode !== "normal" && (
               <Badge variant="outline" className="shrink-0 text-[10px]">
                 {sessionModeLabel[sessionMode] || sessionMode}
@@ -365,6 +371,14 @@ export function MobileWorkoutCard({
                         A {actualSummary}
                       </div>
                     ) : null}
+                    {isTopSet && workout.previousTopSet ? (
+                      <div
+                        className="mt-1 text-[11px] font-code text-muted-foreground"
+                        title={formatPreviousTopSet(workout.previousTopSet, currentCycleNumber).title}
+                      >
+                        {formatPreviousTopSet(workout.previousTopSet, currentCycleNumber).text}
+                      </div>
+                    ) : null}
                   </div>
                   {set.plates ? <PlateChips plates={set.plates} size={isTopSet ? "lg" : "sm"} /> : <span className="text-[10px] text-muted-foreground">Bar</span>}
                 </div>
@@ -388,6 +402,7 @@ export function MobileWorkoutCard({
       >
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-base font-bold text-foreground">{client.name}</span>
+          <LifterStatusLine trainingMax={workout.trainingMax} status={workout.status} logged={hasLoggedSets} className="shrink-0" />
           {sessionMode && sessionMode !== "normal" && (
             <Badge variant="outline" className="shrink-0 text-[10px]">
               {sessionModeLabel[sessionMode] || sessionMode}

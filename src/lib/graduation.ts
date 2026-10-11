@@ -1,4 +1,4 @@
-import type { Client, CycleScheduleSettings, GlobalMovementSettings, Lift, MovementProfile } from "@/lib/types";
+import type { Client, CycleScheduleSettings, GlobalMovementSettings, Lift, LiftProgressStatus, MovementProfile } from "@/lib/types";
 import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { withCycleAdded } from "@/lib/cycle-membership";
 import { getDefaultMovementProgressionIncrement, normalizeMovementName } from "@/lib/movement-profiles";
@@ -52,6 +52,23 @@ export const getGraduationSourceCycle = (
 };
 
 /**
+ * Whether a lift is on hold or still calibrating for the cycle. The coaching screen shows
+ * this, and graduation uses the same rule to decide what goes up.
+ * `client` must carry the schedule position being viewed (group-projected for a group).
+ */
+export const getLiftProgressStatus = (
+  client: Client,
+  cycleNumber: number,
+  lift: Lift,
+  profile?: MovementProfile | null
+): LiftProgressStatus => {
+  const explicit = Boolean(client.movementCalibrationsByCycle?.[cycleNumber]?.[lift]?.needsCalibration);
+  const calibrating = explicit
+    || (Boolean(profile?.calibrationPhaseActive) && isLiftCalibrationRequired(client, cycleNumber, lift, profile, false));
+  return { hold: Boolean(profile?.progressionHoldActive), calibrating };
+};
+
+/**
  * Builds the client as they should look after graduating into the next cycle.
  * Pure: no database access. Used by the server (graduateTeam) and by the desktop
  * screen's local state so the two can never drift apart.
@@ -77,7 +94,6 @@ export const buildGraduatedClient = (client: Client, params: GraduationParams = 
   const view = groupId ? getClientForTrainingGroup(client, groupId) : client;
 
   const sourceProfiles = client.movementProfilesByCycle?.[sourceCycle] || {};
-  const sourceCalibration = client.movementCalibrationsByCycle?.[sourceCycle] || {};
 
   const findProfileKey = (lift: Lift): string | undefined => {
     const candidates = [
@@ -103,14 +119,12 @@ export const buildGraduatedClient = (client: Client, params: GraduationParams = 
   }
 
   const isStillCalibrating = (lift: Lift, profile?: MovementProfile): boolean => {
-    const explicit = Boolean(sourceCalibration[lift]?.needsCalibration);
-    if (explicit) return true;
-    if (!profile?.calibrationPhaseActive) return false;
-    return isLiftCalibrationRequired(view, sourceCycle, lift, profile, false);
+    return getLiftProgressStatus(view, sourceCycle, lift, profile).calibrating;
   };
 
   const isHeld = (lift: Lift, profile?: MovementProfile): boolean => {
-    return Boolean(profile?.progressionHoldActive) || isStillCalibrating(lift, profile);
+    const status = getLiftProgressStatus(view, sourceCycle, lift, profile);
+    return status.hold || status.calibrating;
   };
 
   const nextProfiles: Record<string, MovementProfile> = {

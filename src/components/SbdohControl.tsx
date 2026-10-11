@@ -25,14 +25,15 @@ import { AddClientSheet } from "@/components/AddClientSheet";
 import { AccessoryDisplay } from "@/components/AccessoryDisplay";
 import { AiInsightsDialog } from "@/components/AiInsightsDialog";
 import { calculateWorkout } from "@/lib/utils";
-import { getCycleWeekSchedule, getEffectiveCycleSchedule, getLiftDaySlot, getLiftsForDaySlot, getLiftDisplayName, getRecommendedSessionSelection, resolveClientMovementName } from "@/lib/schedule";
+import { getCalendarWeekKey, getCycleWeekSchedule, getEffectiveCycleSchedule, getLiftDaySlot, getLiftsForDaySlot, getLiftDisplayName, getRecommendedSessionSelection, resolveClientMovementName } from "@/lib/schedule";
 import { ProgressChartDialog } from "@/components/ProgressChartDialog";
 import { ConfigSettingsDialog } from "@/components/ConfigSettingsDialog";
 import { ClientProfileModal } from "@/components/ClientProfileModal";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { normalizeClientForProfileSave } from "@/lib/client-profile-save";
-import { buildGraduatedClient, getGraduationSourceCycle } from "@/lib/graduation";
+import { buildGraduatedClient, getGraduationSourceCycle, getLiftProgressStatus } from "@/lib/graduation";
+import { getPreviousTopSet } from "@/lib/previous-top-set";
 import { buildOneRepMaxUpdate, getWorkoutOneRepMaxSuggestion } from "@/lib/one-rep-max-suggestion";
 import { normalizeCycleSettingsByCycle } from "@/lib/cycle-settings-normalizer";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
@@ -48,7 +49,7 @@ import {
   getDefaultTrainingGroupId,
   getTrainingGroupById,
 } from "@/lib/training-groups";
-import { Columns3, Moon, Rows3, Sun } from "lucide-react";
+import { Columns3, Moon, Rows3, Sun, Weight } from "lucide-react";
 import {
   deleteClientAction,
   unassignClientsFromGroupAction,
@@ -762,6 +763,16 @@ export function SbdohControl({
         workout.sets = workout.sets.filter((set) => set.type === "Work Set");
       }
 
+      workout.status = getLiftProgressStatus(client, currentCycleNumber, targetLift, movementProfile);
+      workout.previousTopSet = getPreviousTopSet({
+        client,
+        cycleNumber: currentCycleNumber,
+        weekKey: effectiveWeekKey,
+        lift: targetLift,
+        cycleSettingsByCycle: activeCycleSettingsByCycle,
+        currentSchedule: currentCycleSchedule,
+        previousCycleSchedule: activeCycleSchedulesByCycle[currentCycleNumber - 1],
+      }) || undefined;
       workout.oneRepMaxSuggestion = getWorkoutOneRepMaxSuggestion({
         client,
         cycleNumber: currentCycleNumber,
@@ -2484,33 +2495,32 @@ export function SbdohControl({
   };
 
   const sidebarTopControls = (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 flex-nowrap overflow-x-auto">
-        <Button
-          type="button"
-          size="sm"
-          className="text-sm whitespace-nowrap"
-          variant={dayViewSlot === "day1" ? "default" : "outline"}
-          onClick={() => {
-            setDayViewSlot("day1");
-            setAutoSelectedDay(null);
-          }}
-        >
-          {getDayButtonLabel("day1")}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          className="text-sm whitespace-nowrap"
-          variant={dayViewSlot === "day2" ? "default" : "outline"}
-          onClick={() => {
-            setDayViewSlot("day2");
-            setAutoSelectedDay(null);
-          }}
-        >
-          {getDayButtonLabel("day2")}
-        </Button>
-      </div>
+    <div className="grid grid-cols-2 gap-2">
+      {(["day1", "day2"] as const).map((slot) => {
+        const weekday = slot === "day1" ? currentWeekSchedule.day1Weekday : currentWeekSchedule.day2Weekday;
+        const liftText = getLiftsForDaySlot(slot, currentCycleSchedule).map((item) => getMovementAbbreviation(item)).join(" + ");
+        const isToday = new Date().toLocaleDateString("en-US", { weekday: "long" }) === weekday;
+        return (
+          <Button
+            key={slot}
+            type="button"
+            size="sm"
+            className="h-auto min-w-0 flex-col gap-0.5 px-2 py-1.5 leading-none"
+            variant={dayViewSlot === slot ? "default" : "outline"}
+            title={getDayButtonLabel(slot)}
+            onClick={() => {
+              setDayViewSlot(slot);
+              setAutoSelectedDay(null);
+            }}
+          >
+            <span className="text-[10px] font-medium uppercase tracking-wide opacity-80">
+              {weekdayAbbr[weekday] || weekday.slice(0, 3)}
+              {isToday ? <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-current align-middle" title="Today" /> : null}
+            </span>
+            <span className="max-w-full truncate text-sm font-semibold">{liftText}</span>
+          </Button>
+        );
+      })}
     </div>
   );
 
@@ -2549,6 +2559,7 @@ export function SbdohControl({
           onGroupSettingsOpen={handleOpenGroupSettings}
           currentCycleNumber={currentCycleNumber}
           skipDeloadWeek={Boolean(currentCycleSchedule.skipDeloadWeek)}
+          calendarWeekKey={getCalendarWeekKey(currentCycleSchedule, Object.keys(cycleSettings))}
           availableCycleNumbers={availableCycles.map(cycle => cycle.cycleNumber)}
           onCycleChange={setCurrentCycleNumber}
           onClientProfile={handleClientProfile}
@@ -2634,8 +2645,15 @@ export function SbdohControl({
         <main className="relative flex-1 p-4 md:p-6">
           <div style={{ opacity: isPending ? 0.6 : 1, transition: 'opacity 300ms ease-in-out' }}>
             <div className="mb-3 relative flex items-center gap-3 min-h-8">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <SidebarTrigger className="h-8 w-8 border" />
+                <span className="hidden items-center gap-1.5 text-base font-bold tracking-tight text-foreground lg:flex">
+                  <Weight className="h-4 w-4 text-primary" />
+                  <span className="leading-none">
+                    Power
+                    <sup className="relative -top-1 ml-0.5 text-[0.78em] font-semibold text-primary">Lift</sup>
+                  </span>
+                </span>
               </div>
               <p
                 className={`absolute left-1/2 -translate-x-1/2 ${isSidebarOpen ? "-ml-[131px]" : "-ml-[3px]"} text-lg font-bold tracking-tight ${shouldStrikeSessionHeader ? "line-through opacity-70" : ""}`}
@@ -2643,8 +2661,8 @@ export function SbdohControl({
                 {selectedTrainingGroup ? `${selectedTrainingGroup.name} · ${sessionHeaderLabel}` : sessionHeaderLabel}
                 {shouldStrikeSessionHeader ? " (Skipped)" : ""}
               </p>
-              <div className="fixed right-4 top-2 z-40 sm:right-6">
-                <div className="flex flex-col items-end gap-1">
+              <div className="fixed right-4 top-4 z-40 sm:right-6">
+                <div className="flex items-center gap-1">
                   <Button
                     type="button"
                     variant="outline"
@@ -2679,7 +2697,7 @@ export function SbdohControl({
                   </div>
                   <button
                     type="button"
-                    className="h-8 w-20 rounded-md opacity-0 pointer-events-auto"
+                    className="order-first h-8 w-20 rounded-md opacity-0 pointer-events-auto"
                     aria-label="Open admin analytics"
                     onPointerDown={() => {
                       if (typeof window !== "undefined") {

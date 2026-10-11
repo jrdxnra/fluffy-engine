@@ -288,3 +288,24 @@ export const getRecommendedSessionSelection = (
 
   return globalSelection;
 };
+
+/**
+ * The week of the cycle that today falls in by the calendar (7-day blocks from the cycle
+ * start date), or null when the cycle has no start date or today is outside it.
+ */
+export const getCalendarWeekKey = (
+  schedule: CycleScheduleSettings | undefined,
+  weekKeys: string[],
+  today: Date = new Date()
+): string | null => {
+  if (!schedule?.cycleStartDate) return null;
+  const start = new Date(`${schedule.cycleStartDate}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const daysSinceStart = Math.round((startOfToday.getTime() - start.getTime()) / 86400000);
+  if (daysSinceStart < 0) return null;
+
+  const sortedWeekKeys = [...weekKeys].sort((a, b) => parseWeekNumber(a) - parseWeekNumber(b));
+  return sortedWeekKeys[Math.floor(daysSinceStart / 7)] ?? null;
+};
