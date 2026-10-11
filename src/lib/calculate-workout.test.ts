@@ -50,7 +50,7 @@ describe("calculateWorkout", () => {
     expect(cycle2Deadlift.sets[4].weight).toBe(255);
   });
 
-  it("ignores trainingMaxOverride on deload week settings", () => {
+  it("uses the movement training max on deload weeks too", () => {
     const client: Client = {
       id: "c3",
       name: "Deload Test",
@@ -82,7 +82,7 @@ describe("calculateWorkout", () => {
       { trainingMaxOverride: 300 }
     );
 
-    expect(workout.trainingMax).toBe(270);
-    expect(workout.sets.map((set) => set.weight)).toEqual([135, 160, 110, 135, 160]);
+    expect(workout.trainingMax).toBe(300);
+    expect(workout.sets.map((set) => set.weight)).toEqual([150, 180, 120, 150, 180]);
   });
 });

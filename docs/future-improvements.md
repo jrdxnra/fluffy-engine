@@ -1,0 +1,22 @@
+# Future Improvements
+
+Ideas that are agreed in principle but parked. Nothing here is being worked on until it is picked up on purpose.
+
+## Stall and reset (replace the automatic lowering)
+
+- **Today:** if a training max is higher than the lifter's stored 1RM, the site quietly uses 90% of that 1RM instead. The stored 1RM does not update during normal cycles while the training max goes up every cycle, so this kicks in after a few cycles (around cycle 4 for a squat) whether or not the lifter is struggling.
+- **What the book does:** keep going up every cycle until the lifter can't hit the prescribed reps. Then reset **only that lift** to 90% of a recent max (a 1RM or a rep-max estimate) and build up again. Expect 5–7 cycles before a stall.
+- **Proposed:**
+  1. Flag a stall when a lifter misses the prescribed reps on a top set.
+  2. On a stall, suggest a reset to 90% of their best recent lift, for the coach to accept or not.
+  3. Remove the automatic lowering.
+- **Order matters:** some lifters currently have training maxes above what they are actually lifting. Their numbers must be corrected first; removing the check before that would raise their weights.
+
+## Smaller parked items
+
+- **"Jack Shit" mode** hides the warm-up sets as well as the accessories; the book means main lift only, warm-ups included. Decide which is wanted.
+- **Mobile view** skips the deload and week-name repair for ungrouped clients (see troubleshooting log, issue 6).
+- **Old shared program copied onto every client record** — stale baggage; stop writing it (troubleshooting log, cleanup 3).
+- **Maintenance and debug routes** — several have no on/off switch; review which are still needed.
+- **AI insights key** — the build deployed from the current machine has no key, so the AI insights button may not work on the live site.
+- **`Log all Reps` / `Save all Reps`** — hidden in the UI; decide whether to restore or remove (from `blueprint.md`).

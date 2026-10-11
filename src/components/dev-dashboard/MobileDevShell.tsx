@@ -37,7 +37,7 @@ import {
   getRecommendedSessionSelection,
   resolveClientMovementName,
 } from "@/lib/schedule";
-import { calculateTrainingMaxes } from "@/lib/training-max";
+import { normalizeClientForProfileSave } from "@/lib/client-profile-save";
 import { formatBasicWorkoutCopyText, formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
@@ -751,28 +751,7 @@ export function MobileDevShell({
   };
 
   const handleUpdateClient = async (updatedClient: Client) => {
-    const normalizedCycleMembership = getEffectiveCycleMembership(updatedClient);
-    const effectiveMembership = normalizedCycleMembership.length > 0 ? normalizedCycleMembership : [1];
-    const normalizedCurrentCycleNumber =
-      effectiveMembership.includes(updatedClient.currentCycleNumber || 0)
-        ? (updatedClient.currentCycleNumber || 1)
-        : Math.max(...effectiveMembership);
-    const cycleForClient = normalizedCurrentCycleNumber || currentCycleNumber || 1;
-    const cycleOneRepMaxes =
-      updatedClient.oneRepMaxesByCycle?.[cycleForClient] || updatedClient.oneRepMaxes;
-    const recalcTMs = calculateTrainingMaxes(cycleOneRepMaxes);
-
-    const normalizedClient: Client = {
-      ...updatedClient,
-      currentCycleNumber: normalizedCurrentCycleNumber,
-      cycleMembership: effectiveMembership,
-      oneRepMaxes: cycleOneRepMaxes,
-      trainingMaxes: recalcTMs,
-      trainingMaxesByCycle: {
-        ...(updatedClient.trainingMaxesByCycle || {}),
-        [cycleForClient]: recalcTMs,
-      },
-    };
+    const normalizedClient = normalizeClientForProfileSave(updatedClient, currentCycleNumber);
 
     const persistedClient = selectedTrainingGroup
       ? {
