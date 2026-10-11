@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGraduatedClient } from "@/lib/graduation";
+import { buildGraduatedClient, getGraduationPreview } from "@/lib/graduation";
 import type { Client, CycleScheduleSettings, MovementProfile } from "@/lib/types";
 
 const profile = (trainingMax: number, overrides: Partial<MovementProfile> = {}): MovementProfile => ({
@@ -182,5 +182,28 @@ describe("buildGraduatedClient", () => {
     expect(next.movementProfilesByCycle?.[6]?.Squat.trainingMax).toBe(290);
     expect(next.movementProfilesByCycle?.[6]?.Bench.trainingMax).toBe(195);
     expect(next.trainingMaxesByCycle?.[6]?.Deadlift).toBe(345);
+  });
+
+  it("previews exactly what graduation will do, with the reason for each lift", () => {
+    const base = client();
+    const mixed = client({
+      movementProfilesByCycle: {
+        3: { ...base.movementProfilesByCycle![3], Bench: profile(180, { progressionHoldActive: true }) },
+      },
+    });
+    const preview = getGraduationPreview(mixed, {
+      currentCycleSchedule: schedule,
+      options: { noIncrementLifts: ["Press"], calibrationLifts: ["Press"] },
+    });
+    const byLift = Object.fromEntries(preview.map((row) => [row.lift, row]));
+
+    expect(byLift.Squat).toMatchObject({ before: 270, after: 280, outcome: "up" });
+    expect(byLift.Bench).toMatchObject({ before: 180, after: 180, outcome: "hold" });
+    expect(byLift.Press).toMatchObject({ movementName: "Incline Press", before: 110, after: 0, outcome: "new-movement" });
+
+    const graduated = buildGraduatedClient(mixed, { currentCycleSchedule: schedule, options: { calibrationLifts: ["Press"] } });
+    for (const row of preview) {
+      expect(row.after).toBe(graduated.trainingMaxesByCycle?.[4]?.[row.lift]);
+    }
   });
 });

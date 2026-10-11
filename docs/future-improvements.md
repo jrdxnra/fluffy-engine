@@ -25,7 +25,7 @@ Ideas that are agreed in principle but parked. Nothing here is being worked on u
 
 ## Coaching screen ideas (from the 2026-10-11 UI review)
 
-- **Sidebar controls:** week options need a double-click, and How To / 1RM Calc / Settings are small text links at the bottom. Give each week tab a visible "more" control and make the footer links proper buttons.
 - **Phone view:** nine lifters across two lifts is a long scroll. Add a row of lifter initials to jump to someone; the bottom bar has room.
 - **Analytics page:** it opens on the previous cycle, lists inactive lifters, and its "Hold advised" / "Plateau watch" calls never reach the coaching screen. Feed them into the status line under each name.
 - **Hidden analytics button:** an invisible button in the top-right corner of the coaching screen opens analytics. Replace it with a visible link.
+- **Settings windows not yet checked on screen (2026-10-11):** the Roster tab status line, the profile's Advanced fold and the "Week options" button were built without a visual check; confirm them in use.
