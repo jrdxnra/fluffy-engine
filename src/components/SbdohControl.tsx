@@ -10,6 +10,7 @@ import type {
   HistoricalRecord,
   Lift,
   CalculatedWorkout,
+  OneRepMaxSuggestion,
   GlobalMovementSettings,
   SessionMode,
   LoggedSetMap,
@@ -32,6 +33,7 @@ import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { normalizeClientForProfileSave } from "@/lib/client-profile-save";
 import { buildGraduatedClient, getGraduationSourceCycle } from "@/lib/graduation";
+import { buildOneRepMaxUpdate, getWorkoutOneRepMaxSuggestion } from "@/lib/one-rep-max-suggestion";
 import { normalizeCycleSettingsByCycle } from "@/lib/cycle-settings-normalizer";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
 import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForLift, resolveMovementClassType } from "@/lib/movement-profiles";
@@ -760,6 +762,15 @@ export function SbdohControl({
         workout.sets = workout.sets.filter((set) => set.type === "Work Set");
       }
 
+      workout.oneRepMaxSuggestion = getWorkoutOneRepMaxSuggestion({
+        client,
+        cycleNumber: currentCycleNumber,
+        weekKey: effectiveWeekKey,
+        lift: targetLift,
+        schedule: currentCycleSchedule,
+        weekSettings: workoutWeekSettings,
+        sessionMode: mode,
+      }) || undefined;
       workout.sessionMode = mode;
       workout.effectiveWeekKey = effectiveWeekKey;
 
@@ -920,6 +931,25 @@ export function SbdohControl({
     setClientProfileModalOpen(true);
   };
   
+  const handleAcceptOneRepMaxSuggestion = async (clientId: string, targetLift: Lift, suggestion: OneRepMaxSuggestion) => {
+    const storedClient = clients.find((entry) => entry.id === clientId);
+    if (!storedClient) return;
+
+    const update = buildOneRepMaxUpdate(storedClient, currentCycleNumber, targetLift, suggestion);
+    setClients((prev) => prev.map((entry) => (entry.id === clientId ? { ...entry, ...update } : entry)));
+
+    const result = await updateClientProfileAction(clientId, update);
+    if (!result.success) {
+      setClients((prev) => prev.map((entry) => (entry.id === clientId ? storedClient : entry)));
+      toast({ variant: "destructive", title: "Update Failed", description: result.message });
+      return;
+    }
+    toast({
+      title: "Numbers Updated",
+      description: `${storedClient.name} ${suggestion.movementName}: 1RM ${suggestion.suggestedOneRepMax}, training max ${suggestion.suggestedTrainingMax}.`,
+    });
+  };
+
   const handleUpdateClient = async (updatedClient: Client) => {
     const normalizedClient = normalizeClientForProfileSave(updatedClient, currentCycleNumber);
 
@@ -2712,6 +2742,7 @@ export function SbdohControl({
                   onBulkLogToggle={() => handleLogAllReps(lift)}
                   showWarmups={showWarmupsByLift[lift]}
                   onOpenProfile={handleClientProfile}
+                  onAcceptOneRepMaxSuggestion={handleAcceptOneRepMaxSuggestion}
                   initialFocusedClientId={deepLinkClientId}
                 />
                 <AccessoryDisplay
@@ -2804,6 +2835,7 @@ export function SbdohControl({
                         onBulkLogToggle={() => handleLogAllReps(dayLift)}
                         showWarmups={showWarmupsByLift[dayLift]}
                         onOpenProfile={handleClientProfile}
+                        onAcceptOneRepMaxSuggestion={handleAcceptOneRepMaxSuggestion}
                         initialFocusedClientId={deepLinkClientId}
                       />
                     ) : (

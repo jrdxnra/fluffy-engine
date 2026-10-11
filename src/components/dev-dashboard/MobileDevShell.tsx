@@ -11,6 +11,7 @@ import type {
   Lift,
   LoggedSetInputsByCycle,
   LoggedSetMap,
+  OneRepMaxSuggestion,
   SessionMode,
 } from "@/lib/types";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -38,6 +39,7 @@ import {
   resolveClientMovementName,
 } from "@/lib/schedule";
 import { normalizeClientForProfileSave } from "@/lib/client-profile-save";
+import { buildOneRepMaxUpdate, getWorkoutOneRepMaxSuggestion } from "@/lib/one-rep-max-suggestion";
 import { formatBasicWorkoutCopyText, formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
@@ -446,6 +448,15 @@ export function MobileDevShell({
         workout.sets = workout.sets.filter((s) => s.type === "Work Set");
       }
 
+      workout.oneRepMaxSuggestion = getWorkoutOneRepMaxSuggestion({
+        client,
+        cycleNumber: currentCycleNumber,
+        weekKey: effectiveWeekKey,
+        lift: targetLift,
+        schedule: currentCycleSchedule,
+        weekSettings: workoutWeekSettings,
+        sessionMode: mode,
+      }) || undefined;
       workout.sessionMode = mode;
       workout.effectiveWeekKey = effectiveWeekKey;
       return workout;
@@ -750,6 +761,25 @@ export function MobileDevShell({
     });
   };
 
+  const handleAcceptOneRepMaxSuggestion = async (clientId: string, targetLift: Lift, suggestion: OneRepMaxSuggestion) => {
+    const storedClient = clients.find((entry) => entry.id === clientId);
+    if (!storedClient) return;
+
+    const update = buildOneRepMaxUpdate(storedClient, currentCycleNumber, targetLift, suggestion);
+    setClients((prev) => prev.map((entry) => (entry.id === clientId ? { ...entry, ...update } : entry)));
+
+    const result = await updateClientProfileAction(clientId, update);
+    if (!result.success) {
+      setClients((prev) => prev.map((entry) => (entry.id === clientId ? storedClient : entry)));
+      toast({ variant: "destructive", title: "Update Failed", description: result.message });
+      return;
+    }
+    toast({
+      title: "Numbers Updated",
+      description: `${storedClient.name} ${suggestion.movementName}: 1RM ${suggestion.suggestedOneRepMax}, training max ${suggestion.suggestedTrainingMax}.`,
+    });
+  };
+
   const handleUpdateClient = async (updatedClient: Client) => {
     const normalizedClient = normalizeClientForProfileSave(updatedClient, currentCycleNumber);
 
@@ -1035,6 +1065,7 @@ export function MobileDevShell({
         onPersistLoggedSets={handlePersistLoggedSets}
         onRepRecordUpdate={handleRepRecordUpdate}
         onCopyText={buildCopyText}
+        onAcceptOneRepMaxSuggestion={handleAcceptOneRepMaxSuggestion}
         historicalData={historicalData}
         onOpenProfile={(client) => {
           setSelectedClientForProfile(client);

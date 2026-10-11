@@ -5,6 +5,7 @@ import { Copy, Save, MoreVertical, FileText, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { OneRepMaxSuggestionButton } from "@/components/OneRepMaxSuggestionButton";
 import { useToast } from "@/hooks/use-toast";
 import { ClientNotesDialog } from "@/components/ClientNotesDialog";
 import {
@@ -21,6 +22,7 @@ import type {
   HistoricalRecord,
   Lift,
   LoggedSetMap,
+  OneRepMaxSuggestion,
   WorkoutSet,
 } from "@/lib/types";
 
@@ -44,6 +46,7 @@ type MobileWorkoutCardProps = {
   onCopyText: (workout: CalculatedWorkout, lift: Lift) => string;
   historicalData: HistoricalRecord[];
   onOpenProfile: (client: Client) => void;
+  onAcceptOneRepMaxSuggestion?: (clientId: string, lift: Lift, suggestion: OneRepMaxSuggestion) => Promise<void> | void;
 };
 
 const plateColorMap: Record<string, string> = {
@@ -100,6 +103,7 @@ export function MobileWorkoutCard({
   onCopyText,
   historicalData,
   onOpenProfile,
+  onAcceptOneRepMaxSuggestion,
 }: MobileWorkoutCardProps) {
   const { client, sets, prTarget, sessionMode, effectiveWeekKey } = workout;
   void prTarget;
@@ -301,6 +305,13 @@ export function MobileWorkoutCard({
                 {sessionModeLabel[sessionMode] || sessionMode}
               </Badge>
             )}
+            {workout.oneRepMaxSuggestion && onAcceptOneRepMaxSuggestion ? (
+              <OneRepMaxSuggestionButton
+                clientName={client.name}
+                suggestion={workout.oneRepMaxSuggestion}
+                onAccept={() => onAcceptOneRepMaxSuggestion(client.id, lift, workout.oneRepMaxSuggestion!)}
+              />
+            ) : null}
           </div>
           <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
@@ -382,6 +393,13 @@ export function MobileWorkoutCard({
               {sessionModeLabel[sessionMode] || sessionMode}
             </Badge>
           )}
+          {workout.oneRepMaxSuggestion && onAcceptOneRepMaxSuggestion ? (
+            <OneRepMaxSuggestionButton
+              clientName={client.name}
+              suggestion={workout.oneRepMaxSuggestion}
+              onAccept={() => onAcceptOneRepMaxSuggestion(client.id, lift, workout.oneRepMaxSuggestion!)}
+            />
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
