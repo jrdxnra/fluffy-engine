@@ -724,7 +724,6 @@ export function ClientProfileModal({
             }
           }
 
-          const canExitCalibration = Boolean(existingProfile?.sourceWeekKey);
           const liftNeedsCalibration = isLiftCalibrationRequired(
             localClient,
             selectedCycle,
@@ -732,6 +731,9 @@ export function ClientProfileModal({
             existingProfile,
             Boolean(localClient.movementCalibrationsByCycle?.[selectedCycle]?.[lift]?.needsCalibration)
           );
+          // A lift with a full cycle of logged history is out of calibration even if its
+          // numbers were typed in rather than calibrated from a set.
+          const canExitCalibration = Boolean(existingProfile?.sourceWeekKey) || !liftNeedsCalibration;
           mergedMovementProfilesForCycle[targetProfileName] = {
             ...(existingProfile || {}),
             oneRepMax: mainLiftOneRepMaxes[lift],

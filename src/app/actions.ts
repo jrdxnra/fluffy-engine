@@ -244,12 +244,12 @@ export async function graduateTeamAction(
 
     const { graduateTeam } = await import("@/lib/data");
     console.log("Server Action: Graduating team");
+    const graduatedClients = await graduateTeam(clients, options, groupId);
     const nextCycleNumber = Math.max(
-      ...clients.map((client) =>
+      ...graduatedClients.map((client) =>
         Number((groupId ? client.programStateByGroup?.[groupId]?.currentCycleNumber : undefined) ?? client.currentCycleNumber) || 1
       )
-    ) + 1;
-    await graduateTeam(clients, options, groupId);
+    );
     revalidatePath("/");
 
     return { 

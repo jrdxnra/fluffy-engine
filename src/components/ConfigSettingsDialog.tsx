@@ -214,7 +214,8 @@ export function ConfigSettingsDialog({
         getClientForTrainingGroup(client, selectedGroupId)
       )
     : getActiveClients(clients)
-  ).filter((client) => (client.currentCycleNumber || 1) === graduationCycleNumber);
+  // Members who fell behind the group's cycle are included so they catch up at graduation.
+  ).filter((client) => (client.currentCycleNumber || 1) <= graduationCycleNumber);
 
   const openGraduateForm = () => {
     const cycleLengthWeeks = graduationCycleSchedule.skipDeloadWeek ? 3 : 4;

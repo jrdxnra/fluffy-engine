@@ -31,6 +31,7 @@ import { ClientProfileModal } from "@/components/ClientProfileModal";
 import { resolveVisibleAccessories } from "@/lib/accessory-utils";
 import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
 import { normalizeClientForProfileSave } from "@/lib/client-profile-save";
+import { buildGraduatedClient, getGraduationSourceCycle } from "@/lib/graduation";
 import { normalizeCycleSettingsByCycle } from "@/lib/cycle-settings-normalizer";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
 import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForLift, resolveMovementClassType } from "@/lib/movement-profiles";
@@ -1733,132 +1734,20 @@ export function SbdohControl({
     const groupId = selectedTrainingGroup?.id;
     // The database has already been updated by graduateTeamAction
     // Update local state with the graduated clients and new cycle
-    const calibrationLiftSet = new Set(overrides.calibrationLifts || []);
-
-    const updatedClients = graduatedClients.map(client => {
-      // Get the previous cycle number (group-scoped when a group is selected)
-      const previousCycle = (groupId ? client.programStateByGroup?.[groupId]?.currentCycleNumber : undefined) ?? client.currentCycleNumber ?? 1;
-
-      const previousCycleCalibration = client.movementCalibrationsByCycle?.[previousCycle] || {};
-      const recentlyCalibratedLiftSet = new Set(
-        (Object.keys(previousCycleCalibration) as Lift[]).filter(
-          (targetLift) => previousCycleCalibration[targetLift]?.needsCalibration
-        )
-      );
-
-      const basePreviousCycleSchedule = getEffectiveCycleSchedule(
-        activeCycleSchedulesByCycle[previousCycle] || currentCycleSchedule
-      );
-      const previousCycleSchedule = {
-        ...basePreviousCycleSchedule,
-        liftDisplayNames: {
-          ...(basePreviousCycleSchedule.liftDisplayNames || {}),
-          ...(overrides.liftDisplayNames || {}),
+    // Same pure function the server used, so local state matches what was saved.
+    const updatedClients = graduatedClients.map((client) => {
+      const previousCycle = getGraduationSourceCycle(client, groupId, groupId ? newCycleNumber - 1 : undefined);
+      return buildGraduatedClient(client, {
+        groupId,
+        targetCycle: newCycleNumber,
+        groupCurrentCycle: groupId ? newCycleNumber - 1 : undefined,
+        currentCycleSchedule: activeCycleSchedulesByCycle[previousCycle] || currentCycleSchedule,
+        globalMovementSettings,
+        options: {
+          noIncrementLifts: overrides.calibrationLifts,
+          calibrationLifts: overrides.calibrationLifts,
         },
-      };
-
-      const heldLiftSet = new Set<Lift>();
-      (['Squat', 'Deadlift', 'Bench', 'Press'] as Lift[]).forEach((targetLift) => {
-        const profile = getMovementProfileForLift(client, previousCycle, targetLift, previousCycleSchedule);
-        if (profile?.progressionHoldActive || profile?.calibrationPhaseActive) {
-          heldLiftSet.add(targetLift);
-        }
       });
-      
-      // Get the current training maxes (from the cycle they're graduating from)
-      const currentTrainingMaxes = client.trainingMaxesByCycle?.[previousCycle] ?? client.trainingMaxes;
-      
-      // Calculate new training maxes for the new cycle
-      const newTrainingMaxes = {
-        Squat: calibrationLiftSet.has("Squat") ? 0 : currentTrainingMaxes.Squat + (recentlyCalibratedLiftSet.has("Squat") || heldLiftSet.has("Squat") ? 0 : 10),
-        Deadlift: calibrationLiftSet.has("Deadlift") ? 0 : currentTrainingMaxes.Deadlift + (recentlyCalibratedLiftSet.has("Deadlift") || heldLiftSet.has("Deadlift") ? 0 : 10),
-        Bench: calibrationLiftSet.has("Bench") ? 0 : currentTrainingMaxes.Bench + (recentlyCalibratedLiftSet.has("Bench") || heldLiftSet.has("Bench") ? 0 : 5),
-        Press: calibrationLiftSet.has("Press") ? 0 : currentTrainingMaxes.Press + (recentlyCalibratedLiftSet.has("Press") || heldLiftSet.has("Press") ? 0 : 5),
-      };
-
-      const nextOneRepMaxes = {
-        ...(client.oneRepMaxesByCycle?.[previousCycle] || client.oneRepMaxes),
-      };
-
-      for (const targetLift of calibrationLiftSet) {
-        nextOneRepMaxes[targetLift] = 0;
-      }
-
-      const nextCycleCalibrationMap = {
-        ...(client.movementCalibrationsByCycle?.[newCycleNumber] || {}),
-      };
-
-      const currentCycleMovementProfiles = client.movementProfilesByCycle?.[previousCycle] || {};
-      const nextCycleMovementProfiles = {
-        ...(client.movementProfilesByCycle?.[newCycleNumber] || {}),
-      };
-
-      for (const [movementName, profile] of Object.entries(currentCycleMovementProfiles)) {
-        const shouldHold = Boolean(profile.progressionHoldActive || profile.calibrationPhaseActive);
-        const increment = shouldHold ? 0 : (profile.progressionIncrement || getDefaultMovementProgressionIncrement(movementName, globalMovementSettings));
-        nextCycleMovementProfiles[movementName] = {
-          ...profile,
-          oneRepMax: profile.oneRepMax,
-          trainingMax: shouldHold ? profile.trainingMax : profile.trainingMax + increment,
-          movementCycleNumber: (profile.movementCycleNumber || 1) + 1,
-          lastUpdatedAt: new Date().toISOString(),
-        };
-      }
-
-      for (const targetLift of calibrationLiftSet) {
-        nextCycleCalibrationMap[targetLift] = {
-          needsCalibration: true,
-        };
-      }
-
-      const groupScopedProgress = groupId
-        ? {
-            programStateByGroup: {
-              ...(client.programStateByGroup || {}),
-              [groupId]: {
-                ...(client.programStateByGroup?.[groupId] || {}),
-                currentCycleNumber: newCycleNumber,
-                cycleMembership: Array.from(
-                  new Set([...(client.programStateByGroup?.[groupId]?.cycleMembership || []), newCycleNumber])
-                ).sort((a, b) => a - b),
-                weekAssignmentsByCycle: {
-                  ...(client.programStateByGroup?.[groupId]?.weekAssignmentsByCycle || {}),
-                  [newCycleNumber]: { week1: "5", week2: "3", week3: "1" },
-                },
-              },
-            },
-          }
-        : {
-            currentCycleNumber: newCycleNumber,
-            cycleMembership: withCycleAdded(client, newCycleNumber),
-            weekAssignmentsByCycle: {
-              ...(client.weekAssignmentsByCycle || {}),
-              [newCycleNumber]: { week1: "5", week2: "3", week3: "1" }
-            },
-          };
-
-      return {
-        ...client,
-        ...groupScopedProgress,
-        oneRepMaxesByCycle: {
-          ...(client.oneRepMaxesByCycle || {}),
-          [newCycleNumber]: nextOneRepMaxes,
-        },
-        oneRepMaxes: nextOneRepMaxes,
-        trainingMaxes: newTrainingMaxes, // Update the fallback value
-        trainingMaxesByCycle: {
-          ...(client.trainingMaxesByCycle || {}),
-          [newCycleNumber]: newTrainingMaxes
-        },
-        movementCalibrationsByCycle: {
-          ...(client.movementCalibrationsByCycle || {}),
-          [newCycleNumber]: nextCycleCalibrationMap,
-        },
-        movementProfilesByCycle: {
-          ...(client.movementProfilesByCycle || {}),
-          [newCycleNumber]: nextCycleMovementProfiles,
-        },
-      };
     });
     
     setClients((prev) => {
