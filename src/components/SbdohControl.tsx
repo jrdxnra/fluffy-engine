@@ -24,13 +24,13 @@ import { WorkoutTable } from "@/components/WorkoutTable";
 import { AddClientSheet } from "@/components/AddClientSheet";
 import { AccessoryDisplay } from "@/components/AccessoryDisplay";
 import { AiInsightsDialog } from "@/components/AiInsightsDialog";
-import { calculateWorkout } from "@/lib/utils";
+import { calculateClientLiftWorkout } from "@/lib/client-workout";
 import { getCalendarWeekKey, getCycleWeekSchedule, getEffectiveCycleSchedule, getLiftDaySlot, getLiftsForDaySlot, getLiftDisplayName, getRecommendedSessionSelection, resolveClientMovementName } from "@/lib/schedule";
 import { ProgressChartDialog } from "@/components/ProgressChartDialog";
 import { ConfigSettingsDialog } from "@/components/ConfigSettingsDialog";
 import { ClientProfileModal } from "@/components/ClientProfileModal";
-import { resolveVisibleAccessories } from "@/lib/accessory-utils";
-import { formatDayWorkoutCopyText } from "@/lib/copy-formatter";
+import type { ActualsBySet } from "@/lib/copy-formatter";
+import { buildDayCopyText, buildLiftCopyText, buildMonthCopy, sessionDateLabel } from "@/lib/session-copy";
 import { normalizeClientForProfileSave } from "@/lib/client-profile-save";
 import { buildGraduatedClient, getGraduationSourceCycle, getLiftProgressStatus } from "@/lib/graduation";
 import { getPreviousTopSet } from "@/lib/previous-top-set";
@@ -38,7 +38,6 @@ import { buildOneRepMaxUpdate, getWorkoutOneRepMaxSuggestion } from "@/lib/one-r
 import { normalizeCycleSettingsByCycle } from "@/lib/cycle-settings-normalizer";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
 import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForLift, resolveMovementClassType } from "@/lib/movement-profiles";
-import { isLiftCalibrationRequired } from "@/lib/calibration";
 import { getEffectiveCycleMembership, isClientInCycle, withCycleAdded, withCycleRemoved } from "@/lib/cycle-membership";
 import {
   buildGroupTransferUpdate,
@@ -352,19 +351,6 @@ export function SbdohControl({
     return resolveClientMovementName(client, currentCycleNumber, targetLift, currentCycleSchedule);
   };
 
-  const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-  const replaceLiftLabelInCopyText = (text: string, targetLift: Lift, movementName: string): string => {
-    if (!movementName || movementName === targetLift) return text;
-
-    const exactRegex = new RegExp(`\\b${escapeRegExp(targetLift)}\\b`, "g");
-    const upperRegex = new RegExp(`\\b${escapeRegExp(targetLift.toUpperCase())}\\b`, "g");
-
-    return text
-      .replace(exactRegex, movementName)
-      .replace(upperRegex, movementName.toUpperCase());
-  };
-
   useEffect(() => {
     if (hasAutoDateSelectionRef.current) return;
 
@@ -634,134 +620,23 @@ export function SbdohControl({
   }, [currentWeek, currentCycleNumber]);
 
   const getCalculatedWorkoutsForLift = (targetLift: Lift): CalculatedWorkout[] => {
-    const selectedWeekSettings = cycleSettings[currentWeek];
-    if (!selectedWeekSettings) {
-      return clientsInSelectedCycle.map((client) => ({
-        client,
-        sets: [],
-        prTarget: undefined,
-      }));
-    }
-
-    const sortedWeekKeys = Object.keys(cycleSettings).sort((a, b) => {
-      const aNum = parseInt(a.match(/\d+/)?.[0] || "0", 10);
-      const bNum = parseInt(b.match(/\d+/)?.[0] || "0", 10);
-      return aNum - bNum;
-    });
-
     return clientsInSelectedCycle.map((client) => {
-      const sessionState = client.sessionStateByCycle?.[currentCycleNumber];
-      const mode: SessionMode =
-        sessionState?.modeByWeek?.[currentWeek] ||
-        sessionState?.mode ||
-        "normal";
-      let effectiveWeekKey = currentWeek;
-
-      if (mode === "slide") {
-        const flowWeekKey = sessionState?.flowWeekKeyByWeek?.[currentWeek] || sessionState?.flowWeekKey;
-        if (flowWeekKey && cycleSettings[flowWeekKey]) {
-          effectiveWeekKey = flowWeekKey;
-        } else {
-          const currentIndex = sortedWeekKeys.indexOf(currentWeek);
-          if (currentIndex > 0) {
-            effectiveWeekKey = sortedWeekKeys[currentIndex - 1];
-          }
-        }
-      }
-
-      if (mode === "pause_week") {
-        return {
-          client,
-          sets: [],
-          prTarget: undefined,
-          sessionMode: mode,
-          effectiveWeekKey,
-        };
-      }
-
-      const selectedWeekSettingsForClient = cycleSettings[effectiveWeekKey];
-      if (!selectedWeekSettingsForClient) {
-        return {
-          client,
-          sets: [],
-          prTarget: undefined,
-          sessionMode: mode,
-          effectiveWeekKey,
-        };
-      }
-
-      const clientCycleAssignments = client.weekAssignmentsByCycle?.[currentCycleNumber] || {};
-      const assignedRepScheme = clientCycleAssignments[effectiveWeekKey] || undefined;
-
-      // If the client has "N/A", skip this week.
-      if (assignedRepScheme === "N/A") {
-        return {
-          client,
-          sets: [],
-          prTarget: undefined,
-          sessionMode: mode,
-          effectiveWeekKey,
-        };
-      }
-
-      const workoutWeekSettings =
-        resolveWorkoutWeekSettings(cycleSettings, effectiveWeekKey, assignedRepScheme) ||
-        selectedWeekSettingsForClient;
-
-      const movementName = getClientMovementName(client, targetLift);
-      const movementProfile = getMovementProfileForLift(client, currentCycleNumber, targetLift, currentCycleSchedule);
-
-      const workout = calculateWorkout(
+      const workout = calculateClientLiftWorkout({
         client,
-        targetLift,
-        workoutWeekSettings,
+        lift: targetLift,
+        weekKey: currentWeek,
+        cycleNumber: currentCycleNumber,
+        cycleSettings,
+        schedule: currentCycleSchedule,
         historicalData,
-        currentCycleNumber,
-        movementProfile
-          ? {
-              oneRepMaxOverride: movementProfile.oneRepMax,
-              trainingMaxOverride: movementProfile.trainingMax,
-            }
-          : undefined
-      );
+      });
+      if (workout.sets.length === 0) return workout;
 
-      const calibrationState = client.movementCalibrationsByCycle?.[currentCycleNumber]?.[targetLift];
-      const needsCalibration = isLiftCalibrationRequired(
-        client,
-        currentCycleNumber,
-        targetLift,
-        movementProfile,
-        Boolean(calibrationState?.needsCalibration)
-      );
-      const effectiveWeekNumber = parseInt((effectiveWeekKey.match(/\d+/)?.[0] || "0"), 10);
-      const hasMovementOneRepMax = Boolean(movementProfile && movementProfile.oneRepMax > 0);
-      const hidePrescribedForCalibration = needsCalibration && effectiveWeekNumber === 1 && !hasMovementOneRepMax;
-
-      if (hidePrescribedForCalibration) {
-        workout.sets = workout.sets.map((set) => ({
-          ...set,
-          weight: 0,
-          plates: "",
-        }));
-      }
-
-      if (mode === "recovery") {
-        workout.prTarget = undefined;
-        workout.sets = workout.sets.map((set) => {
-          if (set.type === "Work Set" && set.set === 3) {
-            return {
-              ...set,
-              reps: typeof set.reps === "string" ? set.reps.replace("+", "") : set.reps,
-            };
-          }
-          return set;
-        });
-      }
-
-      if (mode === "jack_shit") {
-        workout.prTarget = undefined;
-        workout.sets = workout.sets.filter((set) => set.type === "Work Set");
-      }
+      const effectiveWeekKey = workout.effectiveWeekKey || currentWeek;
+      const assignedRepScheme = client.weekAssignmentsByCycle?.[currentCycleNumber]?.[effectiveWeekKey] || undefined;
+      const workoutWeekSettings =
+        resolveWorkoutWeekSettings(cycleSettings, effectiveWeekKey, assignedRepScheme) || cycleSettings[effectiveWeekKey];
+      const movementProfile = getMovementProfileForLift(client, currentCycleNumber, targetLift, currentCycleSchedule);
 
       workout.status = getLiftProgressStatus(client, currentCycleNumber, targetLift, movementProfile);
       workout.previousTopSet = getPreviousTopSet({
@@ -780,11 +655,8 @@ export function SbdohControl({
         lift: targetLift,
         schedule: currentCycleSchedule,
         weekSettings: workoutWeekSettings,
-        sessionMode: mode,
+        sessionMode: workout.sessionMode,
       }) || undefined;
-      workout.sessionMode = mode;
-      workout.effectiveWeekKey = effectiveWeekKey;
-
       return workout;
     });
   };
@@ -889,48 +761,35 @@ export function SbdohControl({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lift, calculatedWorkouts, currentWeek]);
 
-  const buildLiftCopyTextForWorkout = (workout: CalculatedWorkout, defaultText: string): string => {
-    const movementName = getClientMovementName(workout.client, lift);
-    return replaceLiftLabelInCopyText(defaultText, lift, movementName);
-  };
+  const copyProgram = { cycleNumber: currentCycleNumber, weekKey: currentWeek, cycleSettings, schedule: currentCycleSchedule };
 
-  const buildDayCopyTextForWorkout = (workout: CalculatedWorkout, defaultText: string): string => {
-    const dayWeekday = dayViewSlot === "day1" ? currentWeekSchedule.day1Weekday : currentWeekSchedule.day2Weekday;
-    const dayDate = dayViewSlot === "day1" ? currentWeekSchedule.day1Date : currentWeekSchedule.day2Date;
-    const dayDateLabel = `${dayWeekday}${dayDate ? ` (${formatShortDate(dayDate)})` : ""}`;
-
-    const liftEntries = dayLifts
-      .map((dayLift) => {
-        const liftWorkout = (dayWorkoutsByLift[dayLift] || []).find((item) => item.client.id === workout.client.id);
-        if (!liftWorkout || !liftWorkout.sets || liftWorkout.sets.length === 0) {
-          return null;
-        }
-
-        const effectiveWeekKey = liftWorkout.effectiveWeekKey || currentWeek;
-        const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, dayLift);
-        const persistedSetMap =
-          liftWorkout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[dayLift] || {};
-
-        return {
-          lift: dayLift,
-          sets: liftWorkout.sets,
-          accessories,
-          persistedSetMap,
-        };
-      })
-      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-
-    const baseText = formatDayWorkoutCopyText({
-      dayHeader: `${dayLifts.map((item) => getClientMovementName(workout.client, item)).join(" + ")} ${dayDateLabel}`,
-      dayLifts,
-      liftEntries,
-      fallbackText: defaultText,
+  const buildLiftCopyTextForWorkout = (workout: CalculatedWorkout, unsavedActuals?: ActualsBySet): string =>
+    buildLiftCopyText({
+      workout,
+      lift,
+      program: copyProgram,
+      dateLabel: getLiftDateLabel(lift),
+      includeWarmups: Boolean(showWarmupsByLift[lift]),
+      unsavedActuals,
     });
 
-    return dayLifts.reduce((text, dayLift) => {
-      return replaceLiftLabelInCopyText(text, dayLift, getClientMovementName(workout.client, dayLift));
-    }, baseText);
-  };
+  const buildDayCopyTextForLift = (dayLift: Lift) => (workout: CalculatedWorkout, unsavedActuals?: ActualsBySet): string =>
+    buildDayCopyText({
+      clientId: workout.client.id,
+      dayLifts,
+      workoutsByLift: dayWorkoutsByLift,
+      program: copyProgram,
+      dateLabel: sessionDateLabel(currentCycleSchedule, currentWeek, dayViewSlot),
+      unsavedActuals: unsavedActuals ? { lift: dayLift, actuals: unsavedActuals } : undefined,
+    });
+
+  const buildMonthCopyForWorkout = (workout: CalculatedWorkout) =>
+    buildMonthCopy({
+      client: workout.client,
+      cycleSettingsByCycle: activeCycleSettingsByCycle,
+      schedulesByCycle: activeCycleSchedulesByCycle,
+      historicalData,
+    });
 
   const handleAiInsight = (client: Client) => {
     setSelectedClientForAi(client);
@@ -2745,15 +2604,14 @@ export function SbdohControl({
                   workouts={calculatedWorkouts} 
                   lift={lift}
                   weekName={cycleSettings[currentWeek]?.name || currentWeek}
-                  workoutDateLabel={getLiftDateLabel(lift)}
                   workoutDateIso={getLiftDateIso(lift)}
                   resolveWorkoutDateIso={getWorkoutDateIsoForWeek}
-                  cycleSettings={cycleSettings}
                   currentWeek={currentWeek}
                   currentCycleNumber={currentCycleNumber}
                   onRepRecordUpdate={handleRepRecordUpdate}
                   onPersistLoggedSets={handlePersistLoggedSets}
                   buildCopyText={buildLiftCopyTextForWorkout}
+                  buildMonthCopy={buildMonthCopyForWorkout}
                   layoutMode={sessionLayout}
                   bulkLogAction={bulkLogAction}
                   isBulkLoggingActive={activeBulkLogLift === lift}
@@ -2838,15 +2696,14 @@ export function SbdohControl({
                         workouts={dayWorkoutsByLift[dayLift] || []}
                         lift={dayLift}
                         weekName={cycleSettings[currentWeek]?.name || currentWeek}
-                        workoutDateLabel={getLiftDateLabel(dayLift)}
                         workoutDateIso={getLiftDateIso(dayLift)}
                         resolveWorkoutDateIso={getWorkoutDateIsoForWeek}
-                        cycleSettings={cycleSettings}
                         currentWeek={currentWeek}
                         currentCycleNumber={currentCycleNumber}
                         onRepRecordUpdate={handleRepRecordUpdate}
                         onPersistLoggedSets={handlePersistLoggedSets}
-                        buildCopyText={buildDayCopyTextForWorkout}
+                        buildCopyText={buildDayCopyTextForLift(dayLift)}
+                        buildMonthCopy={buildMonthCopyForWorkout}
                         layoutMode={sessionLayout}
                         bulkLogAction={bulkLogAction}
                         isBulkLoggingActive={activeBulkLogLift === dayLift}
