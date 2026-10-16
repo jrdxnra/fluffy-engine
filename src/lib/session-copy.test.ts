@@ -149,11 +149,16 @@ describe("month so far", () => {
     expect(copied.sessionCount).toBe(5);
     const lines = copied.plain.split("\n");
     expect(lines[0]).toBe("Lifter · October 2026 so far (to Oct 15)");
-    expect(copied.plain).toContain("Tue 10/6 · Cycle 9 · Week 1 (5+)");
+    // A full date at the top of each block and the PCA import's own headings.
+    expect(copied.plain).toContain("10/6/2026\tTue · Cycle 9 · Week 1 (5+)");
+    expect(copied.plain).toContain("MOVEMENT\tSETS\tREPS\tLOAD\tPLANNED REPS\tPLANNED LOAD");
     // Tuesday and Thursday side by side on one row.
-    const dateRow = lines.find((line) => line.startsWith("Tue 10/13"));
-    expect(dateRow?.split("\t").filter(Boolean)).toEqual(["Tue 10/13 · Cycle 9 · Week 2 (3+)", "Thu 10/15 · Cycle 9 · Week 2 (3+)"]);
-    expect(copied.plain).toContain("Hex Bar Deadlift\t1\t5+\t\t9\t305");
+    const dateRow = lines.find((line) => line.startsWith("10/13/2026"));
+    expect(dateRow?.split("\t").filter(Boolean)).toEqual(["10/13/2026", "Tue · Cycle 9 · Week 2 (3+)", "10/15/2026", "Thu · Cycle 9 · Week 2 (3+)"]);
+    // Logged numbers go in REPS and LOAD; the name is on the first set only so the sets stay one movement.
+    expect(copied.plain).toMatch(/WORKING SETS: HEX BAR DEADLIFT(\t|$)/m);
+    expect(copied.plain).toContain("\t1\t9\t305\t5+\t");
+    expect(copied.plain).toContain("WORKING SETS: BENCH (NOT LOGGED, PLANNED SHOWN)");
     expect(copied.rich.startsWith("<table")).toBe(true);
   });
 });

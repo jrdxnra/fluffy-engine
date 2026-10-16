@@ -147,14 +147,58 @@ const wide = (text: string, kind: CellKind, width = BLOCK_WIDTH): Cell[] => [
   ...Array.from({ length: width - 1 }, () => ({ text: "", kind, covered: true })),
 ];
 
+/**
+ * The month's columns, laid out so the PCA app's history import reads them: a full date (10/13/2026) at the top
+ * of each block, then MOVEMENT, SETS, REPS and LOAD. REPS and LOAD are what was done; the planned numbers sit
+ * beside them, where the import ignores them.
+ */
+export const MONTH_COLUMNS = ["MOVEMENT", "SETS", "REPS", "LOAD", "PLANNED REPS", "PLANNED LOAD"];
+
+/**
+ * One lift as rows: the name on its first set only, so the import keeps the sets together as one movement. A set
+ * with logged numbers shows them; a set without shows the plan, and the heading says when nothing was logged.
+ */
+const monthLiftRows = (lift: CopyLift): Grid => {
+  const workSets = lift.sets.map((set, index) => ({ set, index })).filter(({ set }) => set.type === "Work Set");
+  if (workSets.length === 0) return [];
+  const anyLogged = workSets.some(({ index }) => actualAt(lift.actuals, index));
+  const rows: Grid = [wide(`WORKING SETS: ${lift.name.toUpperCase()}${anyLogged ? "" : " (NOT LOGGED, PLANNED SHOWN)"}`, "section", MONTH_COLUMNS.length)];
+  workSets.forEach(({ set, index }, position) => {
+    const actual = actualAt(lift.actuals, index);
+    const cells = [
+      position === 0 ? lift.name : "",
+      "1",
+      actual ? String(actual.reps) : String(set.reps),
+      actual ? load(actual.weight) : load(set.weight),
+      String(set.reps),
+      load(set.weight),
+    ];
+    rows.push(cells.map((text) => ({ text, kind: "body" })));
+  });
+  return rows;
+};
+
 const sessionBlock = (session: MonthSession): Grid => {
   const day = parseDate(session.date);
+  const width = MONTH_COLUMNS.length;
   const rows: Grid = [
-    wide(`${weekdayNames[day.getDay()]} ${day.getMonth() + 1}/${day.getDate()} · ${session.label}`, "date"),
-    TABLE_COLUMNS.map((text) => ({ text, kind: "head" })),
+    [
+      { text: `${day.getMonth() + 1}/${day.getDate()}/${day.getFullYear()}`, kind: "date" },
+      ...wide(`${weekdayNames[day.getDay()]} · ${session.label}`, "date", width - 1),
+    ],
+    MONTH_COLUMNS.map((text) => ({ text, kind: "head" })),
   ];
-  for (const row of sessionRows(session.lifts)) {
-    rows.push(row.length === 1 ? wide(row[0], "section") : row.map((text) => ({ text, kind: "body" })));
+  const accessories: string[] = [];
+  for (const lift of session.lifts) {
+    rows.push(...monthLiftRows(lift));
+    for (const accessory of lift.accessories) {
+      if (!accessories.includes(accessory)) accessories.push(accessory);
+    }
+  }
+  if (accessories.length > 0) {
+    // Accessories are names only (the program has no sets or reps for them), so the import skips them.
+    rows.push(wide("ACCESSORIES (PROGRAMMED)", "section", width));
+    for (const accessory of accessories) rows.push([{ text: accessory, kind: "body" }, ...gapCells(width - 1).map((cell) => ({ ...cell, kind: "body" as const }))]);
   }
   return rows;
 };
