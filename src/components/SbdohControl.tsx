@@ -30,7 +30,7 @@ import { ProgressChartDialog } from "@/components/ProgressChartDialog";
 import { ConfigSettingsDialog } from "@/components/ConfigSettingsDialog";
 import { ClientProfileModal } from "@/components/ClientProfileModal";
 import type { ActualsBySet } from "@/lib/copy-formatter";
-import { buildDayCopyText, buildLiftCopyText, buildMonthCopy, sessionDateLabel } from "@/lib/session-copy";
+import { buildDayCopyText, buildLiftCopyText, buildMonthCopy, monthWindow, sessionDateLabel } from "@/lib/session-copy";
 import { normalizeClientForProfileSave } from "@/lib/client-profile-save";
 import { buildGraduatedClient, getGraduationSourceCycle, getLiftProgressStatus } from "@/lib/graduation";
 import { getPreviousTopSet } from "@/lib/previous-top-set";
@@ -783,12 +783,14 @@ export function SbdohControl({
       unsavedActuals: unsavedActuals ? { lift: dayLift, actuals: unsavedActuals } : undefined,
     });
 
-  const buildMonthCopyForWorkout = (workout: CalculatedWorkout) =>
+  // The month up to the session on screen (that lift's day in the week shown), never past today.
+  const buildMonthCopyForLift = (targetLift: Lift) => (workout: CalculatedWorkout) =>
     buildMonthCopy({
       client: workout.client,
       cycleSettingsByCycle: activeCycleSettingsByCycle,
       schedulesByCycle: activeCycleSchedulesByCycle,
       historicalData,
+      window: monthWindow(getLiftDateIso(targetLift)),
     });
 
   const handleAiInsight = (client: Client) => {
@@ -2611,7 +2613,7 @@ export function SbdohControl({
                   onRepRecordUpdate={handleRepRecordUpdate}
                   onPersistLoggedSets={handlePersistLoggedSets}
                   buildCopyText={buildLiftCopyTextForWorkout}
-                  buildMonthCopy={buildMonthCopyForWorkout}
+                  buildMonthCopy={buildMonthCopyForLift(lift)}
                   layoutMode={sessionLayout}
                   bulkLogAction={bulkLogAction}
                   isBulkLoggingActive={activeBulkLogLift === lift}
@@ -2703,7 +2705,7 @@ export function SbdohControl({
                         onRepRecordUpdate={handleRepRecordUpdate}
                         onPersistLoggedSets={handlePersistLoggedSets}
                         buildCopyText={buildDayCopyTextForLift(dayLift)}
-                        buildMonthCopy={buildMonthCopyForWorkout}
+                        buildMonthCopy={buildMonthCopyForLift(dayLift)}
                         layoutMode={sessionLayout}
                         bulkLogAction={bulkLogAction}
                         isBulkLoggingActive={activeBulkLogLift === dayLift}

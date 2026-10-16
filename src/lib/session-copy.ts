@@ -102,19 +102,33 @@ const wasOnCycle = (client: Client, cycleNumber: number): boolean =>
   Boolean(client.loggedSetInputsByCycle?.[cycleNumber]);
 
 /**
- * Every session of the lifter's group program dated from the 1st of this month to today, with what was prescribed
- * and what they logged. Weeks a skipped deload would fall on, paused weeks and lifts with no sets are left out.
+ * The month a copy covers: it ends on the session on screen (never after today) and starts the same day a month
+ * earlier. On the current week that is the month up to today; on an earlier week, the month up to that session.
+ */
+export const monthWindow = (sessionDate: Date | string | undefined, today: Date = new Date()): { from: Date; to: Date } => {
+  const onScreen = typeof sessionDate === "string" ? new Date(`${sessionDate}T00:00:00`) : sessionDate;
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const end = onScreen && !Number.isNaN(onScreen.getTime()) && onScreen < startOfToday ? onScreen : startOfToday;
+  const to = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  // Day 31 in a short month rolls into the next, so cap the day at the earlier month's last day.
+  const lastDayOfEarlierMonth = new Date(to.getFullYear(), to.getMonth(), 0).getDate();
+  const from = new Date(to.getFullYear(), to.getMonth() - 1, Math.min(to.getDate(), lastDayOfEarlierMonth));
+  return { from, to };
+};
+
+/**
+ * Every session of the lifter's group program dated in the window, with what was prescribed and what they logged.
+ * Weeks a skipped deload would fall on, paused weeks and lifts with no sets are left out.
  */
 export const buildMonthSessions = (args: {
   client: Client;
   cycleSettingsByCycle: Record<number, CycleSettings>;
   schedulesByCycle: Record<number, CycleScheduleSettings>;
   historicalData: HistoricalRecord[];
-  today?: Date;
+  window: { from: Date; to: Date };
 }): MonthSession[] => {
-  const today = args.today || new Date();
-  const from = isoOf(new Date(today.getFullYear(), today.getMonth(), 1));
-  const to = isoOf(today);
+  const from = isoOf(args.window.from);
+  const to = isoOf(args.window.to);
   const sessions: MonthSession[] = [];
 
   for (const [cycleKey, cycleSettings] of Object.entries(args.cycleSettingsByCycle)) {
@@ -156,11 +170,11 @@ export const buildMonthSessions = (args: {
   return sessions.sort((a, b) => a.date.localeCompare(b.date));
 };
 
-/** The month so far as a table, with a title naming the lifter and the dates covered. */
+/** The month as a table, with a title naming the lifter and the dates covered. */
 export const buildMonthCopy = (args: Parameters<typeof buildMonthSessions>[0]): Copied & { sessionCount: number } => {
-  const today = args.today || new Date();
-  const sessions = buildMonthSessions({ ...args, today });
-  const month = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(today);
-  const title = `${args.client.name} · ${month} so far (to ${shortDate(isoOf(today))})`;
+  const sessions = buildMonthSessions(args);
+  const { from, to } = args.window;
+  const year = new Intl.DateTimeFormat("en-US", { year: "numeric" }).format(to);
+  const title = `${args.client.name} · ${shortDate(isoOf(from))} – ${shortDate(isoOf(to))}, ${year}`;
   return { ...formatMonthCopy(sessions, title), sessionCount: sessions.length };
 };

@@ -42,7 +42,7 @@ import { getLiftProgressStatus } from "@/lib/graduation";
 import { getPreviousTopSet } from "@/lib/previous-top-set";
 import { buildOneRepMaxUpdate, getWorkoutOneRepMaxSuggestion } from "@/lib/one-rep-max-suggestion";
 import type { ActualsBySet } from "@/lib/copy-formatter";
-import { buildDayCopyText, buildLiftCopyText, buildMonthCopy, sessionDateLabel } from "@/lib/session-copy";
+import { buildDayCopyText, buildLiftCopyText, buildMonthCopy, monthWindow, sessionDateLabel } from "@/lib/session-copy";
 import { resolveWorkoutWeekSettings } from "@/lib/workout-week-settings";
 import { buildGlobalMovementSettings, getDefaultMovementProgressionIncrement, getMovementProfileForLift, resolveMovementClassType } from "@/lib/movement-profiles";
 import { getEffectiveCycleMembership, isClientInCycle } from "@/lib/cycle-membership";
@@ -948,12 +948,14 @@ export function MobileDevShell({
     });
   };
 
-  const buildMonthCopyForWorkout = (workout: CalculatedWorkout) =>
+  // The month up to the session on screen (that lift's day in the week shown), never past today.
+  const buildMonthCopyForWorkout = (workout: CalculatedWorkout, cardLift: Lift) =>
     buildMonthCopy({
       client: workout.client,
       cycleSettingsByCycle: activeCycleSettingsByCycle,
       schedulesByCycle: activeCycleSchedulesByCycle,
       historicalData,
+      window: monthWindow(getLiftDateIso(cardLift)),
     });
 
   // ── Sidebar controls ──────────────────────────────────────────────────────────

@@ -47,7 +47,7 @@ type MobileWorkoutCardProps = {
   }) => Promise<void>;
   onRepRecordUpdate: (newRecord: HistoricalRecord) => void;
   onCopyText: (workout: CalculatedWorkout, lift: Lift, unsavedActuals?: ActualsBySet) => string;
-  onCopyMonth: (workout: CalculatedWorkout) => Copied & { sessionCount: number };
+  onCopyMonth: (workout: CalculatedWorkout, lift: Lift) => Copied & { sessionCount: number };
   historicalData: HistoricalRecord[];
   onOpenProfile: (client: Client) => void;
   onAcceptOneRepMaxSuggestion?: (clientId: string, lift: Lift, suggestion: OneRepMaxSuggestion) => Promise<void> | void;
@@ -282,13 +282,13 @@ export function MobileWorkoutCard({
 
   const handleCopyMonth = async () => {
     try {
-      const month = onCopyMonth(workout);
+      const month = onCopyMonth(workout, lift);
       if (month.sessionCount === 0) {
-        toast({ title: "Nothing to copy", description: `No sessions for ${client.name} so far this month.` });
+        toast({ title: "Nothing to copy", description: `No sessions for ${client.name} in the month up to this session.` });
         return;
       }
       await writeClipboard(month);
-      toast({ title: "Copied", description: `${client.name}'s month so far copied (${month.sessionCount} session${month.sessionCount === 1 ? "" : "s"}).` });
+      toast({ title: "Copied", description: `${client.name}'s past month copied (${month.sessionCount} session${month.sessionCount === 1 ? "" : "s"}).` });
     } catch {
       toast({ variant: "destructive", title: "Copy failed", description: "Could not copy the month." });
     }
@@ -361,7 +361,7 @@ export function MobileWorkoutCard({
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => { void handleCopyMonth(); }}>
                   <Copy className="mr-2 h-4 w-4" />
-                  Copy month so far
+                  Copy past month
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => onOpenProfile(client)}>
                   <User className="mr-2 h-4 w-4" />
@@ -462,7 +462,7 @@ export function MobileWorkoutCard({
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => { void handleCopyMonth(); }}>
                 <Copy className="mr-2 h-4 w-4" />
-                Copy month so far
+                Copy past month
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onOpenProfile(client)}>
                 <User className="mr-2 h-4 w-4" />
@@ -550,7 +550,7 @@ export function MobileWorkoutCard({
               Copy this session
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => { void handleCopyMonth(); }}>
-              Copy month so far
+              Copy past month
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

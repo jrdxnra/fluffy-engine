@@ -46,7 +46,7 @@ type WorkoutTableProps = {
   onRepRecordUpdate: (newRecord: HistoricalRecord) => void;
   /** The session as text for one lifter; `unsavedActuals` are the values typed on this row but not saved yet. */
   buildCopyText: (workout: CalculatedWorkout, unsavedActuals?: ActualsBySet) => string;
-  /** The lifter's month so far as a table. */
+  /** The lifter's month up to the session on screen, as a table. */
   buildMonthCopy?: (workout: CalculatedWorkout) => Copied & { sessionCount: number };
   currentCycleNumber: number;
   onPersistLoggedSets: (args: {
@@ -688,13 +688,13 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateIso, resolve
     try {
       const month = buildMonthCopy(workout);
       if (month.sessionCount === 0) {
-        toast({ title: "Nothing to copy", description: `No sessions for ${workout.client.name} so far this month.` });
+        toast({ title: "Nothing to copy", description: `No sessions for ${workout.client.name} in the month up to this session.` });
         return;
       }
       await writeClipboard(month);
       toast({
         title: "Copied",
-        description: `${workout.client.name}'s month so far copied (${month.sessionCount} session${month.sessionCount === 1 ? "" : "s"}).`,
+        description: `${workout.client.name}'s past month copied (${month.sessionCount} session${month.sessionCount === 1 ? "" : "s"}).`,
       });
     } catch {
       toast({
@@ -828,7 +828,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateIso, resolve
                               Copy this session
                             </DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => void handleCopyMonth(workout)}>
-                              Copy month so far
+                              Copy past month
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -1011,7 +1011,7 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateIso, resolve
                             {buildMonthCopy && (
                               <DropdownMenuItem onSelect={() => void handleCopyMonth(workout)}>
                                 <Copy className="mr-2 h-4 w-4" />
-                                Copy month so far
+                                Copy past month
                               </DropdownMenuItem>
                             )}
                             {onOpenProfile && (

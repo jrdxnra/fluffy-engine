@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDayCopyText, buildLiftCopyText, buildMonthCopy, buildMonthSessions, sessionDateLabel } from "@/lib/session-copy";
+import { buildDayCopyText, buildLiftCopyText, buildMonthCopy, buildMonthSessions, monthWindow, sessionDateLabel } from "@/lib/session-copy";
 import { calculateClientLiftWorkout } from "@/lib/client-workout";
 import type { CalculatedWorkout, Client, CycleScheduleSettings, CycleSettings, CycleWeekSettings, Lift, LoggedSetMap } from "@/lib/types";
 
@@ -119,10 +119,30 @@ describe("month so far", () => {
     cycleSettingsByCycle: { 8: cycle, 9: cycle },
     schedulesByCycle: { 8: schedule("2026-09-08"), 9: schedule("2026-10-06") },
     historicalData: [],
-    today,
+    window: { from: new Date(2026, 9, 1), to: today },
   };
 
-  it("collects every session from the 1st to today, across cycles", () => {
+  it("covers the month up to the session on screen, never past today", () => {
+    const span = (window: { from: Date; to: Date }) => [window.from.toDateString(), window.to.toDateString()];
+    // This week: one month back from today.
+    expect(span(monthWindow("2026-10-15", today))).toEqual(["Tue Sep 15 2026", "Thu Oct 15 2026"]);
+    // An earlier week: one month back from that session.
+    expect(span(monthWindow("2026-09-24", today))).toEqual(["Mon Aug 24 2026", "Thu Sep 24 2026"]);
+    // A future week stops at today.
+    expect(span(monthWindow("2026-10-22", today))).toEqual(["Tue Sep 15 2026", "Thu Oct 15 2026"]);
+    // No date on screen: today.
+    expect(span(monthWindow(undefined, today))).toEqual(["Tue Sep 15 2026", "Thu Oct 15 2026"]);
+    // The 31st looks back to the last day of a shorter month.
+    expect(span(monthWindow("2026-03-31", today))).toEqual(["Sat Feb 28 2026", "Tue Mar 31 2026"]);
+  });
+
+  it("goes back across cycles when the window does", () => {
+    const sessions = buildMonthSessions({ ...args, window: monthWindow("2026-10-08", today) });
+    expect(sessions[0].date).toBe("2026-09-08");
+    expect(sessions[sessions.length - 1].date).toBe("2026-10-08");
+  });
+
+  it("collects every session in the window, across cycles", () => {
     const sessions = buildMonthSessions(args);
     expect(sessions.map((session) => `${session.date} ${session.label}`)).toEqual([
       "2026-10-01 Cycle 8 · Deload (5)",
@@ -148,7 +168,7 @@ describe("month so far", () => {
     const copied = buildMonthCopy(args);
     expect(copied.sessionCount).toBe(5);
     const lines = copied.plain.split("\n");
-    expect(lines[0]).toBe("Lifter · October 2026 so far (to Oct 15)");
+    expect(lines[0]).toBe("Lifter · Oct 1 – Oct 15, 2026");
     // A full date at the top of each block and the PCA import's own headings.
     expect(copied.plain).toContain("10/6/2026\tTue · Cycle 9 · Week 1 (5+)");
     expect(copied.plain).toContain("MOVEMENT\tSETS\tREPS\tLOAD\tPLANNED REPS\tPLANNED LOAD");
