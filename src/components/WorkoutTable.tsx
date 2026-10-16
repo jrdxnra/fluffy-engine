@@ -16,7 +16,7 @@ import { formatPreviousTopSet } from "@/lib/previous-top-set";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import type { CalculatedWorkout, CycleSettings, HistoricalRecord, Lift, OneRepMaxSuggestion, WorkoutSet, LoggedSetMap } from "@/lib/types";
+import type { CalculatedWorkout, HistoricalRecord, Lift, OneRepMaxSuggestion, WorkoutSet, LoggedSetMap } from "@/lib/types";
 import { Check, Copy, MoreVertical, FileText, User } from "lucide-react";
 import { logRepRecordAction } from "@/app/actions";
 import { ClientNotesDialog } from "./ClientNotesDialog";
@@ -34,20 +34,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { resolveVisibleAccessories } from "@/lib/accessory-utils";
-import { formatBasicWorkoutCopyText } from "@/lib/copy-formatter";
+import { writeClipboard, type ActualsBySet, type Copied } from "@/lib/copy-formatter";
 
 type WorkoutTableProps = {
   workouts: CalculatedWorkout[];
   lift: Lift;
   weekName: string;
-  workoutDateLabel?: string;
   workoutDateIso?: string;
   resolveWorkoutDateIso?: (weekKey: string, lift: Lift) => string | undefined;
-  cycleSettings: CycleSettings;
   currentWeek: string;
   onRepRecordUpdate: (newRecord: HistoricalRecord) => void;
-  buildCopyText?: (workout: CalculatedWorkout, defaultText: string) => string;
+  /** The session as text for one lifter; `unsavedActuals` are the values typed on this row but not saved yet. */
+  buildCopyText: (workout: CalculatedWorkout, unsavedActuals?: ActualsBySet) => string;
+  /** The lifter's month up to the session on screen, as a table. */
+  buildMonthCopy?: (workout: CalculatedWorkout) => Copied & { sessionCount: number };
   currentCycleNumber: number;
   onPersistLoggedSets: (args: {
     clientId: string;
@@ -249,7 +249,7 @@ const SetCell = ({
     </div>
   );
 };
-export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, workoutDateIso, resolveWorkoutDateIso, cycleSettings, currentWeek, onRepRecordUpdate, buildCopyText, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false, onOpenProfile, onAcceptOneRepMaxSuggestion, initialFocusedClientId }: WorkoutTableProps) {
+export function WorkoutTable({ workouts, lift, weekName, workoutDateIso, resolveWorkoutDateIso, currentWeek, onRepRecordUpdate, buildCopyText, buildMonthCopy, currentCycleNumber, onPersistLoggedSets, layoutMode = "horizontal", bulkLogAction = null, isBulkLoggingActive = false, onBulkLogToggle, showWarmups = false, onOpenProfile, onAcceptOneRepMaxSuggestion, initialFocusedClientId }: WorkoutTableProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const navFocusAppliedRef = useRef<string | null>(null);
   const [, setClientNotes] = useState<{ [key: string]: string }>({});
@@ -664,31 +664,12 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedClientId]);
 
-  const buildWorkoutText = (workout: CalculatedWorkout): string => {
-    const effectiveWeekKey = workout.effectiveWeekKey || currentWeek;
-    const accessories = resolveVisibleAccessories(cycleSettings, effectiveWeekKey, lift);
-    const persistedSetMap =
-      workout.client.loggedSetInputsByCycle?.[currentCycleNumber]?.[effectiveWeekKey]?.[lift] || {};
-
-    return formatBasicWorkoutCopyText({
-      lift,
-      workoutDateLabel,
-      sets: workout.sets,
-      accessories,
-      actualBySetIndex: actualByClientSet[workout.client.id],
-      persistedSetMap,
-    });
-  };
-
-  const getDisplayWorkoutText = (workout: CalculatedWorkout): string => {
-    const defaultText = buildWorkoutText(workout);
-    return buildCopyText ? buildCopyText(workout, defaultText) : defaultText;
-  };
+  const getDisplayWorkoutText = (workout: CalculatedWorkout): string =>
+    buildCopyText(workout, actualByClientSet[workout.client.id]);
 
   const handleCopyWorkout = async (workout: CalculatedWorkout) => {
     try {
-      const text = getDisplayWorkoutText(workout);
-      await navigator.clipboard.writeText(text);
+      await writeClipboard(getDisplayWorkoutText(workout));
       toast({
         title: "Copied",
         description: `${workout.client.name}'s workout copied to clipboard.`,
@@ -698,6 +679,28 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
         variant: "destructive",
         title: "Copy failed",
         description: "Could not copy workout. Try again.",
+      });
+    }
+  };
+
+  const handleCopyMonth = async (workout: CalculatedWorkout) => {
+    if (!buildMonthCopy) return;
+    try {
+      const month = buildMonthCopy(workout);
+      if (month.sessionCount === 0) {
+        toast({ title: "Nothing to copy", description: `No sessions for ${workout.client.name} in the month up to this session.` });
+        return;
+      }
+      await writeClipboard(month);
+      toast({
+        title: "Copied",
+        description: `${workout.client.name}'s past month copied (${month.sessionCount} session${month.sessionCount === 1 ? "" : "s"}).`,
+      });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Copy failed",
+        description: "Could not copy the month. Try again.",
       });
     }
   };
@@ -813,16 +816,34 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
                       >
                         <FileText className="h-4 w-4" />
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0"
-                        onClick={() => void handleCopyWorkout(workout)}
-                        disabled={!hasSets}
-                        title="Copy"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
+                      {buildMonthCopy ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" title="Copy">
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem disabled={!hasSets} onSelect={() => void handleCopyWorkout(workout)}>
+                              Copy this session
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void handleCopyMonth(workout)}>
+                              Copy past month
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          onClick={() => void handleCopyWorkout(workout)}
+                          disabled={!hasSets}
+                          title="Copy"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      )}
                       {onOpenProfile ? (
                         <Button
                           size="sm"
@@ -987,6 +1008,12 @@ export function WorkoutTable({ workouts, lift, weekName, workoutDateLabel, worko
                               <Copy className="mr-2 h-4 w-4" />
                               Copy
                             </DropdownMenuItem>
+                            {buildMonthCopy && (
+                              <DropdownMenuItem onSelect={() => void handleCopyMonth(workout)}>
+                                <Copy className="mr-2 h-4 w-4" />
+                                Copy past month
+                              </DropdownMenuItem>
+                            )}
                             {onOpenProfile && (
                               <DropdownMenuItem onSelect={() => onOpenProfile(client)}>
                                 <User className="mr-2 h-4 w-4" />

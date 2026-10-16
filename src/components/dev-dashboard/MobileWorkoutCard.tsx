@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Copy, Save, MoreVertical, FileText, User } from "lucide-react";
+import { writeClipboard, type ActualsBySet, type Copied } from "@/lib/copy-formatter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +46,8 @@ type MobileWorkoutCardProps = {
     removeSetIndexes?: string[];
   }) => Promise<void>;
   onRepRecordUpdate: (newRecord: HistoricalRecord) => void;
-  onCopyText: (workout: CalculatedWorkout, lift: Lift) => string;
+  onCopyText: (workout: CalculatedWorkout, lift: Lift, unsavedActuals?: ActualsBySet) => string;
+  onCopyMonth: (workout: CalculatedWorkout, lift: Lift) => Copied & { sessionCount: number };
   historicalData: HistoricalRecord[];
   onOpenProfile: (client: Client) => void;
   onAcceptOneRepMaxSuggestion?: (clientId: string, lift: Lift, suggestion: OneRepMaxSuggestion) => Promise<void> | void;
@@ -103,6 +105,7 @@ export function MobileWorkoutCard({
   onPersistLoggedSets,
   onRepRecordUpdate,
   onCopyText,
+  onCopyMonth,
   historicalData,
   onOpenProfile,
   onAcceptOneRepMaxSuggestion,
@@ -262,11 +265,32 @@ export function MobileWorkoutCard({
   }, [isExpanded]);
 
   const handleCopy = async () => {
+    // Numbers typed but not saved yet are copied too.
+    const unsavedActuals: ActualsBySet = {};
+    for (const [key, input] of Object.entries(inputs)) {
+      const weight = parseInt(input.weight, 10);
+      const reps = parseInt(input.reps, 10);
+      if (weight > 0 && reps > 0) unsavedActuals[key] = { weight, reps };
+    }
     try {
-      await navigator.clipboard.writeText(onCopyText(workout, lift));
+      await writeClipboard(onCopyText(workout, lift, unsavedActuals));
       toast({ title: "Copied", description: `${client.name}'s workout copied.` });
     } catch {
       toast({ variant: "destructive", title: "Copy failed", description: "Could not copy." });
+    }
+  };
+
+  const handleCopyMonth = async () => {
+    try {
+      const month = onCopyMonth(workout, lift);
+      if (month.sessionCount === 0) {
+        toast({ title: "Nothing to copy", description: `No sessions for ${client.name} in the month up to this session.` });
+        return;
+      }
+      await writeClipboard(month);
+      toast({ title: "Copied", description: `${client.name}'s past month copied (${month.sessionCount} session${month.sessionCount === 1 ? "" : "s"}).` });
+    } catch {
+      toast({ variant: "destructive", title: "Copy failed", description: "Could not copy the month." });
     }
   };
 
@@ -334,6 +358,10 @@ export function MobileWorkoutCard({
                 <DropdownMenuItem onSelect={() => { void handleCopy(); }}>
                   <Copy className="mr-2 h-4 w-4" />
                   Copy
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { void handleCopyMonth(); }}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy past month
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => onOpenProfile(client)}>
                   <User className="mr-2 h-4 w-4" />
@@ -432,6 +460,10 @@ export function MobileWorkoutCard({
                 <Copy className="mr-2 h-4 w-4" />
                 Copy
               </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => { void handleCopyMonth(); }}>
+                <Copy className="mr-2 h-4 w-4" />
+                Copy past month
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onOpenProfile(client)}>
                 <User className="mr-2 h-4 w-4" />
                 Profile
@@ -506,10 +538,22 @@ export function MobileWorkoutCard({
       )}
 
       <div className="flex items-center justify-between gap-2 rounded-b-xl border-t border-border/60 bg-muted/20 px-4 py-3">
-        <Button type="button" variant="outline" size="sm" className="h-10 gap-1.5 px-3" onClick={handleCopy} disabled={!hasSets}>
-          <Copy className="h-4 w-4" />
-          Copy
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="outline" size="sm" className="h-10 gap-1.5 px-3">
+              <Copy className="h-4 w-4" />
+              Copy
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem disabled={!hasSets} onSelect={() => { void handleCopy(); }}>
+              Copy this session
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => { void handleCopyMonth(); }}>
+              Copy past month
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <RestTimerButton clientId={client.id} />
         <Button
           type="button"
