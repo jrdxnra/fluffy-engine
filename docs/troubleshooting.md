@@ -6,12 +6,12 @@
 
 ---
 
-## Handover — where things stand (2026-10-11)
+## Handover — where things stand (2026-10-11; copy update 2026-10-16)
 
 **Read this first.** It is the turnover from the 2026-10-10 / 2026-10-11 work sessions. Details are in issues 8–13 below.
 
 ### What is live right now
-Everything below is merged to `main` and deployed to https://power-lift-b7ea1.web.app (last deploy 2026-10-11). `main` and the live site match.
+Everything below is merged to `main` and deployed to https://power-lift-b7ea1.web.app (last deploy 2026-10-16). `main` and the live site match.
 
 | Area | What changed | Issue |
 |---|---|---|
@@ -21,6 +21,7 @@ Everything below is merged to `main` and deployed to https://power-lift-b7ea1.we
 | Coaching screen | Status line under each name (TM, Hold, Calibrating, Logged), last top set, current-week and today dots, single title row | 11 |
 | Settings and profile | Graduation preview table, compact profile table with Go up / Hold switch, Advanced folds, whole-number percentages, newest-first cycle list, in-page How To | 12 |
 | Live data | Numbers corrected for five Powerlift 2.0 lifters; three stranded lifters moved onto the group's cycle | 13 |
+| Copy button | Names no longer doubled; phone and computer copy the same; new "Copy past month" for the PCA app's history import | 14 |
 | Safety net | 99 automated tests; typecheck and tests run on every pull request (`.github/workflows/checks.yml`) | — |
 
 ### What still needs checking in real use
@@ -320,7 +321,7 @@ This matches the intended design (new lifts start in calibration — see `isLift
 - **Layout follow-up (same day):** the first version wrote dates as "Tue 10/13" with no year and used the site's own headings, so the PCA import found no sessions and listed every line as an unmatched movement. Each block now starts with a full date (10/13/2026) and the PCA headings `MOVEMENT | SETS | REPS | LOAD`, then `PLANNED REPS | PLANNED LOAD`, which the import ignores. A lift's name is on its first set only, so the import keeps the three sets as one movement. REPS and LOAD hold what was logged. A lift with nothing logged shows the plan, and its heading says "(NOT LOGGED, PLANNED SHOWN)". Accessories are listed under "ACCESSORIES (PROGRAMMED)"; the import skips them because the program has names only. Checked by running a real lifter's month through the PCA app's own import code: 5 sessions and 10 movements read, with the right dates and sets.
 - **Worth knowing:** past sessions' prescribed weights are worked out again from the lifter's current numbers for that cycle. If a training max was changed partway through a cycle, earlier rows show the new prescription; the logged actuals are what was saved. Week 1 of a calibrating lift has no prescribed load, as on screen.
 - *Technical detail:* `src/lib/client-workout.ts` (`calculateClientLiftWorkout`, the per-lifter calculation that `SbdohControl` and `MobileDevShell` each had a copy of), `src/lib/session-copy.ts` (lift, day and month builders), `src/lib/copy-formatter.ts` (text, table, month grid, clipboard with HTML). Tests: `src/lib/session-copy.test.ts`.
-- **Status:** built on branch `fix/copy-text`; 107 tests pass. On the local preview against live data, copying one lifter's day and month on the computer and phone layouts gave the same text on both, with no doubled names. Not yet merged or deployed. **Still to check in real use:** paste a month into the PCA app's history import and match the movement names once (it remembers them).
+- **Status:** merged (pull request 8) and deployed 2026-10-16; 109 tests pass. On the live site, "Copy past month" copied a lifter's Sep 16 – Oct 16 on the computer and phone layouts. Before that, On the local preview against live data, copying one lifter's day and month on the computer and phone layouts gave the same text on both, with no doubled names. **Still to check in real use:** paste a month into the PCA app's history import and match the movement names once (it remembers them).
 
 ---
 
