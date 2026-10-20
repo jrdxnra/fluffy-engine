@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
@@ -58,7 +58,15 @@ jobs:
           rm sdkconfig.json
 
       - name: Deploy
-        run: npx --yes firebase-tools@latest deploy --only hosting --project "$FIREBASE_PROJECT" --non-interactive
+        run: |
+          set -o pipefail
+          if ! npx --yes firebase-tools@latest deploy --only hosting --project "$FIREBASE_PROJECT" --non-interactive 2>&1 | tee deploy.log; then
+            # Post the failure where it can be read without downloading the run log.
+            { echo "## Deploy failed"; echo '```'; tail -n 60 deploy.log; [ -f firebase-debug.log ] && { echo "--- firebase-debug.log ---"; grep -iE "error|denied|permission|not been used|disabled|requires" firebase-debug.log | tail -n 25; }; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            msg=$( { tail -n 25 deploy.log; [ -f firebase-debug.log ] && grep -iE "error|denied|permission|not been used|disabled|requires" firebase-debug.log | tail -n 15; } | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Firebase deploy failed::${msg}"
+            exit 1
+          fi
 
       - name: Live site
         run: echo "Deployed $(git rev-parse --short HEAD) to https://power-lift-b7ea1.web.app" >> "$GITHUB_STEP_SUMMARY"
