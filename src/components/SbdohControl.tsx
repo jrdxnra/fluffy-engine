@@ -647,6 +647,7 @@ export function SbdohControl({
         cycleSettingsByCycle: activeCycleSettingsByCycle,
         currentSchedule: currentCycleSchedule,
         previousCycleSchedule: activeCycleSchedulesByCycle[currentCycleNumber - 1],
+        cycleSchedulesByCycle: activeCycleSchedulesByCycle,
       }) || undefined;
       workout.oneRepMaxSuggestion = getWorkoutOneRepMaxSuggestion({
         client,
