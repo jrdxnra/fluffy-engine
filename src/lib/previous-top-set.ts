@@ -5,10 +5,20 @@ import { isDeloadWeekSettings } from "@/lib/workout-week-settings";
 
 const weekNumberOf = (weekKey: string): number => parseInt(weekKey.match(/\d+/)?.[0] || "0", 10);
 
+/** The top-set rep scheme of a week ("5", "3", "1"), or null when the week has no settings. */
+const repSchemeOf = (cycleSettings: CycleSettings | undefined, weekKey: string): string | null => {
+  const reps = cycleSettings?.[weekKey]?.reps?.workset3;
+  if (reps === undefined || reps === null) return null;
+  const digits = String(reps).replace(/\D/g, "");
+  return digits || null;
+};
+
 /**
- * The lifter's most recent logged top set for this lift before the week being viewed:
+ * The lifter's most recent logged top set for this lift before the week being viewed,
+ * at the same rep scheme (a 3+ week compares against the last 3+ week, not last week's 5+):
  * earlier weeks of this cycle first, then the previous cycle (only when the lift slot
  * trained the same movement there). Deload weeks are skipped - they say nothing about strength.
+ * When the viewed week's rep scheme is unknown, any non-deload week counts.
  */
 export const getPreviousTopSet = (args: {
   client: Client;
@@ -24,6 +34,7 @@ export const getPreviousTopSet = (args: {
     normalizeMovementName(resolveClientMovementName(client, cycleNumber - 1, lift, previousCycleSchedule))
     === normalizeMovementName(resolveClientMovementName(client, cycleNumber, lift, currentSchedule));
   const currentWeekNumber = weekNumberOf(weekKey);
+  const targetRepScheme = repSchemeOf(cycleSettingsByCycle[cycleNumber], weekKey);
 
   const search = (cycle: number, beforeWeekNumber: number): PreviousTopSet | null => {
     const cycleLogs = client.loggedSetInputsByCycle?.[cycle] || {};
@@ -34,6 +45,7 @@ export const getPreviousTopSet = (args: {
     for (const candidateWeek of weekKeys) {
       const weekSettings = cycleSettingsByCycle[cycle]?.[candidateWeek];
       if (weekSettings ? isDeloadWeekSettings(weekSettings, candidateWeek) : weekNumberOf(candidateWeek) === 4) continue;
+      if (targetRepScheme && repSchemeOf(cycleSettingsByCycle[cycle], candidateWeek) !== targetRepScheme) continue;
 
       const entries = Object.values(cycleLogs[candidateWeek]?.[lift] || {})
         .filter((entry) => entry && entry.weight > 0 && entry.reps > 0);
@@ -55,6 +67,6 @@ export const formatPreviousTopSet = (previous: PreviousTopSet, currentCycleNumbe
   const where = previous.cycleNumber === currentCycleNumber ? week : `cycle ${previous.cycleNumber}, ${week}`;
   return {
     text: `Last ${previous.weight} × ${previous.reps}`,
-    title: `Most recent logged top set (${where})`,
+    title: `Last logged top set at this rep scheme (${where})`,
   };
 };

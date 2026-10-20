@@ -51,17 +51,35 @@ const lookup = (overrides: Partial<Parameters<typeof getPreviousTopSet>[0]> = {}
   });
 
 describe("getPreviousTopSet", () => {
-  it("uses the heaviest set from the most recent earlier week of this cycle", () => {
-    expect(lookup()).toEqual({ weight: 200, reps: 8, cycleNumber: 9, weekKey: "week1" });
+  it("uses the heaviest set from the most recent earlier week at the same rep scheme", () => {
+    expect(lookup({ weekKey: "week3", cycleSettingsByCycle: { 8: cycle, 9: { ...cycle, week3: cycle.week1 } } }))
+      .toEqual({ weight: 200, reps: 8, cycleNumber: 9, weekKey: "week1" });
+  });
+
+  it("skips earlier weeks at a different rep scheme and goes back to the last matching week", () => {
+    // Viewing the 3+ week: cycle 9's 5+ week doesn't count; cycle 8's 3+ week (week 2) does.
+    const withWeek2 = {
+      ...client,
+      loggedSetInputsByCycle: {
+        ...client.loggedSetInputsByCycle,
+        8: { ...client.loggedSetInputsByCycle![8], week2: { Squat: sets([170, 3], [195, 3], [215, 6]) } },
+      },
+    };
+    expect(lookup({ client: withWeek2 })).toEqual({ weight: 215, reps: 6, cycleNumber: 8, weekKey: "week2" });
+    expect(lookup()).toBeNull();
   });
 
   it("falls back to the previous cycle and skips its deload week", () => {
-    expect(lookup({ weekKey: "week1" })).toEqual({ weight: 230, reps: 2, cycleNumber: 8, weekKey: "week3" });
+    expect(lookup({ weekKey: "week3" })).toEqual({ weight: 230, reps: 2, cycleNumber: 8, weekKey: "week3" });
+  });
+
+  it("uses any non-deload week when the viewed week has no rep scheme", () => {
+    expect(lookup({ cycleSettingsByCycle: { 8: cycle, 9: {} } })).toEqual({ weight: 200, reps: 8, cycleNumber: 9, weekKey: "week1" });
   });
 
   it("does not reach into the previous cycle when the lift slot trained a different movement", () => {
-    expect(lookup({ weekKey: "week1", lift: "Press", previousCycleSchedule: schedule("Incline Press") })).toBeNull();
-    expect(lookup({ weekKey: "week1", lift: "Press" })).toMatchObject({ weight: 100, reps: 5 });
+    expect(lookup({ weekKey: "week3", lift: "Press", previousCycleSchedule: schedule("Incline Press") })).toBeNull();
+    expect(lookup({ weekKey: "week3", lift: "Press" })).toMatchObject({ weight: 100, reps: 5 });
   });
 
   it("returns nothing when there is no earlier log", () => {
@@ -71,7 +89,7 @@ describe("getPreviousTopSet", () => {
   it("labels where the result came from", () => {
     expect(formatPreviousTopSet({ weight: 200, reps: 8, cycleNumber: 9, weekKey: "week1" }, 9)).toEqual({
       text: "Last 200 × 8",
-      title: "Most recent logged top set (week 1)",
+      title: "Last logged top set at this rep scheme (week 1)",
     });
     expect(formatPreviousTopSet({ weight: 230, reps: 2, cycleNumber: 8, weekKey: "week3" }, 9).title).toContain("cycle 8, week 3");
   });
