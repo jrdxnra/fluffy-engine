@@ -1,0 +1,64 @@
+name: Deploy to Firebase
+
+# Started by hand (Actions tab → "Deploy to Firebase" → Run workflow, or by Claude),
+# never automatically on merge — test in dev first, batch fixes, then deploy once.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_PROJECT: power-lift-b7ea1
+      FIREBASE_CLI_EXPERIMENTS: webframeworks
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Sign in to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      # The web config isn't secret (it ships in the site's JavaScript), so it's read
+      # from the Firebase project instead of being copied into GitHub by hand.
+      # Server-only flags match apphosting.yaml. .env.production is used at build
+      # time and deployed with the server side of the app.
+      - name: Write production environment
+        run: |
+          npx --yes firebase-tools@latest apps:sdkconfig web --project "$FIREBASE_PROJECT" --json > sdkconfig.json
+          node -e '
+            const c = require("./sdkconfig.json").result.sdkConfig;
+            const map = {
+              NEXT_PUBLIC_FIREBASE_API_KEY: c.apiKey,
+              NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: c.authDomain,
+              NEXT_PUBLIC_FIREBASE_PROJECT_ID: c.projectId,
+              NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: c.storageBucket,
+              NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: c.messagingSenderId,
+              NEXT_PUBLIC_FIREBASE_APP_ID: c.appId,
+              NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: c.measurementId || "",
+              ENABLE_DEV_DASHBOARD: "true",
+              ENABLE_MAINTENANCE_ROUTES: "true",
+            };
+            for (const [k, v] of Object.entries(map)) if (k.startsWith("NEXT_PUBLIC_FIREBASE_") && k !== "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID" && !v) throw new Error("Missing " + k);
+            require("fs").writeFileSync(".env.production", Object.entries(map).map(([k, v]) => `${k}=${v}`).join("\n") + "\n");
+          '
+          rm sdkconfig.json
+
+      - name: Deploy
+        run: npx --yes firebase-tools@latest deploy --only hosting --project "$FIREBASE_PROJECT" --non-interactive
+
+      - name: Live site
+        run: echo "Deployed $(git rev-parse --short HEAD) to https://power-lift-b7ea1.web.app" >> "$GITHUB_STEP_SUMMARY"

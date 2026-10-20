@@ -44,7 +44,7 @@ None of these have been exercised with a real save by the coach yet. Do them dur
 1. Change on a branch, run `npm run typecheck` and `npm test`.
 2. Preview locally with `npm run dev` (http://localhost:9002). **The local copy uses the live database** — there is no practice copy, so anything saved locally is real.
 3. Pull request → the automatic checks must pass → merge.
-4. Deploy from the coach's machine: `npm run build`, load the production build once locally, then `firebase deploy --only hosting --project power-lift-b7ea1`. The site is **not** deployed by GitHub.
+4. Deploy by starting the **Deploy to Firebase** workflow on GitHub (Actions tab → Deploy to Firebase → Run workflow, or ask Claude). It runs the checks, builds and deploys `main` to `power-lift-b7ea1` in about 10 minutes. It never runs on its own after a merge. It needs the `FIREBASE_SERVICE_ACCOUNT` repository secret. Deploying by hand still works: `npm run build`, then `firebase deploy --only hosting --project power-lift-b7ea1`.
 5. Look at the live site afterwards.
 
 ### Where things are written down
