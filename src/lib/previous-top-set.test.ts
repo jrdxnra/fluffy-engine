@@ -73,6 +73,42 @@ describe("getPreviousTopSet", () => {
     expect(lookup({ weekKey: "week3" })).toEqual({ weight: 230, reps: 2, cycleNumber: 8, weekKey: "week3" });
   });
 
+  it("keeps walking back cycles until it finds a logged week at the same rep scheme", () => {
+    // Cycle 8 has no 3+ week logged, so it reaches cycle 7's 3+ week.
+    const olderClient: Client = {
+      ...client,
+      loggedSetInputsByCycle: {
+        ...client.loggedSetInputsByCycle,
+        7: { week2: { Squat: sets([160, 3], [185, 3], [205, 5]) } },
+      },
+    };
+    const allSchedules = { 7: schedule("1ct Pause Bench"), 8: schedule("1ct Pause Bench"), 9: schedule("1ct Pause Bench") };
+    expect(lookup({ client: olderClient, cycleSchedulesByCycle: allSchedules, cycleSettingsByCycle: { 9: cycle } }))
+      .toEqual({ weight: 205, reps: 5, cycleNumber: 7, weekKey: "week2" });
+  });
+
+  it("stops walking back at a cycle where the lift slot was a different movement", () => {
+    const olderClient: Client = {
+      ...client,
+      loggedSetInputsByCycle: { ...client.loggedSetInputsByCycle, 7: { week2: { Press: sets([90, 3]) } } },
+    };
+    const schedules = { 7: schedule("1ct Pause Bench"), 8: schedule("Incline Press"), 9: schedule("1ct Pause Bench") };
+    expect(lookup({ client: olderClient, lift: "Press", cycleSchedulesByCycle: schedules, currentSchedule: schedules[9] })).toBeNull();
+  });
+
+  it("uses the client's own rep-scheme assignments over the program's", () => {
+    // This client did 3s in week 1 of cycle 8 (program says 5+), so that's their last 3-rep week.
+    const assigned: Client = {
+      ...client,
+      weekAssignmentsByCycle: { 8: { week1: "3", week2: "5" } },
+      loggedSetInputsByCycle: {
+        ...client.loggedSetInputsByCycle,
+        8: { ...client.loggedSetInputsByCycle![8], week1: { Squat: sets([180, 3], [210, 4]) }, week2: { Squat: sets([190, 9]) } },
+      },
+    };
+    expect(lookup({ client: assigned })).toEqual({ weight: 210, reps: 4, cycleNumber: 8, weekKey: "week1" });
+  });
+
   it("uses any non-deload week when the viewed week has no rep scheme", () => {
     expect(lookup({ cycleSettingsByCycle: { 8: cycle, 9: {} } })).toEqual({ weight: 200, reps: 8, cycleNumber: 9, weekKey: "week1" });
   });

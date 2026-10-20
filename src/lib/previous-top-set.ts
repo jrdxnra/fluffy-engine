@@ -5,20 +5,20 @@ import { isDeloadWeekSettings } from "@/lib/workout-week-settings";
 
 const weekNumberOf = (weekKey: string): number => parseInt(weekKey.match(/\d+/)?.[0] || "0", 10);
 
-/** The top-set rep scheme of a week ("5", "3", "1"), or null when the week has no settings. */
-const repSchemeOf = (cycleSettings: CycleSettings | undefined, weekKey: string): string | null => {
-  const reps = cycleSettings?.[weekKey]?.reps?.workset3;
-  if (reps === undefined || reps === null) return null;
-  const digits = String(reps).replace(/\D/g, "");
-  return digits || null;
+const digitsOf = (value: unknown): string | null => {
+  if (value === undefined || value === null) return null;
+  return String(value).replace(/\D/g, "") || null;
 };
 
 /**
  * The lifter's most recent logged top set for this lift before the week being viewed,
- * at the same rep scheme (a 3+ week compares against the last 3+ week, not last week's 5+):
- * earlier weeks of this cycle first, then the previous cycle (only when the lift slot
- * trained the same movement there). Deload weeks are skipped - they say nothing about strength.
- * When the viewed week's rep scheme is unknown, any non-deload week counts.
+ * at the same rep scheme (a 3+ week compares against the last 3+ week, not last week's 5+).
+ * Searches earlier weeks of this cycle, then keeps walking back through earlier cycles
+ * until it finds a logged week at that rep scheme, stopping at the first cycle where the
+ * lift slot trained a different movement. Deload weeks are skipped - they say nothing
+ * about strength. A week's rep scheme is the client's own assignment for it when they
+ * have one, otherwise the program's. When the viewed week's rep scheme is unknown, any
+ * non-deload week counts.
  */
 export const getPreviousTopSet = (args: {
   client: Client;
@@ -28,13 +28,27 @@ export const getPreviousTopSet = (args: {
   cycleSettingsByCycle: Record<number, CycleSettings>;
   currentSchedule?: CycleScheduleSettings;
   previousCycleSchedule?: CycleScheduleSettings;
+  /** Schedules for earlier cycles, so the search can reach back more than one cycle. */
+  cycleSchedulesByCycle?: Record<number, CycleScheduleSettings>;
 }): PreviousTopSet | null => {
-  const { client, cycleNumber, weekKey, lift, cycleSettingsByCycle, currentSchedule, previousCycleSchedule } = args;
-  const sameMovementInPreviousCycle =
-    normalizeMovementName(resolveClientMovementName(client, cycleNumber - 1, lift, previousCycleSchedule))
-    === normalizeMovementName(resolveClientMovementName(client, cycleNumber, lift, currentSchedule));
-  const currentWeekNumber = weekNumberOf(weekKey);
-  const targetRepScheme = repSchemeOf(cycleSettingsByCycle[cycleNumber], weekKey);
+  const {
+    client, cycleNumber, weekKey, lift, cycleSettingsByCycle, currentSchedule, previousCycleSchedule, cycleSchedulesByCycle,
+  } = args;
+
+  const scheduleFor = (cycle: number): CycleScheduleSettings | undefined =>
+    cycle === cycleNumber
+      ? currentSchedule ?? cycleSchedulesByCycle?.[cycle]
+      : cycleSchedulesByCycle?.[cycle] ?? (cycle === cycleNumber - 1 ? previousCycleSchedule : undefined);
+  const movementIn = (cycle: number) => normalizeMovementName(resolveClientMovementName(client, cycle, lift, scheduleFor(cycle)));
+  const currentMovement = movementIn(cycleNumber);
+
+  // Older cycles' settings may not be loaded; the program template's same week is the best guess then.
+  const weekSettingsFor = (cycle: number, key: string) =>
+    cycleSettingsByCycle[cycle]?.[key] ?? cycleSettingsByCycle[cycleNumber]?.[key];
+  const repSchemeOf = (cycle: number, key: string): string | null =>
+    digitsOf(client.weekAssignmentsByCycle?.[cycle]?.[key]) ?? digitsOf(weekSettingsFor(cycle, key)?.reps?.workset3);
+
+  const targetRepScheme = repSchemeOf(cycleNumber, weekKey);
 
   const search = (cycle: number, beforeWeekNumber: number): PreviousTopSet | null => {
     const cycleLogs = client.loggedSetInputsByCycle?.[cycle] || {};
@@ -43,9 +57,9 @@ export const getPreviousTopSet = (args: {
       .sort((a, b) => weekNumberOf(b) - weekNumberOf(a));
 
     for (const candidateWeek of weekKeys) {
-      const weekSettings = cycleSettingsByCycle[cycle]?.[candidateWeek];
+      const weekSettings = weekSettingsFor(cycle, candidateWeek);
       if (weekSettings ? isDeloadWeekSettings(weekSettings, candidateWeek) : weekNumberOf(candidateWeek) === 4) continue;
-      if (targetRepScheme && repSchemeOf(cycleSettingsByCycle[cycle], candidateWeek) !== targetRepScheme) continue;
+      if (targetRepScheme && repSchemeOf(cycle, candidateWeek) !== targetRepScheme) continue;
 
       const entries = Object.values(cycleLogs[candidateWeek]?.[lift] || {})
         .filter((entry) => entry && entry.weight > 0 && entry.reps > 0);
@@ -58,8 +72,22 @@ export const getPreviousTopSet = (args: {
     return null;
   };
 
-  return search(cycleNumber, currentWeekNumber)
-    || (sameMovementInPreviousCycle && cycleNumber > 1 ? search(cycleNumber - 1, Number.POSITIVE_INFINITY) : null);
+  const inThisCycle = search(cycleNumber, weekNumberOf(weekKey));
+  if (inThisCycle) return inThisCycle;
+
+  const loggedCycles = Object.keys(client.loggedSetInputsByCycle || {})
+    .map(Number)
+    .filter((cycle) => cycle < cycleNumber)
+    .sort((a, b) => b - a);
+  for (const cycle of loggedCycles) {
+    // Skipped (unlogged) cycles in between still have to have trained the same movement.
+    for (let between = cycleNumber - 1; between >= cycle; between -= 1) {
+      if (movementIn(between) !== currentMovement) return null;
+    }
+    const found = search(cycle, Number.POSITIVE_INFINITY);
+    if (found) return found;
+  }
+  return null;
 };
 
 export const formatPreviousTopSet = (previous: PreviousTopSet, currentCycleNumber: number): { text: string; title: string } => {
